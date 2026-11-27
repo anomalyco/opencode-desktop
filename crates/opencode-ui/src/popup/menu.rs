@@ -4,7 +4,7 @@
 use rune::{Align, Icon, PopupItem, PopupMenu, Side, TextStyle};
 use crate::popover::{self, MENU};
 
-use super::{GROUP, MAX_H, MIN_W};
+use super::{GROUP, MAX_H, MIN_W, SELECT_MAX_H, SELECT_MIN_W};
 
 /// The status mark a server menu row shows (`ServerHealthIndicator`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -30,6 +30,8 @@ pub struct Item {
     pub(super) title: String,
     pub(super) enabled: bool,
     pub(super) checked: bool,
+    /// One of a radio group's rows (`Menu.RadioItem`): a `menuitemradio` checked when it's the value.
+    pub(super) radio: bool,
     pub(super) danger: bool,
     /// The folder whose project avatar leads the row (drawn menus only).
     pub(super) project: Option<String>,
@@ -47,6 +49,8 @@ pub struct Item {
     pub(super) hint: Option<String>,
     /// A faint word at the row's end (the server switcher's "Unreachable"; drawn menus only).
     pub(super) note: Option<String>,
+    /// Medium-weight (530) label, as the session location card's project title uses.
+    pub(super) medium: bool,
 }
 
 /// A row's icon, the same when it's the same icon.
@@ -62,6 +66,8 @@ pub(super) enum Glyph {
     Slot(&'static Icon),
     /// A server's health mark (`ServerHealthIndicator`) in a 16 pt slot.
     Status(Indicator),
+    /// A tab group's 10 pt square, its fill and edge in light and in dark (`GroupSquare`).
+    Swatch([rune::Color; 2], [rune::Color; 2]),
 }
 
 impl Glyph {
@@ -69,7 +75,7 @@ impl Glyph {
     pub(super) fn mono(self) -> Option<&'static Icon> {
         match self {
             Glyph::Ink(g) | Glyph::Weak(g) | Glyph::Slot(g) => Some(g),
-            Glyph::App(_) | Glyph::Status(_) => None,
+            Glyph::App(_) | Glyph::Status(_) | Glyph::Swatch(..) => None,
         }
     }
 }
@@ -80,6 +86,7 @@ impl PartialEq for Glyph {
             (Glyph::Ink(a), Glyph::Ink(b)) | (Glyph::Weak(a), Glyph::Weak(b)) | (Glyph::Slot(a), Glyph::Slot(b)) => std::ptr::eq(*a, *b),
             (Glyph::App(a), Glyph::App(b)) => a == b,
             (Glyph::Status(a), Glyph::Status(b)) => a == b,
+            (Glyph::Swatch(a, x), Glyph::Swatch(b, y)) => a == b && x == y,
             _ => false,
         }
     }
@@ -92,6 +99,7 @@ impl Item {
             title: title.into(),
             enabled: true,
             checked: false,
+            radio: false,
             danger: false,
             project: None,
             shortcut: None,
@@ -101,7 +109,14 @@ impl Item {
             diff: None,
             hint: None,
             note: None,
+            medium: false,
         }
+    }
+
+    /// Medium-weight (530) label (`session-identity-header.tsx:278`, drawn menus only).
+    pub fn medium(mut self) -> Item {
+        self.medium = true;
+        self
     }
 
     pub fn id(&self) -> &str {
@@ -115,6 +130,12 @@ impl Item {
     /// A 16 pt icon in a 16 pt slot, in the muted icon ink (`settings-server-switcher-icon`).
     pub fn slot_icon(mut self, glyph: &'static Icon) -> Item {
         self.glyph = Some(Glyph::Slot(glyph));
+        self
+    }
+
+    /// A tab group's square before the title (`GroupSquare`): `[fill, edge]` in light and in dark.
+    pub fn swatch(mut self, light: [rune::Color; 2], dark: [rune::Color; 2]) -> Item {
+        self.glyph = Some(Glyph::Swatch(light, dark));
         self
     }
 
@@ -142,6 +163,13 @@ impl Item {
     }
 
     /// A check at the row's end, as a picker marks its current value.
+    /// A radio group's row (`Menu.RadioItem`), checked when `on`: read as a `menuitemradio`.
+    pub fn radio(mut self, on: bool) -> Item {
+        self.radio = true;
+        self.checked = on;
+        self
+    }
+
     pub fn checked(mut self, on: bool) -> Item {
         self.checked = on;
         self
@@ -223,6 +251,9 @@ pub(super) struct Sub {
     pub(super) menu: Menu,
     /// The glyph before the title (drawn menus only).
     pub(super) glyph: Option<Glyph>,
+    pub(super) enabled: bool,
+    /// Optional byte offset splitting `title` into shrinking parent + fixed tail (`submenu_path`).
+    pub(super) split_at: Option<usize>,
 }
 
 /// How a drawn menu looks.
@@ -257,9 +288,13 @@ pub struct Menu {
     pub(super) gap: Option<f32>,
     /// Its rows' start padding, when not the look's (`.settings-server-switcher-menu`'s 8).
     pub(super) item_inset: Option<f32>,
+    /// Its rows' end padding, when not the look's (`.session-options-menu`'s 30).
+    pub(super) item_end: Option<f32>,
     /// The location card's rows (`session-location-card`): 2 apart, 8 in on both sides, and the
     /// card 4 to the start of its trigger (`shift={-4}`).
     pub(super) card: bool,
+    /// A select's list (`select-v2-content`): its rows' look, height cap and narrowest.
+    pub(super) select: bool,
     /// Home's row uses a 1 pt dropdown trigger at the pointer, not ContextMenu's virtual point.
     pub(super) pointer_trigger: bool,
 }
@@ -280,7 +315,9 @@ impl Menu {
             remembers_focus: false,
             gap: None,
             item_inset: None,
+            item_end: None,
             card: false,
+            select: false,
             pointer_trigger: false,
         }
     }
@@ -306,7 +343,7 @@ impl Menu {
             let on = id == selected;
             Item::new(id, title).checked(on).enabled(enabled)
         });
-        Menu { selected: Some(selected.to_owned()), min_w: 180.0, align: Align::End, ..Menu::new(label) }.items(items)
+        Menu { selected: Some(selected.to_owned()), min_w: SELECT_MIN_W, max_h: SELECT_MAX_H, select: true, align: Align::End, ..Menu::new(label) }.items(items)
     }
 
     pub fn item(mut self, item: Item) -> Menu {
@@ -344,13 +381,28 @@ impl Menu {
 
     /// A row titled `title` that opens `menu` beside it; its items answer the same `pick`.
     pub fn submenu(mut self, id: impl Into<String>, title: impl Into<String>, menu: Menu) -> Menu {
-        self.entries.push(Entry::Sub(Box::new(Sub { id: id.into(), title: title.into(), menu, glyph: None })));
+        self.entries.push(Entry::Sub(Box::new(Sub { id: id.into(), title: title.into(), menu, glyph: None, enabled: true, split_at: None })));
+        self
+    }
+
+    /// [`Menu::submenu`] that may be disabled (stays visible at disabled opacity and never opens).
+    pub fn submenu_enabled(mut self, id: impl Into<String>, title: impl Into<String>, enabled: bool, menu: Menu) -> Menu {
+        self.entries.push(Entry::Sub(Box::new(Sub { id: id.into(), title: title.into(), menu, glyph: None, enabled, split_at: None })));
         self
     }
 
     /// [`Menu::submenu`] led by `glyph`, as the location card's branch and folder rows are.
     pub fn submenu_icon(mut self, id: impl Into<String>, title: impl Into<String>, glyph: &'static Icon, menu: Menu) -> Menu {
-        self.entries.push(Entry::Sub(Box::new(Sub { id: id.into(), title: title.into(), menu, glyph: Some(Glyph::Ink(glyph)) })));
+        self.entries.push(Entry::Sub(Box::new(Sub { id: id.into(), title: title.into(), menu, glyph: Some(Glyph::Ink(glyph)), enabled: true, split_at: None })));
+        self
+    }
+
+    /// [`Menu::submenu_icon`] for a filesystem path that truncates parent folders while keeping
+    /// the final separator + segment whole (`session-identity-header.tsx:404-407`).
+    pub fn submenu_path(mut self, id: impl Into<String>, path: impl Into<String>, glyph: &'static Icon, menu: Menu) -> Menu {
+        let title = path.into();
+        let split_at = title.rfind(['/', '\\']).filter(|&i| i > 0);
+        self.entries.push(Entry::Sub(Box::new(Sub { id: id.into(), title, menu, glyph: Some(Glyph::Ink(glyph)), enabled: true, split_at })));
         self
     }
 
@@ -391,6 +443,12 @@ impl Menu {
         self
     }
 
+    /// Its rows end `pad` in rather than the look's 6.
+    pub fn item_end(mut self, pad: f32) -> Menu {
+        self.item_end = Some(pad);
+        self
+    }
+
     /// The location card's look (`session-location-card`).
     pub fn card(mut self) -> Menu {
         self.card = true;
@@ -422,7 +480,8 @@ impl Menu {
             Entry::Item(i) => m.item(PopupItem::new(i.id.clone(), i.title.clone()).enabled(i.enabled).checked(i.checked)),
             Entry::Separator => m.separator(),
             Entry::Group(title) => m.item(PopupItem::new(format!("group-{title}"), title.clone()).enabled(false)),
-            Entry::Sub(sub) => m.submenu(sub.title.clone(), sub.menu.native()),
+            Entry::Sub(sub) if sub.enabled => m.submenu(sub.title.clone(), sub.menu.native()),
+            Entry::Sub(sub) => m.item(PopupItem::new(sub.id.clone(), sub.title.clone()).enabled(false)),
         });
         match &self.selected {
             Some(id) => menu.selected(id.clone()),
@@ -439,7 +498,7 @@ impl Menu {
 
     pub(super) fn sub_at(&self, n: usize) -> Option<&Menu> {
         match self.entries.get(n)? {
-            Entry::Sub(sub) => Some(&sub.menu),
+            Entry::Sub(sub) if sub.enabled => Some(&sub.menu),
             _ => None,
         }
     }
@@ -492,5 +551,7 @@ pub(super) fn hug_width(menu: &Menu) -> f32 {
         Entry::Sub(sub) => sub.glyph.map_or(0.0, |_| 16.0 + MENU.gap) + w(&sub.title, label) + MENU.gap + 16.0,
         Entry::Separator => 0.0,
     });
-    rows.fold(0.0, f32::max) + menu.item_inset.unwrap_or(MENU.pad_l) + MENU.pad_r + 2.0 * MENU.inset + 2.0
+    // `w-max` with no border (`menu.css:6-18`: the ring is the box shadow, outside the box). A label
+    // as wide as its text fits: text fades only past half a point over.
+    rows.fold(0.0, f32::max) + menu.item_inset.unwrap_or(MENU.pad_l) + menu.item_end.unwrap_or(MENU.pad_r) + 2.0 * MENU.inset
 }

@@ -15,7 +15,7 @@ use session_view::palette::{Elevate as _, Pal, kit};
 
 use super::QuoteHost;
 use super::cards::chip_key;
-use super::comment::{self, Anchor, Comment, Config, Event, FieldEffect, FieldEvent, FieldKey, Mention};
+use super::comment::{self, Anchor, Bounds, Comment, Config, Event, FieldEffect, FieldEvent, FieldKey, Mention};
 use super::place::{self, Place, Placing};
 
 /// `quote-comment.tsx` `GAP`, `WIDTH`.
@@ -29,7 +29,7 @@ const ALERT: TextStyle = TextStyle::new(12.0, 440.0).lh(16.0);
 const PATH: TextStyle = TextStyle::new(12.0, 440.0).lh(16.0);
 
 /// `quote-check.svg`, the compact action's tick.
-static CHECK: Icon = Icon {
+pub static CHECK: Icon = Icon {
     name: "line-comment-check",
     view: 16.0,
     body: r#"<path d="M2.44444 8.22222L6 12.6667L13.5556 3.33333" stroke-linecap="square" stroke="currentColor"/>"#,
@@ -230,14 +230,14 @@ fn search(host: &mut dyn QuoteHost, attempt: rune::machine::Attempt, query: Stri
 }
 
 /// Resolved destination for a comment field's `@` path search.
-pub(crate) enum PathSearch {
+pub enum PathSearch {
     Immediate(Vec<String>),
     Live { server: Server, directory: String },
 }
 
 /// Prepares a comment field's search for paths to mention (Desktop's `searchPaths`): the
 /// fixture's files at once, or the server's search for files and folders.
-pub(crate) fn prepare_path_search(host: &dyn QuoteHost, query: &str) -> PathSearch {
+pub fn prepare_path_search(host: &dyn QuoteHost, query: &str) -> PathSearch {
     match host.live_server() {
         Some(server) => PathSearch::Live { server, directory: host.active_directory() },
         None => PathSearch::Immediate(host.search_local_paths(query, 50)),
@@ -245,7 +245,7 @@ pub(crate) fn prepare_path_search(host: &dyn QuoteHost, query: &str) -> PathSear
 }
 
 /// Dispatches an async `/api/fs/find` search into `latest`.
-pub(crate) fn request_path_search(
+pub fn request_path_search(
     latest: &mut rune::Latest<(rune::machine::Attempt, Option<Vec<String>>)>,
     server: Server,
     directory: String,
@@ -285,8 +285,7 @@ pub fn modifiers(host: &mut dyn QuoteHost, mods: Mods, tx: &mut Tx) -> bool {
     true
 }
 
-/// Each frame: an editor whose quote went closes, an unchanged one closes once its field lost
-/// focus to a press elsewhere, and the file search's answer or time-out lands.
+/// Each frame: an editor whose quote went closes, and the file search's answer or time-out lands.
 pub fn poll(host: &mut dyn QuoteHost, tx: &mut Tx) -> bool {
     let mut changed = false;
     let missing = {
@@ -297,10 +296,6 @@ pub fn poll(host: &mut dyn QuoteHost, tx: &mut Tx) -> bool {
         let q = host.quotes_mut();
         let keys: Vec<u64> = q.items.iter().map(|q| q.key).collect();
         comment::step(&mut q.comment_seq, &mut q.comment, Event::Retained(keys));
-        changed = true;
-    }
-    if host.quotes().comment.draft().is_some_and(|d| !d.focused) && can_dismiss(host) {
-        close(host, false);
         changed = true;
     }
     if let Some((attempt, items)) = host.quotes().mention_fetch.take() {
@@ -372,7 +367,7 @@ fn resolve_editor_layout(host: &dyn QuoteHost, m: &ViewMeasure) -> EditorLayout 
     let opening = q.opening.get();
     let height = m.measured.unwrap_or(0.0);
     let rect = m.chip.map(shell).unwrap_or([GAP, m.vh - GAP, 0.0, 0.0]);
-    let header = if host.narrow() { 0.0 } else { session_view::style::HEADER_H };
+    let header = if host.narrow() || !matches!(q.comment.anchor().map(|a| &a.bounds), Some(Bounds::Timeline(_))) { 0.0 } else { session_view::style::HEADER_H };
     let was = q.placing.get();
     let spot = q
         .comment
@@ -382,7 +377,8 @@ fn resolve_editor_layout(host: &dyn QuoteHost, m: &ViewMeasure) -> EditorLayout 
     // the timeline's band, so it goes out under the header or the composer with the text.
     let (band, left, bottom, available, place) = match spot {
         Some(spot) => {
-            let bottom = spot.top + opening;
+            // Drawn over the whole window (a terminal's), it stays inside it (`quote-comment.tsx:101-106`).
+            let bottom = if spot.band[0] == 0.0 { (m.vh - GAP).min((GAP + opening).max(spot.top + opening)) } else { spot.top + opening };
             ([0.0, spot.band[0], m.vw, spot.band[1]], spot.left, bottom, (bottom - spot.band[0] - GAP).max(opening), spot.place)
         }
         None => {
@@ -393,7 +389,7 @@ fn resolve_editor_layout(host: &dyn QuoteHost, m: &ViewMeasure) -> EditorLayout 
         }
     };
     let left = left.max(GAP).min(m.vw - width - GAP);
-    let top = if place == Place::Card { GAP.max(bottom - height) } else { bottom - height };
+    let top = if band[1] == 0.0 { GAP.max(bottom - height) } else { bottom - height };
     let mut next = was;
     for effect in place::step(&mut next, place::Event::Placed { place, at: [left - band[0], top - band[1]] }) {
         place::AT.with(|at| match effect {
@@ -443,6 +439,16 @@ fn on_action_press(host: &mut dyn QuoteHost, tx: &mut Tx) {
     };
     let cfg = config(host);
     field(host, FieldEvent::Clicked { modified, config: cfg }, tx);
+}
+
+/// A press anywhere but on the editor (`size`, from its own corner) or on its quote's card closes
+/// an unchanged editor, whatever the press lands on; a key that moves focus doesn't (the
+/// document's `pointerdown`, `quote-comment.tsx:88-94`).
+fn on_press_anywhere(host: &mut dyn QuoteHost, size: [f32; 2], chip: Option<[f32; 4]>, at: rune::PointerEvent) {
+    let on = |r: [f32; 4], x: f32, y: f32| x >= r[0] && y >= r[1] && x <= r[0] + r[2] && y <= r[1] + r[3];
+    if !on([0.0, 0.0, size[0], size[1]], at.x, at.y) && !chip.is_some_and(|c| on(c, at.window_x, at.window_y)) && can_dismiss(host) {
+        close(host, false);
+    }
 }
 
 fn on_rested(host: &mut dyn QuoteHost, tx: &mut Tx) {
@@ -519,11 +525,15 @@ pub fn view<H: QuoteHost + 'static>(s: &H, p: &Pal, cx: &mut Cx<H>) -> Option<El
     let chip = cx.window_layout(&chip_key(key));
     let opening = if q.opening.get() == 0.0 { measured.unwrap_or(0.0) } else { q.opening.get() };
     let (scroll, dock, anchor_origin) = match q.comment.anchor().filter(|_| opening > 0.0) {
-        Some(a) => (
-            cx.window_layout(&format!("scroll-{}", a.session)),
-            cx.window_layout("composer-dock").or_else(|| cx.window_layout("dock")),
-            cx.window_layout(&a.path),
-        ),
+        // The timeline runs on under the composer; a terminal's pane is its own.
+        Some(a) => match &a.bounds {
+            Bounds::Timeline(session) => (
+                cx.window_layout(&format!("scroll-{session}")),
+                cx.window_layout("composer-dock").or_else(|| cx.window_layout("dock")),
+                cx.window_layout(&a.path),
+            ),
+            Bounds::Element(key) => (cx.window_layout(key), None, cx.window_layout(&a.path)),
+        },
         None => (None, None, None),
     };
     let layout = resolve_editor_layout(
@@ -542,6 +552,7 @@ pub fn view<H: QuoteHost + 'static>(s: &H, p: &Pal, cx: &mut Cx<H>) -> Option<El
         },
     );
 
+    let size = [layout.width, measured.unwrap_or(0.0)];
     let preview = preview_shell(p, &quote.text, layout.preview_lines);
     let input = input_shell(s, p, draft)
         .on_edit(|s: &mut H| on_edit_draft(s))
@@ -581,6 +592,7 @@ pub fn view<H: QuoteHost + 'static>(s: &H, p: &Pal, cx: &mut Cx<H>) -> Option<El
         .preserve_focus_on_press(true)
         .keeps_text_selection()
         .on_press(|_: &mut H| {})
+        .on_any_press(move |s: &mut H, _, at, _: &mut Tx| on_press_anywhere(s, size, chip, at))
         .child(body);
     let layer = el().key("quote-comment-band").absolute(layout.band[0], layout.band[1]);
     let layer = if layout.place == Place::Card {
@@ -619,7 +631,10 @@ fn source_position(
     let dock = m.dock.map(&shell).map_or(b_bottom, |d| d[1]);
     let band = [b_top + header, (b_bottom.min(dock) - b_top - header).max(0.0)];
     let (high, low) = (band[0] + GAP, band[0] + band[1] - GAP - height);
-    let spot = |top: f32, left: f32, place: Place| Some(Spot { top, left, place, band });
+    // A terminal's editor is drawn over the whole window, as official's (`fixed`, clamped to the
+    // viewport): only its place is kept inside the pane.
+    let element = matches!(a.bounds, Bounds::Element(_));
+    let spot = |top: f32, left: f32, place: Place| Some(Spot { top, left, place, band: if element { [0.0, m.vh] } else { band } });
     if m.hover_none {
         return spot(low.max(high), (b_left + b_right - width) * 0.5, Place::Pinned);
     }
@@ -629,7 +644,12 @@ fn source_position(
         Some(side @ (Place::Above | Place::Below)) => side,
         _ => preferred,
     };
-    let Some(origin) = m.anchor_origin.map(&shell) else {
+    let Some(origin) = m.anchor_origin.map(&shell).filter(|_| !(element && a.rects.is_empty())) else {
+        // A write or a resize moved its rows, or the terminal is hidden: at the composer
+        // (`quote-machine.ts:258-281`, `quote-comment.tsx:96-101`).
+        if element {
+            return None;
+        }
         let left = was.at().map_or_else(|| centred(b_left, b_right), |[x, _]| x);
         let gone_up = was.at().is_some_and(|[_, y]| y < band[1] / 2.0);
         return spot(if gone_up { band[0] - height * 2.0 - GAP } else { band[0] + band[1] + GAP }, left, side);
@@ -644,13 +664,16 @@ fn source_position(
     let y = |place: Place| if place == Place::Above { top - height - GAP } else { bottom + GAP };
     let other = if preferred == Place::Above { Place::Below } else { Place::Above };
     let fits = |place: Place| (high..=low).contains(&y(place));
-    let place = [preferred, other].into_iter().find(|&p| fits(p)).unwrap_or(side);
+    let Some(place) = [preferred, other].into_iter().find(|&p| fits(p)).or((!element).then_some(side)) else {
+        // `quotePosition`: where neither side fits, at the pane's bottom edge.
+        return spot(low, centred(left, right), Place::Pinned);
+    };
     spot(y(place), centred(left, right), place)
 }
 
 /// `--v2-elevation-button-neutral`: a drop and the 0.5px ring outside the button, and in dark the
 /// 0.5px lit top edge (`theme.css`).
-fn neutral_lift(p: &Pal) -> [Shadow; 4] {
+pub fn neutral_lift(p: &Pal) -> [Shadow; 4] {
     let (y, blur) = if p.dark { (1.0, 2.0) } else { (1.0, 1.5) };
     let top = if p.dark { Shadow { y: -0.5, color: Color::WHITE.alpha(0.1), ..Shadow::default() } } else { Shadow::default() };
     [Shadow { y, blur, color: p.q.neutral_shadow, ..Shadow::default() }, Pal::ring_out(p.q.neutral_ring), top, Shadow::default()]
@@ -736,12 +759,12 @@ fn mention_row_shell(p: &Pal, i: usize, path: &str, active: bool) -> El {
         )
 }
 
-pub(crate) type FieldAct<H> = Rc<dyn Fn(&mut H, FieldEvent, &mut Tx)>;
+pub type FieldAct<H> = Rc<dyn Fn(&mut H, FieldEvent, &mut Tx)>;
 
 /// `line-comment-v2-mention-list`: up to ten paths under the field, 8 below it, 4 in, rows 4
 /// apart on `bg-layer-02` in a 0.5 `border-muted` hairline; the lit row on `bg-layer-03`. A
 /// row is the file's icon, then its folder (muted, cut at its end) and name.
-pub(crate) fn mention_rows<H: 'static>(
+pub fn mention_rows<H: 'static>(
     p: &Pal,
     mention: &Mention,
     act: FieldAct<H>,
@@ -767,7 +790,7 @@ pub(crate) fn mention_rows<H: 'static>(
         // `line-comment-v2-mention-list`: a plain `overflow: auto` box's bar (`line-comment.css:294-296`).
         session_view::scroller::scroller("line-comment-mentions").build::<H>(
             p,
-            col().w_full().mt(8.0).padding(4.0).max_h(180.0).radius(6.0).fill(p.layer2).box_shadow(Pal::ring_in(p.border_muted)),
+            col().w_full().mt(8.0).padding(4.0).max_h(180.0).radius(6.0).fill(p.layer2).border(0.5, p.border_muted).border_layout(),
             col().w_full().gap(4.0).children(rows),
         ),
     )

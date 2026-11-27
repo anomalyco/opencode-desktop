@@ -12,7 +12,7 @@ use session_view::style::{INSTANT, UI};
 
 use crate::FindHost;
 
-const COUNT: TextStyle = TextStyle::new(11.0, 440.0).lh(16.0).features("tnum");
+const COUNT: TextStyle = TextStyle::new(11.0, 440.0).lh(16.0).features("\"tnum\"");
 
 fn input_shell(s: &dyn FindHost, p: &Pal) -> El {
     session_view::style::field(&s.find().input, UI)
@@ -23,7 +23,6 @@ fn input_shell(s: &dyn FindHost, p: &Pal) -> El {
         .grow(1.0)
         .shrink()
         .min_w(0.0)
-        .h(20.0)
         .color(p.text)
         .placeholder(opencode_i18n::t!("session.search.placeholder"), p.faint)
         .caret(p.text, p.selection)
@@ -63,13 +62,13 @@ fn step_button_shell(p: &Pal, up: bool, enabled: bool) -> El {
         .label_static(label)
         .size(20.0, 20.0)
         .center()
-        .radius(2.0)
+        .radius(4.0)
         .preserve_focus_on_press(true)
         .child(glyph);
     if enabled {
         b.hover(p.hover).press(p.pressed).hover_motion(INSTANT, INSTANT)
     } else {
-        b.opacity(0.4).disabled(true)
+        b.opacity(0.4).disabled(true).focusable(false)
     }
 }
 
@@ -85,7 +84,16 @@ fn build_bar(s: &dyn FindHost, p: &Pal, input: El, steps: [El; 2], close_btn: El
     });
     // `text-input-v2`: its input elevation at rest, the focus outline (and no shadow) while focused.
     let bar = row().key("find-bar");
-    let bar = if find.input.focused { bar.border(1.0, p.v2.border_focus) } else { bar.box_shadow(Pal::ring_out(p.border)) };
+    let bar = match opencode_ui::palette::kit(p).forced {
+        // A contrast theme draws the edge in its text colour and focus as the field's own ring
+        // (`search-bar.css`, opencode#65100).
+        Some(highlight) => {
+            let bar = bar.border(1.0, p.text);
+            if find.input.focused { bar.outline(2.0, 2.0, highlight) } else { bar }
+        }
+        None if find.input.focused => bar.border(1.0, p.v2.border_focus),
+        None => bar.box_shadow(Pal::ring_out(p.border)),
+    };
     bar.transition(Transition::none())
         .h(28.0)
         .w(240.0)

@@ -1,7 +1,7 @@
 //! File viewer toolbars, picture metadata badges, Open-in split button, and the artifact `...` menu.
 
 use opencode_ui::popup::{Item, Menu, MenuButton as _, PopupHost};
-use rune::{Align, Anim, Color, Cursor, El, Icon, Shadow, TextStyle, Tx, el, icon, row, text};
+use rune::{Align, Anim, Color, El, Icon, Shadow, TextStyle, Tx, el, icon, row, text};
 use rune_kit::Loader;
 use rune_theme_opencode::icons as ic;
 use opencode_ui::palette::{Pal, kit};
@@ -18,7 +18,6 @@ fn tool_shell(p: &Pal, key: &'static str, glyph: &'static Icon, on: bool, label:
         .size(25.0, 25.0)
         .radius(5.0)
         .center()
-        .cursor(Cursor::Pointer)
         .fill(if on { p.row_active } else { Color::TRANSPARENT })
         .hover(p.hover)
         .hover_motion(INSTANT, INSTANT)
@@ -91,7 +90,9 @@ pub(super) fn open_in_button<H: FilesHost + PopupHost + 'static>(
     key: &'static str,
     rel: &str,
 ) -> Option<El> {
-    if !s.can_open_in() {
+    // No app opens a file outside the session's folder; its menu still shows it in the file
+    // manager. A skill's virtual file is on no disk (official `gui-plugins/src/file/open-in-app.tsx:101-107`).
+    if !s.can_open_in() || crate::data::is_outside(rel) {
         return None;
     }
     let cur = s.open_in_current()?;
@@ -107,7 +108,6 @@ pub(super) fn open_in_button<H: FilesHost + PopupHost + 'static>(
         .key(format!("{key}-run"))
         .size(28.0, 28.0)
         .center()
-        .cursor(Cursor::Pointer)
         .hover(p.hover)
         .press(p.pressed)
         .hover_motion(INSTANT, INSTANT)
@@ -120,13 +120,13 @@ pub(super) fn open_in_button<H: FilesHost + PopupHost + 'static>(
             s.open_in_launch_current(&rel_main, false, false);
         })
         .child(mark);
+    let main = opencode_ui::focus::split_half(main, p, 6.0, false);
     let open = s.popup().open_at(&chevron_key);
     let menu_anchor = chevron_key.clone();
     let chev = el()
         .key(chevron_key)
         .size(20.0, 28.0)
         .center()
-        .cursor(Cursor::Pointer)
         .fill(if open { p.hover } else { Color::TRANSPARENT })
         .hover(p.hover)
         .press(p.pressed)
@@ -139,6 +139,7 @@ pub(super) fn open_in_button<H: FilesHost + PopupHost + 'static>(
             open_in_toolbar_menu(s, &rel_menu, &anchor, tx);
         })
         .child(icon(&ic::CHEVRON_DOWN, 14.0).color(p.icon));
+    let chev = opencode_ui::focus::split_half(chev, p, 6.0, true);
     Some(
         row()
             .key(key)
@@ -211,15 +212,19 @@ fn open_artifact_menu(
                     }
                 }
                 Some("mode") => markdown::toggle_rendered(h, &sid, &at, tx),
-                Some("open-browser") => crate::ops::open_html_in_browser(h, &sid, &at),
+                Some("open-browser") => crate::ops::open_html_in_browser(h, &sid, &at, tx),
+                // A file outside the session's folder: shown in the file manager, never opened
+                // in an app (`links::reveal_outside_file`).
+                Some("reveal") if opencode_kit::path::is_absolute(&at) => crate::links::reveal_outside_file(h, &at),
                 Some("reveal") => h.open_in_reveal(&at),
                 Some("copy") => {
-                    if let Some(full) = h.open_in_path(&at) {
+                    let full = if crate::data::is_outside(&at) { Some(at.clone()) } else { h.open_in_path(&at) };
+                    if let Some(full) = full {
                         tx.copy(full);
                         h.toast_succeed(opencode_i18n::t!("common.copied").to_owned(), String::new());
                     }
                 }
-                Some(id) if id.starts_with("app:") => h.open_in_pick(&at, id, false, tx),
+                Some(id) if id.starts_with("app:") && !crate::data::is_outside(&at) => h.open_in_pick(&at, id, false, tx),
                 _ => {}
             }
         }),
@@ -297,7 +302,9 @@ pub(super) fn artifact_toolbar<H: FilesHost + PopupHost + 'static>(
         .pr(12.0)
         .gap(12.0)
         .center_y()
-        .fill(p.layer1)
+        // Plain text and code sit on the code view's ground, not the artifact surface
+        // (`artifact-view.css`'s `[data-source-only]`, opencode#65976).
+        .fill(if source && !previewable { p.code_bg } else { p.layer1 })
         .hover_group_focus()
         .hover_motion(INSTANT, INSTANT)
         .child(text(name).font(NAME).color(p.text).grow(1.0).shrink().min_w(0.0).truncate())
@@ -332,17 +339,23 @@ fn artifact_menu(host: &dyn FilesHost, path: &str, source: bool, previewable: bo
         };
         menu = menu.item(Item::new("mode", label));
     }
-    if host.opens_as_page(path) {
+    // A file outside the session's folder (`links::open_outside_file`) can be shown in the file
+    // manager where the server shares this machine's files, and nothing else: no app opens it
+    // and the browser pane does not take it.
+    let outside = crate::data::is_outside(path);
+    if !outside && host.opens_as_page(path) {
         menu = menu.item(Item::new("open-browser", opencode_i18n::t!("plugin.file.view.openInBrowser")));
     }
-    if host.can_open_in() {
+    // A skill's virtual file is in no folder to show.
+    let reveals = !crate::data::is_virtual_skill(path) && if outside { host.can_reveal_outside() } else { host.can_open_in() };
+    if reveals {
         menu = menu.item(Item::new(
             "reveal",
             opencode_i18n::t!("plugin.file.view.reveal", app = host.open_in_finder_label()),
         ));
     }
     menu = menu.item(Item::new("copy", opencode_i18n::t!("plugin.file.open.copyPath")));
-    if host.can_open_in() {
+    if !outside && host.can_open_in() {
         menu = menu.submenu("open-in", opencode_i18n::t!("plugin.file.open.in"), open_in_apps_menu(host));
     }
     menu
@@ -375,7 +388,6 @@ fn action_face(p: &Pal, key: &'static str, glyph: &'static Icon, label: &'static
         .size(28.0, 28.0)
         .radius(6.0)
         .center()
-        .cursor(Cursor::Pointer)
         .hover(p.hover)
         .press(p.pressed)
         .hover_motion(INSTANT, INSTANT)

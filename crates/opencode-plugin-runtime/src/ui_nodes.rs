@@ -1,14 +1,15 @@
 //! `App`-independent contract `ui.*` host node builders over `opencode-ui` and `rune-kit`:
-//! `frame`, `divider`, `icon`, `loader`, `metric`, `keybind`, `button`, `iconButton`, `radio`,
-//! `serverIndicator`, `dialogHeader`, `progressCircle`, and `segmented`.
+//! `frame`, `divider`, `icon`, `loader`, `metric`, `keybind`, `button`, `iconButton`, `radio`, `checkbox`,
+//! `badge`, `serverIndicator`, `dialogHeader`, `progressCircle`, and `segmented`.
 
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
 
+use opencode_plugin_spec::NodeKind;
 use opencode_ui::palette::{Pal, kit, pal, token};
 use opencode_ui::{keymap, odometer, widgets};
-use rune::{Chord, Color, Cursor, Direction, El, Icon, Shadow, Spring, TextStyle, col, el, icon as rune_icon, row, text};
+use rune::{Chord, Color, Direction, El, Icon, Shadow, Spring, TextStyle, col, el, icon as rune_icon, row, text};
 use rune_kit::{ButtonVariant, Loader};
 use rune_luau::{Data, HostNode, NodeArgs};
 
@@ -44,24 +45,38 @@ pub fn named_icon(name: &str) -> &'static Icon {
 /// The `App`-independent contract UI nodes. `command_chord` resolves a command id's active
 /// shortcut (for `ui.iconButton`'s tooltip); `catalog_chord` resolves a command's default chord
 /// from the host catalog when no user override exists (for `ui.keybind`).
-pub fn base_nodes(
+pub fn base_nodes<S: 'static>(
     command_chord: fn(&str) -> Option<Chord>,
     catalog_chord: fn(&str) -> Option<Chord>,
 ) -> Vec<HostNode> {
     vec![
-        HostNode::new("frame", frame),
-        HostNode::new("divider", divider),
-        HostNode::new("icon", icon),
-        HostNode::new("metric", metric),
-        HostNode::new("keybind", move |a| keybind(a, catalog_chord)),
-        HostNode::new("button", button),
-        HostNode::new("iconButton", move |a| icon_button(a, command_chord)),
-        HostNode::new("radio", radio),
-        HostNode::new("loader", |a| Ok(Loader::new().size(a.number("size").unwrap_or(16.0) as f32).build(kit(&p(a))))),
-        HostNode::new("serverIndicator", server_indicator),
-        HostNode::new("progressCircle", progress_circle),
-        HostNode::new("segmented", segmented),
+        node("frame", frame::<S>),
+        node("divider", divider),
+        node("icon", icon),
+        node("metric", metric),
+        node("keybind", move |a| keybind(a, catalog_chord)),
+        node("button", button),
+        node("iconButton", move |a| icon_button(a, command_chord)),
+        node("radio", radio),
+        node("checkbox", checkbox),
+        node("badge", |a| Ok(badge_widget(kit(&p(a)), a.string("text").unwrap_or_default()))),
+        node("loader", |a| Ok(Loader::new().size(a.number("size").unwrap_or(16.0) as f32).build(kit(&p(a))))),
+        node("serverIndicator", server_indicator),
+        node("progressCircle", progress_circle),
+        node("segmented", segmented),
     ]
+}
+
+/// Contract node `name`, built by `build`, with the contract's props for it listed
+/// (`HostNode::props`): a prop a script passes that is neither one of them, nor read by `build`,
+/// nor a standard prop is an error in debug builds and a warning in release, instead of being
+/// dropped without a word.
+pub fn node(name: &'static str, build: impl Fn(&mut NodeArgs) -> Result<El, String> + 'static) -> HostNode {
+    let host = HostNode::new(name, build);
+    match NodeKind::parse(name) {
+        Some(kind) => host.props(move |key| kind.props().get(key).is_some()),
+        None => host,
+    }
 }
 
 fn p(a: &NodeArgs) -> Pal {
@@ -103,7 +118,7 @@ pub fn dir(a: &NodeArgs) -> Option<Direction> {
 /// A layout container whose border takes room in layout (`El::border_layout`), snapped to whole
 /// device pixels at every scale the way CSS `box-sizing: border-box` does. Standard `UiBoxProps`
 /// apply automatically via `rune-luau`'s host-node prop pass.
-fn frame(a: &mut NodeArgs) -> Result<El, String> {
+fn frame<S: 'static>(a: &mut NodeArgs) -> Result<El, String> {
     let mut out = match a.string("direction") {
         Some("row") => row(),
         Some("box") => el(),
@@ -128,7 +143,59 @@ fn frame(a: &mut NodeArgs) -> Result<El, String> {
         out = a.on_press(out, "onPress");
     }
     out = a.on_hover(out, "onHover");
-    Ok(out)
+    if a.flag("focusGroup") {
+        out = out.focus_group();
+    }
+    out = key_handler::<S>(a, out);
+    Ok(focus(a, out))
+}
+
+/// `autofocus` (`El::autofocus`: the control a dialog focuses as it opens) and `focusReturn`
+/// (`El::focus_return`: where focus goes when this leaves while it has focus).
+fn focus(a: &NodeArgs, el: El) -> El {
+    let el = if a.flag("autofocus") { el.autofocus() } else { el };
+    match a.string("focusReturn") {
+        Some(key) => el.focus_return(key),
+        None => el,
+    }
+}
+
+/// `keys` and `onKey`: a key `keys` names, pressed with no modifier while focus is on the frame or
+/// inside it (not in a text field, whose keys stay its own), runs `onKey` with its name in
+/// `event.keyName` instead of doing what it does there: Return in a list that imports rather than
+/// ticks the focused row.
+fn key_handler<S: 'static>(a: &NodeArgs, el: El) -> El {
+    let Some(press) = a.press_later("onKey") else { return el };
+    let Some(Data::List(names)) = a.data("keys") else { return el };
+    let keys: Vec<(rune::Key, &'static str)> = names
+        .iter()
+        .filter_map(|name| match name.as_str()? {
+            "Enter" => Some((rune::Key::Enter, "Enter")),
+            "Escape" => Some((rune::Key::Escape, "Escape")),
+            "ArrowUp" => Some((rune::Key::Up, "ArrowUp")),
+            "ArrowDown" => Some((rune::Key::Down, "ArrowDown")),
+            "ArrowLeft" => Some((rune::Key::Left, "ArrowLeft")),
+            "ArrowRight" => Some((rune::Key::Right, "ArrowRight")),
+            "Home" => Some((rune::Key::Home, "Home")),
+            "End" => Some((rune::Key::End, "End")),
+            "PageUp" => Some((rune::Key::PageUp, "PageUp")),
+            "PageDown" => Some((rune::Key::PageDown, "PageDown")),
+            "Delete" => Some((rune::Key::Delete, "Delete")),
+            "Backspace" => Some((rune::Key::Backspace, "Backspace")),
+            _ => None,
+        })
+        .collect();
+    if keys.is_empty() {
+        return el;
+    }
+    el.on_key(move |s: &mut S, ev: &rune::KeyEvent, tx: &mut rune::Tx| {
+        if ev.mods != rune::Mods::default() {
+            return false;
+        }
+        let Some(&(_, name)) = keys.iter().find(|(key, _)| ev.key == *key) else { return false };
+        press.run(s, tx, vec![("keyName", Data::String(name.to_owned()))]);
+        true
+    })
 }
 
 /// A 1 px rule laid out as Chromium lays out a 1px CSS border: one device pixel at 1x, 1.25x and
@@ -170,16 +237,25 @@ fn metric(a: &mut NodeArgs) -> Result<El, String> {
 }
 
 fn keybind(a: &mut NodeArgs, catalog_chord: fn(&str) -> Option<Chord>) -> Result<El, String> {
-    let label = match (a.string("keys"), a.string("command")) {
-        (Some(keys), _) => keys.parse::<rune::Keybind>().ok().and_then(|k| k.chords().first().copied()).map(keymap::label).unwrap_or_else(|| keys.to_owned()),
-        (None, Some(command)) => keymap::overrides::command(command)
+    let caps = match (a.string("keys"), a.string("command")) {
+        (Some(keys), _) => keys
+            .parse::<rune::Keybind>()
+            .ok()
             .and_then(|k| k.chords().first().copied())
-            .or_else(|| catalog_chord(command))
-            .map(keymap::label)
-            .unwrap_or_default(),
-        _ => String::new(),
+            .map(keymap::caps)
+            .unwrap_or_else(|| vec![keys.to_owned()]),
+        // A chord Settings bound the command shows one keycap per stroke (opencode#64395).
+        (None, Some(command)) => match keymap::sequence::first(command) {
+            Some(strokes) => keymap::sequence::caps(&strokes),
+            None => keymap::overrides::command(command)
+                .and_then(|k| k.chords().first().copied())
+                .or_else(|| catalog_chord(command))
+                .map(keymap::caps)
+                .unwrap_or_default(),
+        },
+        _ => Vec::new(),
     };
-    Ok(keymap::view::chips(&p(a), vec![label]))
+    Ok(keymap::view::chips(&p(a), caps))
 }
 
 fn variant(name: Option<&str>) -> ButtonVariant {
@@ -200,7 +276,6 @@ fn button(a: &mut NodeArgs) -> Result<El, String> {
     let k = kit(&pal);
     let words = a.string("text").unwrap_or_default().to_owned();
     let (disabled, loading) = (a.flag("disabled"), a.flag("loading"));
-    let small = a.string("size") == Some("small");
     // Desktop's button sizes (`button.css`): small 24 tall, normal 28, large 32 with 15 a side.
     #[allow(deprecated)]
     let size = match a.string("size") {
@@ -208,21 +283,20 @@ fn button(a: &mut NodeArgs) -> Result<El, String> {
         Some("large") => rune_kit::ButtonSize::Large,
         _ => rune_kit::ButtonSize::Normal,
     };
-    let v = if loading && !small { ButtonVariant::Loading } else { variant(a.string("variant")) };
-    let mut b = widgets::button(words.clone(), v).size(size).disabled(disabled);
-    if let Some(lead) = a.string("icon") {
+    // A busy button keeps its look and its words at every size: it is disabled, drops its icon
+    // and shows a 14 loader before the words, in their color and at the button's own 6 gap
+    // (`packages/app/src/runtime/plugin/ui.tsx:25-41`: `disabled={props.disabled || props.busy}`,
+    // `icon={props.busy ? undefined : props.icon}`, `<Loader width={14} height={14} />`;
+    // `button.css:13`). The SSH cover's and row's own buttons do the same (`ssh/cover.tsx:46-59`).
+    let mut b = widgets::button(words.clone(), variant(a.string("variant"))).size(size).disabled(disabled || loading);
+    if let Some(lead) = a.string("icon").filter(|_| !loading) {
         b = b.icon(named_icon(lead));
     }
-    if loading && small {
-        // `<Loader class="size-3.5" />` before the label, in the label's color.
+    if loading {
         let spinner = Loader::new().size(14.0).build(k);
-        b = b.label_with(move |style, ink| row().gap(4.0).center_y().child(spinner).child(text(words).font(style).color(ink)));
-    } else if loading {
-        // Desktop's `variant="loading"` button holds only `<Loader />`.
-        let spinner = Loader::new().size(16.0).build(k);
-        b = b.label_with(move |_, _| spinner);
+        b = b.label_with(move |style, ink| row().gap(6.0).center_y().child(spinner).child(text(words).font(style).color(ink)));
     }
-    let el = b.build(k);
+    let el = focus(a, b.build(k));
     Ok(if disabled || loading { el } else { a.on_press(el, "onPress") })
 }
 
@@ -239,9 +313,17 @@ fn icon_button(a: &mut NodeArgs, command_chord: fn(&str) -> Option<Chord>) -> Re
     // ghost-muted draws its icon in icon-muted, icon-base while pressed (`icon-button.css`).
     let ink = a.color("color").unwrap_or(if a.string("variant") == Some("ghost-muted") && !pressed { pal.icon_muted } else { pal.icon });
     let mut b = b.child(rune_icon(named_icon(&name), 16.0).color(ink));
-    if let Some(chord) = a.string("keybind").and_then(command_chord) {
-        b = b.help_keys(keymap::caps(chord));
+    if let Some(command) = a.string("keybind") {
+        // A chord Settings bound the command shows one keycap per stroke (opencode#64395).
+        let caps = match keymap::sequence::first(command) {
+            Some(strokes) => keymap::sequence::caps(&strokes),
+            None => command_chord(command).map_or_else(Vec::new, keymap::caps),
+        };
+        if !caps.is_empty() {
+            b = b.help_keys(caps);
+        }
     }
+    let b = focus(a, b);
     Ok(if a.flag("disabled") { b.layer_opacity(0.5) } else { a.on_press(b, "onPress") })
 }
 
@@ -258,6 +340,96 @@ fn radio(a: &mut NodeArgs) -> Result<El, String> {
     Ok(if a.flag("disabled") { r } else { a.on_press_with(r, "onChange", vec![("checked", Data::Bool(true))]) })
 }
 
+fn checkbox(a: &mut NodeArgs) -> Result<El, String> {
+    let pal = p(a);
+    let checked = a.flag("checked");
+    let disabled = a.flag("disabled");
+    let layer = a.string("surface") == Some("layer-1");
+    let mark = match (a.flag("indeterminate"), checked) {
+        (true, _) => Mark::Dash,
+        (false, true) => Mark::Check,
+        (false, false) => Mark::None,
+    };
+    let c = checkbox_widget(kit(&pal), a.string("text").unwrap_or_default(), a.string("description").unwrap_or_default(), mark, disabled, layer);
+    Ok(if disabled { c } else { a.on_press_with(c, "onChange", vec![("checked", Data::Bool(!checked))]) })
+}
+
+/// What a checkbox's box shows: nothing, the check, or the dash of one whose set is ticked in
+/// part (`[data-indeterminate]`, `checkbox-compact.css`).
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Mark {
+    None,
+    Check,
+    Dash,
+}
+
+/// `checkbox.tsx`'s `checkbox-v2-icon--minus`.
+static CHECKBOX_DASH: Icon = Icon {
+    name: "checkbox-dash",
+    view: 16.0,
+    body: r#"<path d="M12.75 8H3.25" stroke="currentColor" stroke-linejoin="round" stroke-width="1"/>"#,
+};
+
+/// Desktop's compact `Badge` (`data-display/badge/badge.css:1-23`): a 16 pt tag, 4 in, radius 2,
+/// on `bg-layer-02` with a 0.5 hairline, its label 11/530 muted with tabular figures. With no
+/// room it gives way and its label is cut short (`min-w-0 shrink` over a `truncate` label,
+/// `site-chooser.tsx:366-368`).
+fn badge_widget(k: &rune_kit::Kit, label: &str) -> El {
+    let c = &k.c;
+    row()
+        .key("badge")
+        .center()
+        .h(16.0)
+        .px(4.0)
+        .radius(2.0)
+        .fill(c.layer_02)
+        .border(0.5, c.border_base)
+        // CSS's 0.5 px border takes a device pixel of layout (`opencode_ui::widgets::badge`).
+        .border_layout()
+        .shrink()
+        .min_w(0.0)
+        .child(text(label.to_owned()).font(TextStyle::new(11.0, 530.0).lh(11.0).tracking(0.05).features("\"tnum\"")).color(c.text_muted).truncate().shrink().min_w(0.0))
+}
+
+/// A `checkbox-v2` (`checkbox-compact.css`, Desktop's `Checkbox appearance="compact"`): the 16 pt
+/// box 2 down in its 16 × 20 stack, radius 4, on `bg-base` (`layer-1` on that surface) with a
+/// 0.5 hairline, ticked the accent with its 20% white sheen and the 1 pt check; the 13/440 label on
+/// a 20 line, 8 after it, and the 11/440 description 6 under it. Disabled, the row is half opacity.
+/// With a dash it is filled as a ticked one is (`:where([data-checked], [data-indeterminate])`).
+fn checkbox_widget(k: &rune_kit::Kit, label: &str, description: &str, mark: Mark, disabled: bool, layer: bool) -> El {
+    let checked = mark != Mark::None;
+    let c = &k.c;
+    let base = if layer { c.layer_01 } else { c.bg_base };
+    let hairline = Shadow { spread: 0.5, color: c.border_strong, inset: true, ..Shadow::default() };
+    let mut control = el().key("control").size(16.0, 16.0).absolute(0.0, 2.0).center().radius(4.0).box_shadow(hairline);
+    control = if checked {
+        control.fill(c.bg_accent).gradient(k.light_on(0.2, c.bg_accent), k.light(0.0))
+    } else {
+        control.fill(base)
+    };
+    if !disabled {
+        control = control.hover(if checked { over(k.on(c.contrast_hover, c.bg_accent), c.bg_accent) } else { over(c.hover, base) });
+    }
+    control = control.child(rune_icon(&rune_theme_opencode::icons::CHECK, 16.0).key("check").color(c.icon_contrast).opacity(if mark == Mark::Check { 1.0 } else { 0.0 }));
+    if mark == Mark::Dash {
+        control = control.child(rune_icon(&CHECKBOX_DASH, 16.0).key("dash").absolute(0.0, 0.0).color(c.icon_contrast));
+    }
+    let mut words = col().key("text").gap(6.0).grow(1.0).shrink().min_w(0.0).child(text(label.to_owned()).key("label").font(TextStyle::new(13.0, 440.0).lh(20.0).tracking(-0.04)).color(c.text_base));
+    if !description.is_empty() {
+        words = words.child(text(description.to_owned()).key("description").font(TextStyle::new(11.0, 440.0).lh(16.0).tracking(0.05)).color(c.text_muted));
+    }
+    let r = row()
+        .role("checkbox")
+        .label(label.to_owned())
+        .checked(mark == Mark::Check)
+        .gap(8.0)
+        .items_start()
+        .disabled(disabled)
+        .child(el().key("stack").size(16.0, 20.0).child(control).a11y_hidden())
+        .child(words.a11y_hidden());
+    if disabled { r.layer_opacity(0.5) } else { r }
+}
+
 /// `top` over `bottom`, as CSS layers paint.
 fn over(top: Color, bottom: Color) -> Color {
     let a = top.a + bottom.a * (1.0 - top.a);
@@ -270,27 +442,32 @@ fn over(top: Color, bottom: Color) -> Color {
 
 /// A `radio-v2` item (`radio.css`): the 16 pt control in its 16 × 20 stack, the 13/440 label on
 /// a 20 line and the 12/440 description under it, 8 apart; the description in `tone` when given.
+/// A control that is not selected is flat on `bg-base`; only the selected one has the top light
+/// (`packages/ui/src/forms/radio/radio.css:92`, `:125`). The dot has the depth gradient over its
+/// grey, a ring in the contrast icon colour and the small elements' drop (`radio.css:140-160`).
 fn radio_widget(k: &rune_kit::Kit, label: &str, description: &str, checked: bool, disabled: bool, tone: Option<Color>, label_lh: f32) -> El {
     let c = &k.c;
-    let (base, sheen) = if checked { (c.bg_accent, k.light_on(0.2, c.bg_accent)) } else { (c.bg_base, k.light(0.06)) };
     let mut control = el()
         .key("control")
         .size(16.0, 16.0)
         .absolute(0.0, 2.0)
         .radius(8.0)
-        .fill(base)
-        .gradient(sheen, k.light(0.0))
         .box_shadow(Shadow { spread: 0.5, color: c.border_strong, inset: true, ..Shadow::default() });
+    control = if checked {
+        control.fill(c.bg_accent).gradient(k.light_on(0.2, c.bg_accent), k.light(0.0))
+    } else {
+        control.fill(c.bg_base)
+    };
     if checked {
-        control = control.child(
-            el().key("dot")
-                .size(6.0, 6.0)
-                .absolute(5.0, 5.0)
-                .radius(3.0)
-                .fill(c.knob_on)
-                .box_shadow(Shadow { spread: 0.5, color: k.on(c.depth_top, c.knob_on), inset: true, ..Shadow::default() })
-                .box_shadow(Shadow { y: 0.5, blur: 0.5, color: k.dark_a(0.4), ..Shadow::default() }),
-        );
+        let dot = el()
+            .key("dot")
+            .size(6.0, 6.0)
+            .absolute(5.0, 5.0)
+            .radius(3.0)
+            .fill(c.knob_on)
+            .gradient(k.on(c.depth_top, c.knob_on), k.on(c.depth_bottom, c.knob_on))
+            .box_shadow(Shadow { spread: 0.5, color: c.icon_contrast, inset: true, ..Shadow::default() });
+        control = control.child(k.elevate(dot, &k.elevation.elements));
         if !disabled {
             control = control.hover(over(k.on(c.contrast_hover, c.bg_accent), c.bg_accent));
         }
@@ -351,10 +528,26 @@ fn server_indicator(a: &mut NodeArgs) -> Result<El, String> {
 pub fn dialog_header(a: &mut NodeArgs, attach_close: impl FnOnce(El) -> El) -> Result<El, String> {
     let pal = p(a);
     let title = a.string("title").unwrap_or_default().to_owned();
+    let badge = a.string("badge").map(str::to_owned);
     let mut title_el = text(title).font(TextStyle::new(15.0, 530.0).lh(20.0).tracking(-0.13)).color(pal.text);
-    if a.get("wrapTitle").is_none() || a.flag("wrapTitle") {
-        title_el = title_el.wrap_anywhere().w_full();
-    }
+    // With a badge the title stays on its line beside it, and each is cut short where the line
+    // has no room for both (`site-chooser.tsx:363-369`: `truncate` beside a `min-w-0 shrink` badge).
+    let title_el = match badge {
+        Some(badge) => row()
+            .key("dialog-title-line")
+            .w_full()
+            .min_w(0.0)
+            .gap(6.0)
+            .center_y()
+            .child(title_el.truncate().shrink().min_w(0.0))
+            .child(badge_widget(kit(&pal), &badge)),
+        None => {
+            if a.get("wrapTitle").is_none() || a.flag("wrapTitle") {
+                title_el = title_el.wrap_anywhere().w_full();
+            }
+            title_el
+        }
+    };
     let mut group = col()
         .key("dialog-title-group")
         .grow(1.0)
@@ -463,7 +656,6 @@ fn segmented_button(p: &Pal, key: String, glyph: &'static Icon, active: bool, he
         .size(40.0, 28.0)
         .radius(6.0)
         .center()
-        .cursor(Cursor::Pointer)
         .motion(Spring::NONE)
         .fill(if active { p.bg_base } else { Color::TRANSPARENT })
         .box_shadow(Pal::ring_out(if active { p.q.border_strong } else { Color::TRANSPARENT }))

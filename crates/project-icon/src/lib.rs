@@ -497,7 +497,10 @@ impl Icons {
         // Desktop's letter tile under a light that draws its own edge gets a ringless body.
         let lit_body = look.style == Style::Desktop && !finish.ringed();
         let px = (size_pt * self.scale()).ceil().clamp(1.0, 1024.0) as u32;
-        let key = (seed.to_owned(), pal.dark, variant, px, look.key(), if look.style == Style::Desktop { finish } else { Finish::Flat });
+        // Desktop's tile is its colour, size and finish alone (the letter is text over it): every
+        // project of a colour shares one image, so a list of projects draws one tile, not one each.
+        let named = if look.style == Style::Desktop { String::new() } else { seed.to_owned() };
+        let key = (named, pal.dark, variant, px, look.key(), if look.style == Style::Desktop { finish } else { Finish::Flat });
         let cached = self.marks.borrow().get(&key).cloned();
         let img = cached.unwrap_or_else(|| {
             let rgba = if lit_body { finish::body(pal, variant, finish, px) } else { styles::draw(pal, seed, variant, &look, size_pt, px) };
@@ -635,10 +638,23 @@ fn run(cache: &ImageCache, job: &Job) -> Option<(Key, Option<Shown>)> {
             }
             Some(Data::Raster(bytes)) => {
                 // Desktop's `<img>` fills the tile as it is (`object-fit: cover`), never trimmed or
-                // set small on a plate as a found repo icon is.
-                if let Ok(icon) = image::load_from_memory(&bytes) {
-                    let buf = Buf::from_rgba8(&icon.into_rgba8()).cover();
-                    return Some((key, Some(raster(cache, buf, false))));
+                // set small on a plate as a found repo icon is. Pre-crop/downscale before `Buf`
+                // (16 B/px f32) so a 4K server icon never spikes hundreds of megabytes for a 64 px tile.
+                if let Ok(mut reader) = image::ImageReader::new(std::io::Cursor::new(&bytes)).with_guessed_format() {
+                    let mut limits = image::Limits::default();
+                    limits.max_image_width = Some(4096);
+                    limits.max_image_height = Some(4096);
+                    limits.max_alloc = Some(64 * 1024 * 1024);
+                    reader.limits(limits);
+                    if let Ok(icon) = reader.decode() {
+                        let rgba = if icon.width().max(icon.height()) > PX * 4 {
+                            icon.resize_to_fill(PX * 2, PX * 2, image::imageops::FilterType::Triangle).into_rgba8()
+                        } else {
+                            icon.into_rgba8()
+                        };
+                        let buf = Buf::from_rgba8(&rgba).cover();
+                        return Some((key, Some(raster(cache, buf, false))));
+                    }
                 }
             }
             None => {}

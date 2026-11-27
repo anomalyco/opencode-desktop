@@ -7,23 +7,16 @@
 use std::path::Path;
 
 use opencode_kit::model::{self, Attachment};
-use rune::{El, FileDialogOptions, Icon, SurfaceFit, Tx, el, icon, row};
+use rune::{El, FileDialogOptions, SurfaceFit, Tx, el, icon, row};
 
 use crate::TimelineHost;
 use crate::composer::attachments::{card, type_label};
-use crate::images::{Fetched, gallery_id, opens};
+use crate::images::{Fetched, OUTLINE_PHOTO, Strip, opens};
 use crate::palette::Pal;
 use crate::style::BUBBLE_MAX;
 
 /// All image states share one footprint (OpenCode 26f2522e60, `message-part.css`, `message-content.tsx`).
 const THUMB: (f32, f32) = (132.0, 88.0);
-
-/// `outline-photo` (`icons/catalog.ts`), which a failed image shows.
-static OUTLINE_PHOTO: Icon = Icon {
-    name: "outline-photo",
-    view: 14.0,
-    body: r#"<path d="M11.6666 11.6666L8.16663 8.16663L6.99997 9.33332L4.66663 6.99998L2.1583 9.50832M2.04163 2.04165H11.9583V11.9583H2.04163V2.04165ZM9.33332 5.24998C9.33332 5.81377 8.87629 6.27081 8.31244 6.27081C7.74866 6.27081 7.29163 5.81377 7.29163 5.24998C7.29163 4.68619 7.74866 4.22915 8.31244 4.22915C8.87629 4.22915 9.33332 4.68619 9.33332 5.24998Z" stroke="currentColor" stroke-linecap="square"/>"#,
-};
 
 /// Whether prompt `id` has anything [`view`] draws.
 pub fn any(id: &str) -> bool {
@@ -42,7 +35,7 @@ pub fn view<S: TimelineHost>(s: &S, p: &Pal, id: &str) -> Option<El> {
         items = items.child(card(p, &r.name, type_label(&r.name)).key(format!("ref-{i}")).help(r.path.clone()));
     }
     for (i, f) in files.iter().enumerate() {
-        items = items.child(if f.is_image() { thumb(s, p, id, i, f) } else { file_card::<S>(p, i, f) });
+        items = items.child(if f.is_image() { thumb(s, p, id, &files, i) } else { file_card::<S>(p, i, f) });
     }
     Some(row().w_full().justify_end().child(items))
 }
@@ -50,10 +43,11 @@ pub fn view<S: TimelineHost>(s: &S, p: &Pal, id: &str) -> Option<El> {
 /// An image: its picture cropped to fill, with a 0.5 hairline over it, opening the viewer.
 /// Still loading it holds the same space; failed, the photo glyph in it, and a press
 /// asks again (`attachment-media-machine.ts`, `message-file.ts`).
-fn thumb<S: TimelineHost>(s: &S, p: &Pal, message: &str, i: usize, f: &Attachment) -> El {
+fn thumb<S: TimelineHost>(s: &S, p: &Pal, message: &str, files: &std::sync::Arc<[Attachment]>, i: usize) -> El {
+    let f = &files[i];
     let store = s.media_store();
     let key = format!("file-{i}");
-    let image = store.image(f).filter(|img| img.error().is_none());
+    let image = store.image_sized(f, 264.0).filter(|img| img.error().is_none());
     let (w, h) = THUMB;
     let ring = el().key("ring").absolute(0.0, 0.0).size(w, h).radius(6.0).box_shadow(Pal::ring_in(p.border)).inert();
     let tile = el().key(key.clone()).label(f.name.clone()).size(w, h).radius(6.0).fill(p.layer2);
@@ -61,7 +55,7 @@ fn thumb<S: TimelineHost>(s: &S, p: &Pal, message: &str, i: usize, f: &Attachmen
         Some(img) => {
             let thumb = tile.pixels_fit(img.pixels(), SurfaceFit::Fill).child(ring);
             let held = el().key(format!("{key}-held")).size(w, h);
-            opens(s, thumb, held, gallery_id(&format!("user-attachments:{message}"), i), f, img, Some(message))
+            opens(s, thumb, held, Strip::new(format!("user-attachments:{message}"), files.clone(), i), img, Some(message))
         }
         None if store.fetched(f) == Some(Fetched::Loading) => tile.child(ring),
         None => {

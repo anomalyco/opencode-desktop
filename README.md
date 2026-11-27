@@ -44,7 +44,7 @@ No Electron, no DOM, no Chromium at startup. Download the latest `dev` build and
 
 <sub>Set <code>chmod +x</code> on Linux AppImage files. macOS and Windows <code>dev</code> builds auto-update in the background. Want to test a pull request alongside <code>dev</code>? See <a href="docs/trying-opencode-rune.md">docs/trying-opencode-rune.md</a>. Release channels and signing: <a href="docs/releasing.md">docs/releasing.md</a>.</sub>
 
-Start a local OpenCode server (`opencode serve --port 4096` or open **OpenCode Desktop**), then launch **OpenCode (Rune)**. It discovers `http://127.0.0.1:4096` or `~/.config/opencode/service.json` automatically (`--server <url>` or `OPENCODE_SERVER_URL` overrides it) and never starts a server on its own.
+Start a local OpenCode server (`opencode serve --service` or open **OpenCode Desktop**), then launch **OpenCode (Rune)**. It discovers `http://127.0.0.1:4096` or `~/.config/opencode/service.json` automatically (`--server <url>` or `OPENCODE_SERVER_URL` overrides it) and never starts a server on its own.
 
 ## What's inside
 
@@ -58,7 +58,7 @@ Start a local OpenCode server (`opencode serve --port 4096` or open **OpenCode D
 </p>
 
 - **Windfoil GPU text.** Draws each glyph's exact coverage directly from its vector outline on the GPU, so text stays sharp while zooming or moving.
-- **Zero Chromium at startup.** The built-in browser pane (`⌥⌘B` / `Ctrl+Alt+B`) fetches an isolated CEF sidecar (`apps/browser-engine`) lazily on demand. If you never open it, you never pay for it.
+- **Zero Chromium at startup.** The built-in browser pane (`⌃⌘B` / `Ctrl+Alt+B`) fetches an isolated CEF sidecar (`apps/browser-engine`) lazily on demand. If you never open it, you never pay for it.
 - **Real native engines.** **Ghostty-VT** (`libghostty-vt`) terminal tabs, virtualized syntax-highlighted code and split diffs (`opencode-code-view`), native GPU ```` ```ui ```` generative UI and vector diagrams (`rune-parts`), Word/Excel/PowerPoint previews via Vello (`office-preview`), local **Hex** voice dictation (`hex-client`), crash-safe SQLite with an mmap draft journal (`opencode-storage`), and 63 locales with RTL.
 - **0 ms UI iteration.** Built-in `--!strict` Luau plugins (`plugins/*`) reload live in place with `--plugin-hot` without touching `rustc`.
 - **Headless eyes, zero tests.** By policy, this repo has no automated tests or mocks (*"Application code is truth"*, see [AGENTS.md](AGENTS.md)). The binary renders any scene or 111-story playground view offscreen to PNG (`--snap`), dumps its live element tree (`--tree`), and replays scripted input (`--script`).
@@ -66,7 +66,7 @@ Start a local OpenCode server (`opencode serve --port 4096` or open **OpenCode D
 
 ## Run from source
 
-Start an OpenCode server locally (`opencode serve --port 4096` or **OpenCode Desktop**), then run:
+Start an OpenCode server locally (`opencode serve --service` or **OpenCode Desktop**), then run:
 
 ```sh
 cargo run -p opencode-desktop -- --live
@@ -118,8 +118,8 @@ Organized by **progressive disclosure** across four tiers: start at Tier 1 and s
 Add git dependencies from this repository pinned to a commit rev matching your `anomalyco/rune` pin:
 
 ```toml
-opencode-kit = { git = "https://github.com/anomalyco/rune-desktop", rev = "<rev>" }
-session-view = { git = "https://github.com/anomalyco/rune-desktop", rev = "<rev>" }
+opencode-kit = { git = "https://github.com/anomalyco/opencode-rune", rev = "<rev>" }
+session-view = { git = "https://github.com/anomalyco/opencode-rune", rev = "<rev>" }
 ```
 
 Hold a `session_view::ViewState` on your app state (calling `view.setup(waker, headless)` during setup), implement `session_view::TimelineHost` (using `session_view::delegate_view_state!` for the state accessors), drive `session_view::poll(s, now, tx)` each frame, and render `session_view::read_only(s, p, id, transcript)` or `session_view::timeline_area(s, p, id, transcript, pills, header)` alongside `session_view::overlays(s, p, cx)`. See [`crates/session-view/examples/read_only.rs`](crates/session-view/examples/read_only.rs) for a complete minimal host.

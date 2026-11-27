@@ -15,6 +15,7 @@ use opencode_i18n::t;
 use opencode_kit::model::{Project, project_git};
 use opencode_kit::servers::ServerKey;
 use opencode_search::query::{Highlight, HighlightEvent};
+use opencode_ui::keymap::Bind;
 use rune::machine::{Attempt, Seq};
 use rune::{El, Key, KeyEvent, PointerEvent, TextEdit, Tx};
 use opencode_ui::palette::Pal;
@@ -53,6 +54,10 @@ pub trait ProjectSwitcherHost: opencode_kernel::AppEnv + opencode_kernel::AppOve
         false
     }
     fn draft_project(&self) -> Option<&Project> {
+        None
+    }
+    /// The folder the open draft runs in, which the worktree step checks (`currentDestination`).
+    fn draft_dir(&self) -> Option<&str> {
         None
     }
     fn open_branch_picker(&mut self, _tx: &mut Tx) {}
@@ -217,7 +222,6 @@ pub enum RowKind {
     Worktree { project_id: String, directory: String, main: bool, server: Option<ServerKey> },
     /// New worktree: the session starts in a worktree made from the project's checkout.
     Create { project_id: String, directory: String, server: Option<ServerKey> },
-    Base { directory: String },
     Branch,
     Other { count: usize },
     Add,
@@ -545,7 +549,6 @@ pub fn choose(host: &mut dyn ProjectSwitcherHost, key: &str, tx: &mut Tx) {
 
 fn choose_here(host: &mut dyn ProjectSwitcherHost, row: SwitcherRow, worktree: bool, base: Option<String>, tx: &mut Tx) {
     match row.kind {
-        RowKind::Base { directory } => branches::open_base(host, directory, tx),
         RowKind::Branch => {
             location_event(host, location::Event::BranchChosen(row.title), tx);
         }
@@ -553,13 +556,7 @@ fn choose_here(host: &mut dyn ProjectSwitcherHost, row: SwitcherRow, worktree: b
             let lit = active(host, &rows(host));
             location_event(host, location::Event::Others { active: lit }, tx);
         }
-        // With several servers Add project asks which one first (`choosesServer`).
-        RowKind::Add if !host.project_switcher().servers().is_empty() => {
-            location_event(host, location::Event::Servers { active: Some("+add".into()) }, tx);
-        }
-        RowKind::Add => {
-            host.open_project_dialog(tx);
-        }
+        RowKind::Add => add_project(host, tx),
         RowKind::Server { key } => {
             tx.instant();
             close(host, false);
@@ -595,12 +592,26 @@ fn choose_here(host: &mut dyn ProjectSwitcherHost, row: SwitcherRow, worktree: b
     }
 }
 
+/// Add project. With several servers it asks which one first (`choosesServer`).
+fn add_project(host: &mut dyn ProjectSwitcherHost, tx: &mut Tx) {
+    if host.project_switcher().servers().is_empty() {
+        host.open_project_dialog(tx);
+    } else {
+        location_event(host, location::Event::Servers { active: Some("+add".into()) }, tx);
+    }
+}
+
 pub fn key(host: &mut dyn ProjectSwitcherHost, ev: &KeyEvent, tx: &mut Tx) -> bool {
     if !host.project_switcher().is_open() {
         return false;
     }
     if host.project_switcher().search.is_composing() {
         return false;
+    }
+    // ⌘O is Add project here, as Desktop binds `project.open` while this dialog shows.
+    if Bind::OpenProject.matches_tx(ev, tx) {
+        add_project(host, tx);
+        return true;
     }
     let (text_len, at_end, at_start) = {
         let search = &host.project_switcher().search;

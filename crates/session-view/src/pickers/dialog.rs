@@ -10,24 +10,38 @@
 //!   the lit row its effort, "Default ›", whose flyout ([`super::flyout`]) opens beside it.
 
 use opencode_kit::model::capitalize;
-use rune::{El, Span, Spring, Transition, Tx, col, el, icon, rich, row, text};
+use rune::{El, Icon, Span, Spring, Transition, Tx, col, el, icon, rich, row, text};
 use rune_theme_opencode::icons as ic;
 
-use super::{Item, Kind, ModelAction, PickerHost, flyout, hover};
+use super::{FAVORITES, Item, Kind, ModelAction, PickerHost, flyout, hover};
 use crate::palette::{Elevate as _, Pal};
 use crate::popover::{self as pop, LIST};
 use crate::style::UI;
 
 /// `<Dialog size="large" fit>` (`select-dialog.tsx`): the large size, 32 short of a narrower window
-/// and 96 short of a shorter one (the scrim's padding). The list fills it, so it stands the
-/// size's full height where the fitting dialog's top edge sits.
+/// and 96 short of a shorter one (the scrim's padding). It fits its rows up to the size's
+/// height, its top edge where the full-height dialog's would be (`dialog.css:166-176`).
 const SIZE: crate::dialog::DialogSize = crate::dialog::DialogSize::Large;
 /// `search-list-empty`: "No model results" in the middle of 120 pt.
 const EMPTY_H: f32 = 120.0;
 /// `model-dialog-variant`: the lit row's effort is at most 120 wide.
 const VARIANT_W: f32 = 120.0;
-/// Desktop's `Icon size="small"`: 14 pt (`icon.tsx`).
-const SMALL: f32 = 14.0;
+/// The favorite star after a model's name: smaller than the 16 pt slot, so it sits at the
+/// name's cap height rather than over it.
+const STAR: f32 = 12.0;
+
+static STAR_FILLED: Icon = Icon {
+    name: "star-filled",
+    view: 16.0,
+    body: r#"<path d="M8 2.25L9.85 6L13.98 6.6L10.99 9.52L11.69 13.63L8 11.69L4.31 13.63L5.01 9.52L2.02 6.6L6.15 6Z" fill="currentColor" stroke="currentColor" stroke-linejoin="round"/>"#,
+};
+
+/// A favorite model's star, where it isn't already under Favorites (a search lists each model
+/// under its provider). Desktop's dialog shows no mark here, so a search can't tell which of a
+/// model's providers is the favorite without opening its flyout; this mark is Rune's addition.
+pub(super) fn favorite_star(p: &Pal) -> El {
+    icon(&STAR_FILLED, STAR).key("favorite").color(p.icon_muted)
+}
 
 /// The scrim, the dialog and the lit model's flyout, while the model picker is open.
 pub fn layer<S: PickerHost>(s: &S, p: &Pal) -> Vec<El> {
@@ -49,7 +63,8 @@ pub fn layer<S: PickerHost>(s: &S, p: &Pal) -> Vec<El> {
             tx.instant();
             s.close_picker(true);
         })
-        .child(dialog(s, p));
+        // The size's box holds the fitting dialog at its top; the room under it is the scrim's.
+        .child(col().key("picker-model-box").w_full().max_w(SIZE.width(f32::INFINITY)).h(SIZE.height(f32::INFINITY)).shrink().min_h(0.0).child(dialog(s, p)));
     let mut out = vec![hover::watch::<S>(scrim)];
     out.extend(flyout::view(s, p));
     out
@@ -71,13 +86,11 @@ fn dialog<S: PickerHost>(s: &S, p: &Pal) -> El {
         .role("dialog")
         .label_static(opencode_i18n::t!("dialog.model.select.title"))
         .w_full()
-        .max_w(SIZE.width(f32::INFINITY))
-        .h(SIZE.height(f32::INFINITY))
         .shrink()
         .min_h(0.0)
         .radius(LIST.radius())
         .fill(p.bg_base)
-        .elevate(p.floating)
+        .elevate(p.overlay)
         .clip_soft(0.0)
         .transition(Transition::none())
         .motion(Spring::NONE)
@@ -88,7 +101,7 @@ fn dialog<S: PickerHost>(s: &S, p: &Pal) -> El {
         .child(list(s, p))
 }
 
-/// The results, filling the dialog under its search.
+/// The results under its search, as tall as their rows up to the dialog's height.
 fn list<S: PickerHost>(s: &S, p: &Pal) -> El {
     let pk = s.pickers();
     let items = s.picker_items();
@@ -110,7 +123,7 @@ fn list<S: PickerHost>(s: &S, p: &Pal) -> El {
             .child(text(opencode_i18n::t!("dialog.model.empty")).font(UI).color(p.muted)), EMPTY_H);
     }
     list.slide(s.knobs(), p, &pk.search.text);
-    hover::scroll::<S>(list.build("picker-scroll", f32::MAX).grow(1.0).shrink().min_h(0.0))
+    hover::scroll::<S>(list.build("picker-scroll", f32::MAX).shrink().min_h(0.0))
 }
 
 /// A model's row (`select-dialog.tsx:911-979`, `select-dialog.css:177-218`): its check slot, its
@@ -123,8 +136,10 @@ fn model_row<S: PickerHost>(s: &S, p: &Pal, item: &Item, lit: bool, selected: bo
         Some(r) => rich(item.label.clone(), vec![Span::new(r.start, r.end).color(p.accent)]),
         None => text(item.label.clone()),
     };
+    let starred = item.group != FAVORITES && s.pickers().prefs.is_favorite(&key);
     let words = row().key("name").grow(1.0).shrink().min_w(0.0).gap(6.0).center_y()
         .child(name.key("label").font(UI).color(p.text).shrink().truncate())
+        .children(starred.then(|| favorite_star(p)))
         .children((!item.note.is_empty()).then(|| text(item.note.clone()).key("note").font(UI).color(p.faint).shrink().truncate()))
         .children(item.free.then(|| pop::badge(p, opencode_i18n::t!("model.tag.free"))))
         .children(item.latest.then(|| pop::badge(p, opencode_i18n::t!("model.tag.latest"))));
@@ -136,11 +151,14 @@ fn model_row<S: PickerHost>(s: &S, p: &Pal, item: &Item, lit: bool, selected: bo
     let variant = effort_label.as_ref().map(|label| {
         row().key("variant").shrink().min_w(0.0).max_w(VARIANT_W).center_y()
             .child(text(label.clone()).font(UI).color(p.muted).shrink().truncate())
-            .child(icon(&ic::CHEVRON_RIGHT, SMALL).mirror_in_rtl().color(p.icon_muted).offset(0.0, 0.5))
+            .child(icon(&ic::CHEVRON_RIGHT, pop::SLOT).mirror_in_rtl().color(p.icon_muted).offset(0.0, 0.5))
     });
     // `Role::ListBoxOption` is a leaf in Rune's accessibility tree, so include budget, provider
     // note, tags, and current effort in the row's accessible description.
     let mut desc_parts: Vec<&str> = Vec::new();
+    if starred {
+        desc_parts.push(opencode_i18n::t!("rune.model.favorited"));
+    }
     if !item.note.is_empty() {
         desc_parts.push(&item.note);
     }
@@ -170,7 +188,7 @@ fn model_row<S: PickerHost>(s: &S, p: &Pal, item: &Item, lit: bool, selected: bo
         .center_y()
         .radius(LIST.row_radius)
         .on_press_tx(move |s: &mut S, tx: &mut Tx| s.choose_picker_tx(&pick, tx))
-        .child(row().key("check").size(pop::SLOT, pop::SLOT).center().children(selected.then(|| icon(&ic::CHECK, SMALL).color(p.icon))))
+        .child(row().key("check").size(pop::SLOT, pop::SLOT).center().children(selected.then(|| icon(&ic::CHECK, pop::SLOT).color(p.icon))))
         .child(words)
         .children((!lit).then_some(budget.as_ref()).flatten().map(|(label, reached)|
             text(label.clone()).font(UI).color(if *reached { p.v2.danger.fg } else { p.faint })))
@@ -196,7 +214,8 @@ fn search_match(name: &str, query: &str) -> Option<std::ops::Range<usize>> {
 }
 
 /// A `ghost-muted` button at the search's end (`select-dialog.tsx:1010-1034`): it closes the
-/// dialog and opens Manage models, or hands Connect to the host.
+/// dialog and opens Manage models, or hands Connect to the host. Its tooltip sits above it
+/// (`Tooltip placement="top" gutter={4}`).
 fn model_action<S: PickerHost>(p: &Pal, action: ModelAction) -> El {
     let (key, glyph) = match action {
         ModelAction::Connect => ("picker-connect", &ic::PLUS),
@@ -210,4 +229,5 @@ fn model_action<S: PickerHost>(p: &Pal, action: ModelAction) -> El {
             ModelAction::Connect => s.picker_model_action(action, tx),
         }
     })
+    .help_above()
 }

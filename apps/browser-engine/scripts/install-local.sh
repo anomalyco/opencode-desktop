@@ -48,11 +48,14 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <key>LSMinimumSystemVersion</key><string>13.0</string>
   <key>LSUIElement</key><string>1</string>
   <key>NSHighResolutionCapable</key><true/>
+  <key>NSCameraUsageDescription</key><string>OpenCode lets websites you allow in the browser pane use your camera.</string>
+  <key>NSMicrophoneUsageDescription</key><string>OpenCode uses your microphone for voice calls and lets websites you allow in the browser pane use it.</string>
   <key>LSEnvironment</key><dict>
     <key>MallocNanoZone</key><string>0</string>
   </dict>
 </dict></plist>
 PLIST
+/usr/bin/plutil -convert xml1 "$APP/Contents/Info.plist"
 
 ditto "$CEF_DIR/Chromium Embedded Framework.framework" "$APP/Contents/Frameworks/Chromium Embedded Framework.framework"
 # Strip software Vulkan fallback (macOS uses Metal) and unused locale dirs (~40 MiB saved).
@@ -86,6 +89,7 @@ for SUFFIX in "Helper" "Helper (GPU)" "Helper (Renderer)" "Helper (Plugin)" "Hel
   </dict>
 </dict></plist>
 PLIST
+  /usr/bin/plutil -convert xml1 "$HAPP/Contents/Info.plist"
   codesign --force --sign "$SIGN_ID" "$HAPP" >/dev/null 2>&1 || codesign --force --sign - "$HAPP" >/dev/null 2>&1 || true
 done
 

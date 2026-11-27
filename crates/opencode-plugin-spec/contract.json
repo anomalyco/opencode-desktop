@@ -1,6 +1,6 @@
 {
   "$comment": "The OpenCode plugin contract: the single source of truth for plugin types, the plugin.toml schema, the selene std, the API docs and the host's Rust decoders. Edit this file, then run `cargo run -p opencode-plugin-spec -- --write`. Type strings use Luau syntax; `integer` is a whole number (Luau `number`).",
-  "contract": "1.6",
+  "contract": "1.11",
   "versioning": {
     "format": "MAJOR.MINOR",
     "rules": [
@@ -185,10 +185,15 @@
       { "value": "row", "doc": "A horizontal stack." },
       { "value": "box", "doc": "No axis: children stack on top of each other." }
     ] },
+    { "name": "PanelSidebarSide", "rust": true, "doc": "The edge of a panel its file sidebar sits on.", "values": [
+      { "value": "start", "doc": "The inline start: left in a left-to-right layout." },
+      { "value": "end", "doc": "The inline end: right in a left-to-right layout." }
+    ] },
     { "name": "ComposerPicker", "rust": true, "doc": "Which picker overlay the composer currently has open.", "values": [
       { "value": "agent", "doc": "The agent picker." },
       { "value": "model", "doc": "The model picker." },
       { "value": "effort", "doc": "The model effort/variant picker." },
+      { "value": "speed", "since": "1.8", "doc": "The model speed picker, for a model the server offers at faster or slower speeds." },
       { "value": "project", "doc": "The draft project picker." }
     ] },
     { "name": "FontWeight", "rust": true, "doc": "A text weight.", "values": [
@@ -362,10 +367,11 @@
       { "value": "group", "doc": "A group title over the rows that follow." },
       { "value": "separator", "doc": "A divider." }
     ] },
-    { "name": "DialogSize", "rust": true, "doc": "A dialog's size: one of Desktop's three presets, each clamped to the window.", "values": [
+    { "name": "DialogSize", "rust": true, "doc": "A dialog's size: one of Desktop's four presets, each clamped to the window.", "values": [
       { "value": "normal", "doc": "Confirmations, sign-ins and small forms: 480 points wide, as tall as its content. The default." },
-      { "value": "large", "doc": "Palettes, pickers and lists: 880 by 600 points." },
-      { "value": "x-large", "doc": "Long documents and settings-like panels: 1040 by 680 points." },
+      { "value": "tall", "since": "1.11", "doc": "A short form that reveals a list under a choice: 480 points wide, as tall as its content up to 600 points, its top edge kept so that it only grows downward." },
+      { "value": "large", "doc": "Palettes, pickers and lists: 680 by 600 points." },
+      { "value": "x-large", "doc": "Long documents and settings-like panels: 880 by 680 points." },
       { "value": "small", "doc": "Deprecated: the same as `normal`." },
       { "value": "medium", "doc": "Deprecated: the same as `normal`." }
     ] },
@@ -527,7 +533,9 @@
       { "name": "label", "type": "string?", "doc": "The accessible name." },
       { "name": "help", "type": "string?", "doc": "A tooltip." },
       { "name": "helpSide", "type": "Side?", "doc": "Where the tooltip shows. Defaults to below." },
-      { "name": "dir", "type": "(\"ltr\" | \"rtl\" | \"auto\")?", "doc": "Which way the subtree reads, as HTML's `dir` does: `ltr` or `rtl` keeps a figure or a path in that order inside a window running the other way, `auto` takes a text's first strong direction (a name). On `ui.field` it is the value's direction, as on an `input`: `auto` starts an Arabic name at the right, `ltr` keeps an address or a host left to right. Defaults to the window's." }
+      { "name": "helpOpen", "type": "boolean?", "since": "1.7", "doc": "Keeps the tooltip showing while true, whatever the pointer does, as Desktop's `Tooltip forceOpen`: a Copy button's \"Copied\" for a moment after the press." },
+      { "name": "dir", "type": "(\"ltr\" | \"rtl\" | \"auto\")?", "doc": "Which way the subtree reads, as HTML's `dir` does: `ltr` or `rtl` keeps a figure or a path in that order inside a window running the other way, `auto` takes a text's first strong direction (a name). On `ui.field` it is the value's direction, as on an `input`: `auto` starts an Arabic name at the right, `ltr` keeps an address or a host left to right. Defaults to the window's." },
+      { "name": "cursor", "type": "(\"default\" | \"pointer\" | \"text\" | \"grab\" | \"grabbing\" | \"not-allowed\" | \"move\" | \"col-resize\" | \"row-resize\" | \"ew-resize\" | \"ns-resize\" | \"nwse-resize\" | \"nesw-resize\" | \"crosshair\" | \"cell\" | \"zoom-in\" | \"zoom-out\")?", "since": "1.10", "doc": "The pointer's shape over the node and over what is inside it that sets none, by its CSS `cursor` name. Desktop shows the arrow on controls; set this only where its style sheet names another cursor, as the browser's address field does (`text`)." }
     ] },
     { "name": "UiPin", "kind": "record", "rust": true, "doc": "Offsets from the parent's edges for an out-of-flow node. Give one or two per axis.", "fields": [
       { "name": "left", "type": "number?", "doc": "From the left edge." },
@@ -553,6 +561,7 @@
       { "name": "clip", "type": "boolean?", "doc": "Clips children to the box." },
       { "name": "scrollY", "type": "boolean?", "doc": "Scrolls vertical overflow." },
       { "name": "scrollX", "type": "boolean?", "doc": "Scrolls horizontal overflow." },
+      { "name": "stickBottom", "type": "boolean?", "doc": "With `scrollY`: stays scrolled to the bottom as content grows, as a log or a chat does, until the reader scrolls up." },
       { "name": "focusable", "type": "boolean?", "doc": "Takes keyboard focus." },
       { "name": "disabled", "type": "boolean?", "doc": "Takes no presses." },
       { "name": "onPress", "type": "UiHandler?", "doc": "Runs on a press." },
@@ -567,7 +576,11 @@
     ] },
     { "name": "UiFrameProps", "kind": "record", "extends": ["UiBoxProps"], "doc": "`ui.frame` props: a layout container whose border takes layout space snapped to device pixels (`box-sizing: border-box`).", "fields": [
       { "name": "direction", "type": "UiDirection?", "doc": "Stack direction: `\"col\"` (default), `\"row\"` or `\"box\"`." },
-      { "name": "borderSides", "type": "{ number }?", "doc": "Per-side border widths in points: `{ top, right, bottom, left }`. Overrides `borderWidth`." }
+      { "name": "borderSides", "type": "{ number }?", "doc": "Per-side border widths in points: `{ top, right, bottom, left }`. Overrides `borderWidth`." },
+      { "name": "focusReturn", "type": "string?", "since": "1.7", "doc": "The key of the element that takes focus when this frame leaves while focus is on it or inside it: one view of a popover handing focus to the control that leads back to it. That element, or its first focusable child; nothing happens when none shows." },
+      { "name": "focusGroup", "type": "boolean?", "since": "1.7", "doc": "One Tab stop for the focusable controls inside, which the arrow keys move between, as a roving `tabindex` does: Up and Down with `role` `list`, `listbox`, `menu` or `tree`, Left and Right as well otherwise. Home and End go to the ends; a `list` or `tree` stops at its ends, the others wrap. In a `list`, `listbox`, `menu`, `tree` or `tablist`, typing moves to the first control whose label starts with it. Space presses the focused control, and in a list Return does too." },
+      { "name": "keys", "type": "{ string }?", "since": "1.7", "doc": "Keys `onKey` takes while focus is on the frame or inside it, outside a text field, pressed with no modifier: any of `Enter`, `Escape`, `ArrowUp`, `ArrowDown`, `ArrowLeft`, `ArrowRight`, `Home`, `End`, `PageUp`, `PageDown`, `Delete` and `Backspace`. A key it takes does nothing else there: Return in a `focusGroup` list then no longer presses the focused control." },
+      { "name": "onKey", "type": "UiHandler?", "since": "1.7", "doc": "Runs as a key `keys` names is pressed, with its name in `event.keyName`." }
     ] },
     { "name": "UiTextProps", "kind": "record", "extends": ["UiLayoutProps"], "doc": "Text styling: `ui.text` and `ui.shimmer`.", "fields": [
       { "name": "size", "type": "number?", "doc": "Font size in points. Defaults to 13." },
@@ -632,7 +645,9 @@
       { "name": "loading", "type": "boolean?", "doc": "Shows the app's loader and takes no presses." },
       { "name": "pressed", "type": "boolean?", "doc": "A toggle button's pressed state." },
       { "name": "onPress", "type": "UiHandler?", "doc": "Runs on a press." },
-      { "name": "menuTrigger", "type": "boolean?", "doc": "Its `onPress` opens a menu, as Kobalte's `Menu.Trigger` does: a mouse runs it as the button goes down. A key, a screen reader's Invoke or a tap run it on the click. Contract 1.1." }
+      { "name": "menuTrigger", "type": "boolean?", "doc": "Its `onPress` opens a menu, as Kobalte's `Menu.Trigger` does: a mouse runs it as the button goes down. A key, a screen reader's Invoke or a tap run it on the click. Contract 1.1." },
+      { "name": "autofocus", "type": "boolean?", "since": "1.7", "doc": "Takes focus as the dialog it is in opens, as HTML's `autofocus` in a dialog: a confirmation's Cancel, say. Without one the dialog focuses its first text field or Tab stop." },
+      { "name": "focusReturn", "type": "string?", "since": "1.7", "doc": "The key of the element that takes focus when this one leaves while it has focus, as a page's `element.focus()` after a view changes: a drill-in's Back hands focus to the row that opened it. That element, or its first focusable child; nothing happens when none shows." }
     ] },
     { "name": "UiIconButtonProps", "kind": "record", "extends": ["UiLayoutProps"], "doc": "`ui.iconButton` props: a square button with an icon. Give it a `label`.", "fields": [
       { "name": "icon", "type": "IconName", "doc": "The icon." },
@@ -643,11 +658,22 @@
       { "name": "color", "type": "Color?", "doc": "The icon's color, instead of the variant's." },
       { "name": "keybind", "type": "string?", "doc": "A published command id whose shortcut its tooltip shows after the `help` text, as keycaps." },
       { "name": "onPress", "type": "UiHandler?", "doc": "Runs on a press." },
-      { "name": "menuTrigger", "type": "boolean?", "doc": "Its `onPress` opens a menu, as Kobalte's `Menu.Trigger` does: a mouse runs it as the button goes down. A key, a screen reader's Invoke or a tap run it on the click. Contract 1.1." }
+      { "name": "menuTrigger", "type": "boolean?", "doc": "Its `onPress` opens a menu, as Kobalte's `Menu.Trigger` does: a mouse runs it as the button goes down. A key, a screen reader's Invoke or a tap run it on the click. Contract 1.1." },
+      { "name": "autofocus", "type": "boolean?", "since": "1.7", "doc": "Takes focus as the dialog it is in opens, as HTML's `autofocus` in a dialog: a confirmation's Cancel, say. Without one the dialog focuses its first text field or Tab stop." },
+      { "name": "focusReturn", "type": "string?", "since": "1.7", "doc": "The key of the element that takes focus when this one leaves while it has focus, as a page's `element.focus()` after a view changes: a drill-in's Back hands focus to the row that opened it. That element, or its first focusable child; nothing happens when none shows." }
     ] },
     { "name": "UiSwitchProps", "kind": "record", "extends": ["UiLayoutProps"], "doc": "`ui.switch` props: the app's own switch.", "fields": [
       { "name": "checked", "type": "boolean", "doc": "On." },
       { "name": "disabled", "type": "boolean?", "doc": "Cannot change." },
+      { "name": "onChange", "type": "UiHandler?", "doc": "Runs with the new state in `event.checked`." }
+    ] },
+    { "name": "UiCheckboxProps", "kind": "record", "extends": ["UiLayoutProps"], "doc": "`ui.checkbox` props: Desktop's compact checkbox (`Checkbox appearance=\"compact\"`) with its label.", "fields": [
+      { "name": "text", "type": "string", "doc": "The label, beside the box." },
+      { "name": "description", "type": "string?", "doc": "A line under the label." },
+      { "name": "checked", "type": "boolean", "doc": "Ticked." },
+      { "name": "indeterminate", "type": "boolean?", "since": "1.11", "doc": "Some of what it stands for is ticked: the box shows a dash, as Desktop's `indeterminate`. A press still reports the opposite of `checked`." },
+      { "name": "surface", "type": "(\"base\" | \"layer-1\")?", "doc": "The background the box sits on: `base` (the default) or `layer-1`, as Desktop's `surface`; an unticked box takes its fill." },
+      { "name": "disabled", "type": "boolean?", "doc": "Cannot change; drawn at half opacity." },
       { "name": "onChange", "type": "UiHandler?", "doc": "Runs with the new state in `event.checked`." }
     ] },
     { "name": "UiRadioProps", "kind": "record", "extends": ["UiLayoutProps"], "doc": "`ui.radio` props: a radio row with its label and description.", "fields": [
@@ -669,6 +695,9 @@
       { "name": "readOnly", "type": "boolean?", "doc": "Takes no typing but looks as usual, such as while what was typed is sent." },
       { "name": "multiline", "type": "boolean?", "doc": "Grows to more lines. Enter inserts a line break; Mod+Enter submits." },
       { "name": "variant", "type": "FieldVariant?", "doc": "The look. Defaults to `default`." },
+      { "name": "icon", "type": "IconName?", "since": "1.7", "doc": "An icon in the box before the text, as Desktop's `TextInput` `leadingIcon`: a search field's magnifying glass. The `default` variant only." },
+      { "name": "clearable", "type": "boolean?", "since": "1.7", "doc": "A Clear button at the box's end that empties the field, as Desktop's `TextInput` `showClearButton`: set it while the field has text. The `default` variant only." },
+      { "name": "focusDown", "type": "string?", "since": "1.7", "doc": "The key of the element Down moves the keyboard to from this field, or that element's first focusable control: a list under its search field, as official's site chooser does. The `default` variant only." },
       { "name": "keys", "type": "{ string }?", "doc": "Keys the field hands to its editor's `KeyPressed` instead of handling them: any of `ArrowUp`, `ArrowDown` and `Escape`." },
       { "name": "onSubmit", "type": "UiHandler?", "doc": "Runs on Enter with the text in `event.text`." }
     ] },
@@ -718,11 +747,16 @@
       { "name": "popover", "type": "string", "doc": "The id of this plugin's popover the row opens." },
       { "name": "props", "type": "{ [string]: any }?", "doc": "Passed to the nested popover's render as `props.data`." },
       { "name": "alert", "type": "boolean?", "doc": "Shows a danger dot before the detail: something in the nested list failed." },
-      { "name": "side", "type": "Side?", "doc": "The side of the row the nested popover opens on. Defaults to `right`; a popover at the window's right edge opens its rows' lists on the `left`." }
+      { "name": "side", "type": "Side?", "doc": "The side of the row the nested popover opens on. Defaults to `right`; a popover at the window's right edge opens its rows' lists on the `left`." },
+      { "name": "radius", "type": "number?", "doc": "Corner radius of the row's hover and open fill. Defaults to 4." }
+    ] },
+    { "name": "UiBadgeProps", "kind": "record", "extends": ["UiLayoutProps"], "official": "Badge", "doc": "`ui.badge` props: Desktop's compact badge, a short muted label in a 16-point tag.", "fields": [
+      { "name": "text", "type": "string", "doc": "Its label, on one line; cut short where it has no room." }
     ] },
     { "name": "UiDialogHeaderProps", "kind": "record", "extends": ["UiLayoutProps"], "official": "DialogHeader", "doc": "`ui.dialogHeader` props: the app's dialog header (`DialogHeader` with a `DialogTitleGroup`), 16 in from the frame, with its close button.", "fields": [
       { "name": "title", "type": "string", "doc": "The dialog's title: 15 pt, wrapping anywhere unless `wrapTitle` is false." },
       { "name": "description", "type": "string?", "doc": "A muted line under the title." },
+      { "name": "badge", "type": "string?", "since": "1.11", "doc": "A badge after the title on its line, such as a profile's name. The title then stays on one line, and each is cut short where the line has no room for both." },
       { "name": "hideClose", "type": "boolean?", "doc": "Leaves out the close button." },
       { "name": "closeLabel", "type": "string?", "doc": "The close button's accessible name. Defaults to Close." },
       { "name": "wrapTitle", "type": "boolean?", "since": "1.5", "doc": "Whether the title wraps across lines (breaking anywhere for long identifiers). Defaults to true; set false for short single-line dialog titles." }
@@ -800,7 +834,7 @@
       { "name": "narrow", "type": "boolean?", "doc": "A workspace tree as the narrow Files view: All files and the open files' tabs over the tree, or the open file." },
       { "name": "width", "type": "number?", "doc": "The narrow Files view's width." }
     ] },
-    { "name": "UiPanelSidebarProps", "kind": "record", "extends": ["UiLayoutProps"], "doc": "`ui.panelSidebar(props, { sidebar, main })` props: a panel's frame with the file sidebar at its start, resized by its end edge (a double click resets it), and the sidebar toggle pinned at the panel's top left. Whether the sidebar shows and its width are one preference every panel shares (`Layout:PanelSidebar`); the toggle and Mod+\\ flip it.", "fields": [
+    { "name": "UiPanelSidebarProps", "kind": "record", "extends": ["UiLayoutProps"], "doc": "`ui.panelSidebar(props, { sidebar, main })` props: a panel's frame with the file sidebar at its start or end, resized by its inner edge (a double click resets it), and the sidebar toggle pinned at the panel's top corner on the sidebar's side. Whether the sidebar shows, its width and the edge it sits on are one preference every panel shares (`Layout:PanelSidebar`); the toggle and Mod+\\ flip it, and a right-click on the sidebar or the toggle offers Sidebar position.", "fields": [
       { "name": "id", "type": "string", "doc": "Prefixes its parts' keys: `<id>-sidebar`, `<id>-sidebar-resize`, `<id>-tree-toggle`." },
       { "name": "width", "type": "number?", "doc": "Its width until the user drags it. Defaults to 240." },
       { "name": "minWidth", "type": "number?", "doc": "The narrowest it gets. Defaults to 200." },
@@ -809,7 +843,8 @@
     ] },
     { "name": "PanelSidebarInfo", "kind": "record", "rust": true, "doc": "The panels' shared file sidebar.", "fields": [
       { "name": "opened", "type": "boolean", "doc": "It shows." },
-      { "name": "width", "type": "number", "doc": "Its width in points." }
+      { "name": "width", "type": "number", "doc": "Its width in points." },
+      { "name": "side", "type": "PanelSidebarSide", "since": "1.9", "doc": "The edge of the panel it sits on. With `end`, the toggle is at the panel's top end corner: leave it room at the end of a header or toolbar under it, not at the start." }
     ] },
     { "name": "UiOpenInButtonProps", "kind": "record", "extends": ["UiLayoutProps"], "doc": "`ui.openInButton` props: the app's Open in split button. Its mark opens the path in the app the user chose last; its chevron lists the installed apps and Copy path. Nothing where the server's files aren't on this machine.", "fields": [
       { "name": "path", "type": "string", "doc": "A workspace path, or empty for the workspace folder." }
@@ -1646,9 +1681,9 @@
       { "name": "title", "type": "string?", "doc": "Its heading and accessible name." },
       { "name": "size", "type": "DialogSize?", "doc": "Its size preset." },
       { "name": "layer", "type": "DialogLayer?", "since": "1.5", "doc": "Which modal overlay layer the dialog draws in (`\"standard\"` beneath elevated recovery/server dialogs, or `\"elevated\"` above them). Defaults to `\"elevated\"`." },
-      { "name": "radius", "type": "number?", "since": "1.5", "doc": "Corner radius in points. Defaults to 6 for `normal` dialogs and 12 for `large` and `x-large`." },
+      { "name": "radius", "type": "number?", "since": "1.5", "doc": "Corner radius in points. Defaults to 6 for `normal` dialogs and 12 for `tall`, `large` and `x-large`." },
       { "name": "hideScrollbar", "type": "boolean?", "since": "1.5", "doc": "Hides the scroll bar when a `normal` dialog's content overflows, as Desktop's `dialog-content` does. Defaults to false." },
-      { "name": "render", "type": "(view: View, props: DialogProps) -> UiNode?", "doc": "Draws its body inside the host's dialog frame: Desktop's dialog with the overlay elevation. A normal one is as tall as its content on layer-01 with 6-point corners; a large or x-large one is its size's height on bg-base with 12-point corners, so its body can fill it (`h = \"full\"`)." },
+      { "name": "render", "type": "(view: View, props: DialogProps) -> UiNode?", "doc": "Draws its body inside the host's dialog frame: Desktop's dialog with the overlay elevation. A normal one is as tall as its content on layer-01 with 6-point corners; a tall one is as tall as its content up to its size's height on bg-base with 12-point corners, and what in it may shrink (`shrink = true`, `minH = 0`) gives way once it is that tall; a large or x-large one is its size's height on bg-base with 12-point corners, so its body can fill it (`h = \"full\"`)." },
       { "name": "onDismiss", "type": "(() -> ())?", "doc": "Runs when Esc or a click outside closes it." }
     ] },
     { "name": "PopoverProps", "kind": "record", "doc": "What a popover's render receives.", "fields": [
@@ -1796,9 +1831,11 @@
       { "name": "Narrow", "kind": "method", "sig": "() -> boolean", "doc": "The window is narrow-screen sized." },
       { "name": "PanelSidebar", "kind": "method", "sig": "() -> PanelSidebarInfo", "doc": "The file sidebar `ui.panelSidebar` draws." },
       { "name": "TogglePanelSidebar", "kind": "method", "sig": "() -> ()", "doc": "Shows or hides it." },
+      { "name": "MovePanelSidebar", "kind": "method", "sig": "(side: PanelSidebarSide) -> ()", "since": "1.9", "doc": "Puts it on an edge of the panel, for every side panel." },
       { "name": "OpenDrawerView", "kind": "method", "sig": "(title: string, data: { [string]: any }?) -> ()", "doc": "From a `drawer` kind panel's view in a narrow window's More drawer: shows a nested view in the drawer in its place (Desktop's `useDrawer().open`), with a back button named after the panel's view. The panel's render draws it, with `props.drawer` set to `data`. Does nothing elsewhere." },
       { "name": "RegionOpen", "kind": "method", "sig": "(sessionId: string?) -> boolean", "doc": "A session's side region is open. Defaults to the routed session." },
-      { "name": "RegionFocused", "kind": "method", "sig": "() -> boolean", "doc": "The side region has the keyboard: the last focus, click or key was in it, as Desktop's side focus reads (`#review-panel[data-focused]`). Read it when a command runs: Desktop's Open browser shortcut focuses the new tab's address only from inside the region." }
+      { "name": "RegionFocused", "kind": "method", "sig": "() -> boolean", "doc": "The side region has the keyboard: the last focus, click or key was in it, as Desktop's side focus reads (`#review-panel[data-focused]`). Read it when a command runs: Desktop's Open browser shortcut focuses the new tab's address only from inside the region." },
+      { "name": "Focus", "kind": "method", "sig": "(key: string) -> ()", "since": "1.7", "doc": "Moves the keyboard to the element with `key`, or to its first focusable control, and draws its focus ring: where a shortcut leaves the keyboard. Official's Toggle browser toolbar shortcut leaves it on the Options button." }
     ] },
     { "name": "Links", "halves": ["window"], "doc": "Routes local links to the plugins that handle them.", "members": [
       { "name": "Open", "kind": "method", "sig": "(link: Link) -> boolean", "doc": "Opens a link with the best handler. False when no handler matches." },
@@ -1962,6 +1999,7 @@
     { "name": "button", "category": "control", "sig": "(props: UiButtonProps) -> UiNode", "props": "UiButtonProps", "doc": "The app's own button." },
     { "name": "iconButton", "category": "control", "sig": "(props: UiIconButtonProps) -> UiNode", "props": "UiIconButtonProps", "doc": "The app's own icon button." },
     { "name": "switch", "category": "control", "sig": "(props: UiSwitchProps) -> UiNode", "props": "UiSwitchProps", "doc": "The app's own switch." },
+    { "name": "checkbox", "category": "control", "since": "1.7", "sig": "(props: UiCheckboxProps) -> UiNode", "props": "UiCheckboxProps", "doc": "Desktop's compact checkbox with its label." },
     { "name": "radio", "category": "control", "sig": "(props: UiRadioProps) -> UiNode", "props": "UiRadioProps", "doc": "A radio row." },
     { "name": "field", "category": "control", "sig": "(props: UiFieldProps) -> UiNode", "props": "UiFieldProps", "doc": "The app's own text field." },
     { "name": "segmented", "category": "control", "sig": "(props: UiSegmentedProps) -> UiNode", "props": "UiSegmentedProps", "doc": "The app's segmented control." },
@@ -1969,6 +2007,7 @@
     { "name": "progressCircle", "category": "content", "sig": "(props: UiProgressCircleProps) -> UiNode", "props": "UiProgressCircleProps", "doc": "The app's progress ring: a track and an arc from twelve o'clock, clockwise." },
     { "name": "serverIndicator", "category": "control", "sig": "(props: UiServerIndicatorProps) -> UiNode", "props": "UiServerIndicatorProps", "doc": "A server's health indicator, for a server source's row." },
     { "name": "pill", "category": "control", "sig": "(props: UiPillProps) -> UiNode", "props": "UiPillProps", "doc": "A status capsule." },
+    { "name": "badge", "category": "control", "since": "1.11", "sig": "(props: UiBadgeProps) -> UiNode", "props": "UiBadgeProps", "doc": "Desktop's compact badge." },
     { "name": "settingsRow", "category": "control", "sig": "(props: UiSettingsRowProps, control: UiNode?) -> UiNode", "props": "UiSettingsRowProps", "doc": "A settings row: title and description beside a control." },
     { "name": "settingsList", "category": "control", "sig": "(props: UiSettingsListProps, rows: { UiNode }) -> UiNode", "props": "UiSettingsListProps", "doc": "A card of settings rows." },
     { "name": "flyoutRow", "category": "control", "sig": "(props: UiFlyoutRowProps) -> UiNode", "props": "UiFlyoutRowProps", "doc": "A popover row that opens a nested popover." },
@@ -1981,7 +2020,7 @@
     { "name": "codeView", "category": "native", "sig": "(props: UiCodeViewProps) -> UiNode", "props": "UiCodeViewProps", "doc": "A highlighted file.", "native": { "engine": "Code view with an asynchronous highlighter", "native": "Highlighting, the line buffer, the virtualized gutter, selection, find in file", "luau": "Tab routing, breadcrumb header, line links, viewer choice, MCP tools" } },
     { "name": "diffView", "category": "native", "sig": "(props: UiDiffViewProps) -> UiNode", "props": "UiDiffViewProps", "doc": "Changes, split or unified.", "native": { "engine": "Diff engine and code view", "native": "Hunk layout, intraline diffing, highlighting, virtualized hunks, comment anchors", "luau": "Source switcher, totals, split and unified toggle, contracts, MCP tools" } },
     { "name": "fileTree", "category": "native", "sig": "(props: UiFileTreeProps) -> UiNode", "props": "UiFileTreeProps", "doc": "A folder's file tree.", "native": { "engine": "Tree model", "native": "Tree flattening, file icons, keyboard navigation", "luau": "Folder loading, filter input, expanded state, open and context menus" } },
-    { "name": "panelSidebar", "category": "native", "sig": "(props: UiPanelSidebarProps, children: { UiNode }?) -> UiNode", "props": "UiPanelSidebarProps", "doc": "A resizable sidebar at a panel's start, its children stacked in it.", "native": { "engine": "Pointer capture", "native": "The resize drag and the width it leaves", "luau": "Whether it shows and what it holds" } },
+    { "name": "panelSidebar", "category": "native", "sig": "(props: UiPanelSidebarProps, children: { UiNode }?) -> UiNode", "props": "UiPanelSidebarProps", "doc": "A resizable sidebar at a panel's start or end, its children stacked in it.", "native": { "engine": "Pointer capture", "native": "The resize drag and the width it leaves", "luau": "Whether it shows and what it holds" } },
     { "name": "openInButton", "category": "native", "sig": "(props: UiOpenInButtonProps) -> UiNode", "props": "UiOpenInButtonProps", "doc": "The app's Open in split button for a path.", "native": { "engine": "The system's app registry", "native": "Finding installed apps and their marks, launching them, the remembered choice", "luau": "Which path it opens" } },
     { "name": "officePages", "category": "native", "sig": "(props: UiOfficePagesProps) -> UiNode", "props": "UiOfficePagesProps", "doc": "A Word document's pages or a deck's slides, fit to the pane's width, with zoom controls.", "native": { "engine": "Office engines and a GPU vector renderer", "native": "Layout, the page column, scenes drawn at the display's scale, near-viewport loading, zoom", "luau": "Opening the file, its binary placeholder, the words" } },
     { "name": "officeSheet", "category": "native", "sig": "(props: UiOfficeSheetProps) -> UiNode", "props": "UiOfficeSheetProps", "doc": "A workbook's sheet: its headers and the cells under the scroll position.", "native": { "engine": "Office engines and a GPU vector renderer", "native": "Frames of the sheet drawn as it scrolls, headers, the selection (click, Shift-click, drag, header and corner presses, Excel's keys), copying cells as tab-separated text and an HTML table, and the cell text screen readers read", "luau": "Opening the file, the sheet tabs, the words" } },

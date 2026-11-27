@@ -89,6 +89,46 @@ pub fn stopped(status: &ToolStatus, metadata: &Value) -> bool {
     message == "Command cancelled" || crate::timeline::interrupted(message)
 }
 
+/// The changes a script made to files, in order, one per change (`scriptChanges`,
+/// `session-ui/src/timeline/facts.ts`): its `metadata.files` while it runs and once it ends in the
+/// foreground, each with its offset in that array, which only grows, so it names the change for
+/// good. A script that failed or was stopped keeps the changes it made, which really happened;
+/// one moved to the background, or run as a job, has none. Until a script finishes, its
+/// `background` flag says only that it can move there. Entries that don't decode are dropped.
+pub fn script_changes<'a>(name: &str, status: &ToolStatus, metadata: &'a Value) -> impl Iterator<Item = (usize, &'a Value)> + 'a {
+    let shown = shows_changes(name, status, metadata);
+    metadata["files"].as_array().filter(|_| shown).into_iter().flatten().enumerate().filter(|(_, f)| decodes(f))
+}
+
+/// The change at offset `raw` of a script's `metadata.files`, where [`script_changes`] lists it.
+pub fn script_change_at<'a>(name: &str, status: &ToolStatus, metadata: &'a Value, raw: usize) -> Option<&'a Value> {
+    metadata["files"].get(raw).filter(|f| shows_changes(name, status, metadata) && decodes(f))
+}
+
+fn shows_changes(name: &str, status: &ToolStatus, metadata: &Value) -> bool {
+    name == "execute"
+        && *status != ToolStatus::Pending
+        && metadata.get("jobID").is_none()
+        && !(*status == ToolStatus::Completed && metadata["background"] == true)
+}
+
+/// A change's line count (`additions`, `deletions`) as a whole number: `1.0` is 1, and anything
+/// that isn't a count is 0.
+pub fn count(v: &Value) -> u64 {
+    v.as_u64().or_else(|| v.as_f64().filter(|f| f.is_finite() && *f >= 0.0).map(|f| f as u64)).unwrap_or(0)
+}
+
+/// `{file, additions?, deletions?, status?: added|deleted|modified, patch?}`, with a path.
+fn decodes(f: &Value) -> bool {
+    let Some(o) = f.as_object() else { return false };
+    let optional = |k: &str, ok: fn(&Value) -> bool| o.get(k).is_none_or(ok);
+    o.get("file").and_then(Value::as_str).is_some_and(|p| !p.is_empty())
+        && optional("additions", Value::is_number)
+        && optional("deletions", Value::is_number)
+        && optional("status", |v| matches!(v.as_str(), Some("added" | "deleted" | "modified")))
+        && optional("patch", Value::is_string)
+}
+
 /// Whether a call failed (`toolFailed`): a call the user stopped did not.
 pub fn failed(name: &str, status: &ToolStatus, metadata: &Value) -> bool {
     !stopped(status, metadata) && crate::detail::failed(current_name(name), status, metadata)

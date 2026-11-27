@@ -1,6 +1,7 @@
 //! `ui.officePages` and `ui.officeSheet`: the host's Office views (`crate::office`) for an
 //! `OfficeDocument` the plugin opened with `Office:OpenAsync`.
 
+use opencode_plugin_runtime::ui_nodes;
 use rune::{El, TextStyle, col, text};
 use rune_luau::{Data, HostNode, NodeArgs};
 
@@ -10,7 +11,7 @@ use crate::plugin_host::cx::{self, Dep};
 use crate::plugin_host::sources::builtin_message;
 
 pub fn all() -> Vec<HostNode> {
-    vec![HostNode::new("officePages", pages), HostNode::new("officeSheet", sheet)]
+    vec![ui_nodes::node("officePages", pages), ui_nodes::node("officeSheet", sheet)]
 }
 
 fn pages(a: &mut NodeArgs) -> Result<El, String> {

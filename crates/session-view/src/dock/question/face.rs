@@ -10,6 +10,10 @@ use crate::palette::Pal;
 use crate::style::readable;
 
 const TITLE: TextStyle = TextStyle::new(13.0, 440.0).lh(20.0);
+/// The typed answer (`question-custom-input`, `question-prompt-experimental.css:432-453`): 13 px
+/// on an 18 px line; 530 until its field is open (`:398-400`).
+const FIELD: TextStyle = TextStyle::new(13.0, 440.0).lh(FIELD_LINE);
+const FIELD_CLOSED: TextStyle = TextStyle::new(13.0, 530.0).lh(FIELD_LINE);
 /// An answer's description: a little tighter than the question, so long answers stay compact.
 const DESC: TextStyle = TextStyle::new(13.0, 440.0).lh(18.0);
 const STRONG: TextStyle = TextStyle::new(13.0, 530.0).lh(20.0);
@@ -28,7 +32,7 @@ pub(super) fn on_first_line(t: &TextEdit, width: f32) -> bool {
     if head.contains('\n') {
         return false;
     }
-    width <= 0.0 || rune::text::measure(head, &[], TITLE, Some(width)).1 <= LINE * 1.5
+    width <= 0.0 || rune::text::measure(head, &[], FIELD, Some(width)).1 <= FIELD_LINE * 1.5
 }
 
 /// A new question's text and answers slide in from the side they come from (`arrive`) over the
@@ -70,23 +74,30 @@ pub fn face<S: DockHost>(s: &S, p: &Pal) -> Option<Vec<El>> {
     let focus = if editing { list.len() } else { focus };
     let picks = s.dock().picks.get(&k).cloned().unwrap_or_default();
     let total = f.fields.len();
+    let live = !super::busy(s, &f);
     let fade = || face_transition(s.knobs());
 
     let title = if total == 1 { opencode_i18n::t!("session.question.title").to_owned() } else { opencode_i18n::t!("session.question.progress", current = tab + 1, total = total) };
     let progress = (total > 1).then(|| {
         row().key("q-progress").gap(2.0).children((0..total).map(|i| {
             let color = if i == tab { p.icon_muted } else if answered(s, &f, i) { p.bg_accent } else { p.q.layer4 };
-            el().key(format!("q-seg-{i}"))
+            let seg = el()
+                .key(format!("q-seg-{i}"))
                 .role("button")
                 .label(opencode_i18n::t!("ui.tool.questions.numbered", number = i + 1))
                 .size(20.0, 20.0)
                 .radius(4.0)
                 .focus_inset(p)
                 .center()
-                .hover(p.hover)
                 .hover_motion(Anim::INSTANT, Anim::INSTANT)
-                .on_press_tx(move |s: &mut S, tx: &mut Tx| if let Some(f) = asking(s) { jump(s, &f, i, tx) })
-                .child(el().key("bar").size(14.0, 2.0).fill(color))
+                .child(el().key("bar").size(14.0, 2.0).fill(color));
+            if live {
+                seg
+                    .hover(p.hover)
+                    .on_press_tx(move |s: &mut S, tx: &mut Tx| if let Some(f) = asking(s) { jump(s, &f, i, tx) })
+            } else {
+                seg.disabled(true).focusable(false).hit().cursor(rune::Cursor::NotAllowed)
+            }
         }))
     });
     let text_of = if field.description.is_empty() { &field.title } else { &field.description };
@@ -103,23 +114,40 @@ pub fn face<S: DockHost>(s: &S, p: &Pal) -> Option<Vec<El>> {
         .child(readable(p, text(text_of.clone()).key("q-text").font(STRONG).color(p.text).wrap()))
         .children(multi.then(|| text(opencode_i18n::t!("ui.question.multiHint")).key("q-hint").font(HINT).color(p.faint)));
 
-    let mut answers = col().key(format!("q-options-{tab}")).w_full().gap(2.0).role(if multi { "group" } else { "radiogroup" });
+    // Same as `classic::face`: handle Enter/Space on focused options before `web_focus`
+    // activates `on_press`; skipped automatically while `q-input` has focus.
+    let mut answers = col()
+        .key(format!("q-options-{tab}"))
+        .w_full()
+        .gap(2.0)
+        .role(if multi { "group" } else { "radiogroup" })
+        .on_key(|s: &mut S, ev, tx| super::key(s, ev, tx));
     for (i, (value, label, desc)) in list.iter().enumerate() {
         let picked = picks.contains(value);
-        answers = answers.child(
-            row()
-                .key(format!("q-opt-{i}"))
-                .role(if multi { "checkbox" } else { "radio" })
-                .label(label.clone())
-                .checked(picked)
-                .w_full()
-                .padding(10.0)
-                .gap(8.0)
-                .items_start()
-                .radius(6.0)
-                .fill(if i == focus { p.q.selected } else { Color::TRANSPARENT })
-                // A contrast theme's highlight is an edge, not only a wash it may lose.
-                .border(if i == focus && p.forced { 2.0 } else { 0.0 }, p.text)
+        let opt = row()
+            .key(format!("q-opt-{i}"))
+            .role(if multi { "checkbox" } else { "radio" })
+            .label(label.clone())
+            .checked(picked)
+            .w_full()
+            .padding(10.0)
+            .gap(8.0)
+            .items_start()
+            .radius(6.0)
+            .fill(if i == focus { p.q.selected } else { Color::TRANSPARENT })
+            // A contrast theme's highlight is an edge, not only a wash it may lose.
+            .border(if i == focus && p.forced { 2.0 } else { 0.0 }, p.text)
+            .child(mark(p, multi, picked, i))
+            .child(
+                col()
+                    .key("main")
+                    .grow(1.0)
+                    .gap(2.0)
+                    .child(text(label.clone()).key("label").dir(rune::Direction::Auto).font(STRONG).color(p.text).wrap())
+                    .children((!desc.is_empty()).then(|| text(desc.clone()).key("description").dir(rune::Direction::Auto).font(DESC).color(p.muted).wrap())),
+            );
+        let opt = if live {
+            opt
                 .on_hover_change(move |s: &mut S, inside, tx: &mut Tx| if inside { hover_answer(s, i, tx) })
                 .on_press_tx(move |s: &mut S, tx: &mut Tx| {
                     let Some(f) = asking(s) else { return };
@@ -128,16 +156,10 @@ pub fn face<S: DockHost>(s: &S, p: &Pal) -> Option<Vec<El>> {
                     select(s, &f, tab, i);
                     dock(s, &f).focus = i;
                 })
-                .child(mark(p, multi, picked, i))
-                .child(
-                    col()
-                        .key("main")
-                        .grow(1.0)
-                        .gap(2.0)
-                        .child(text(label.clone()).key("label").font(STRONG).color(p.text).wrap())
-                        .children((!desc.is_empty()).then(|| text(desc.clone()).key("description").font(DESC).color(p.muted).wrap())),
-                ),
-        );
+        } else {
+            opt.disabled(true).focusable(false)
+        };
+        answers = answers.child(opt);
     }
     if has_custom(field) {
         let i = list.len();
@@ -146,14 +168,13 @@ pub fn face<S: DockHost>(s: &S, p: &Pal) -> Option<Vec<El>> {
         let (id, field_key) = (f.id.clone(), field.key.clone());
         // The typed answer is written where an answer's title is, in the same row: no box of its
         // own, wrapping inside the row as it grows.
-        let input = crate::style::field(&edit, if editing { TITLE } else { STRONG })
+        let input = crate::style::field(&edit, if editing { FIELD } else { FIELD_CLOSED })
             .key("q-input")
             .spellcheck(s.composer_spellcheck())
             .label(custom_label())
-            // `dir="auto"` (`session-question-dock-experimental.tsx:1321`).
+            // `dir="auto"` (`session-question-dock-experimental.tsx:1341`).
             .dir(rune::Direction::Auto)
-            .grow(1.0)
-            .min_w(0.0)
+            .w_full()
             .color(p.text)
             .placeholder(custom_label(), if editing { p.faint } else { p.text })
             .caret(p.text, p.selection).selection_style(p.field_selection)
@@ -175,17 +196,41 @@ pub fn face<S: DockHost>(s: &S, p: &Pal) -> Option<Vec<El>> {
                 }
             })
             .on_input_key(|s: &mut S, ev, tx| typed_key(s, ev, tx));
-        answers = answers.child(
-            row()
-                .key("q-custom")
-                .w_full()
-                .padding(10.0)
-                .gap(8.0)
-                .items_start()
-                .radius(6.0)
-                .fill(if i == focus { p.q.selected } else { Color::TRANSPARENT })
-                // A contrast theme's highlight is an edge, not only a wash it may lose.
-                .border(if i == focus && p.forced { 2.0 } else { 0.0 }, p.text)
+        // Six lines at most, then it scrolls inside itself, with a plain `overflow-y: auto`
+        // box's bar; 5 over and under its lines, so 28 tall on one.
+        let input = crate::scroller::scroller(format!("q-input-scroll-{tab}")).build::<S>(p, col().grow(1.0).min_w(0.0).max_h(FIELD_MAX_H), input);
+        let input = row().key("q-field").grow(1.0).min_w(0.0).min_h(28.0).pt(5.0).pb(5.0).child(input);
+        // `question-custom-toggle`: 4 under the row's top, level with the field's first line.
+        let mark_el = mark(p, multi, on, i).key("q-custom-mark").mt(4.0).role(if multi { "checkbox" } else { "radio" }).label(custom_label());
+        let mark_el = if live {
+            mark_el.cursor(rune::Cursor::Pointer).on_press_tx(|s: &mut S, tx: &mut Tx| {
+                let Some(f) = asking(s) else { return };
+                tx.instant();
+                let (tab, _) = place(s, &f);
+                toggle_custom(s, &f, tab);
+            })
+        } else {
+            mark_el.disabled(true).focusable(false)
+        };
+        let custom_row = row()
+            .key("q-custom")
+            .w_full()
+            // `padding-block: 6px; padding-inline: 10px; min-block-size: 40px`
+            // (`question-prompt-experimental.css:392-396`).
+            .px(10.0)
+            .pt(6.0)
+            .pb(6.0)
+            .min_h(40.0)
+            .gap(8.0)
+            .items_start()
+            .radius(6.0)
+            .fill(if i == focus { p.q.selected } else { Color::TRANSPARENT })
+            // A contrast theme's highlight is an edge, not only a wash it may lose.
+            .border(if i == focus && p.forced { 2.0 } else { 0.0 }, p.text)
+            .child(mark_el)
+            .child(input);
+        let custom_row = if live {
+            custom_row
                 .on_hover_change(move |s: &mut S, inside, tx: &mut Tx| if inside { hover_answer(s, i, tx) })
                 .on_press_tx(|s: &mut S, tx: &mut Tx| {
                     let Some(f) = asking(s) else { return };
@@ -193,14 +238,10 @@ pub fn face<S: DockHost>(s: &S, p: &Pal) -> Option<Vec<El>> {
                     let (tab, _) = place(s, &f);
                     start_typing(s, &f, tab);
                 })
-                .child(mark(p, multi, on, i).role(if multi { "checkbox" } else { "radio" }).label(custom_label()).on_press_tx(|s: &mut S, tx: &mut Tx| {
-                    let Some(f) = asking(s) else { return };
-                    tx.instant();
-                    let (tab, _) = place(s, &f);
-                    toggle_custom(s, &f, tab);
-                }))
-                .child(input),
-        );
+        } else {
+            custom_row.disabled(true).focusable(false)
+        };
+        answers = answers.child(custom_row);
     }
 
     // The question and its answers scroll together under the header, sliding in as one.
@@ -212,7 +253,6 @@ pub fn face<S: DockHost>(s: &S, p: &Pal) -> Option<Vec<El>> {
     };
 
     let last = f.last(tab);
-    let live = !super::busy(s, &f);
     let footer = row()
         .key("question-footer")
         .w_full()
@@ -221,26 +261,30 @@ pub fn face<S: DockHost>(s: &S, p: &Pal) -> Option<Vec<El>> {
         .pb(8.0)
         .center_y()
         .transition(fade())
-        .child(button(p, "q-dismiss", opencode_i18n::t!("ui.common.dismiss"), Variant::GhostMuted, None, live).on_press_tx(|s: &mut S, tx: &mut Tx| {
-            if let Some(f) = asking(s) {
-                dismiss(s, &f, tx)
-            }
-        }))
+        .child({
+            let b = button(p, "q-dismiss", opencode_i18n::t!("ui.common.dismiss"), Variant::GhostMuted, None, live);
+            if live { b.on_press_tx(|s: &mut S, tx: &mut Tx| if let Some(f) = asking(s) { dismiss(s, &f, tx) }) } else { b }
+        })
         .child(spacer())
         .child(
             row()
                 .key("q-actions")
                 .gap(8.0)
                 .children((tab > 0).then(|| {
-                    button(p, "q-back", opencode_i18n::t!("ui.common.back"), Variant::Neutral, None, live).on_press_tx(|s: &mut S, tx: &mut Tx| {
-                        let Some(f) = asking(s) else { return };
-                        let (tab, _) = place(s, &f);
-                        jump(s, &f, tab.saturating_sub(1), tx);
-                    })
+                    let b = button(p, "q-back", opencode_i18n::t!("ui.common.back"), Variant::Neutral, None, live);
+                    if live {
+                        b.on_press_tx(|s: &mut S, tx: &mut Tx| {
+                            let Some(f) = asking(s) else { return };
+                            let (tab, _) = place(s, &f);
+                            jump(s, &f, tab.saturating_sub(1), tx);
+                        })
+                    } else {
+                        b
+                    }
                 }))
                 .child({
                     let ready = answered(s, &f, tab) && live;
-                    let b = button(p, "q-next", if last { opencode_i18n::t!("ui.common.submit") } else { opencode_i18n::t!("ui.common.next") }, if last { Variant::Submit } else { Variant::Neutral }, Some(&crate::keymap::Bind::QuestionAdvance.label()), ready);
+                    let b = button(p, "q-next", if last { opencode_i18n::t!("ui.common.submit") } else { opencode_i18n::t!("ui.common.next") }, if last { Variant::Submit } else { Variant::Neutral }, Some(&submit_hint(s.dock_question_submit())), ready);
                     if ready { b.on_press_tx(|s: &mut S, tx: &mut Tx| if let Some(f) = asking(s) { next(s, &f, tx) }) } else { b }
                 }),
         );

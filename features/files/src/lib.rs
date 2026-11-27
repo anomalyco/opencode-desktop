@@ -52,7 +52,7 @@ pub use markdown::{
 pub use ops::{
     apply_reply, ensure_file_loaded, ensure_workspace_files, execute_job, filtered_files,
     filtered_sidebar_files, open_workspace_file, open_workspace_file_at,
-    open_workspace_file_for_session, read_file, relist_workspace_dir, request_file_search,
+    open_workspace_file_for_session, open_workspace_file_source, read_file, relist_workspace_dir, request_file_search,
     request_sidebar_file_search, start_read, submit_files_filter, toggle_workspace_dir,
 };
 pub use poll::{key_files, poll_files, poll_reply_links};
@@ -282,6 +282,8 @@ impl SessionFiles {
         }
     }
 
+    /// Resets rendered-preview state when switching to source view while keeping the loaded
+    /// document and decoded media in memory.
     pub fn close_preview(&mut self, path: &str) {
         if let Some(doc) = self.docs.get(path)
             && let Some(drawing) = self.diagram.current(doc)
@@ -299,6 +301,17 @@ impl SessionFiles {
         if let Some(doc) = self.docs.get_mut(path) {
             doc.set_find_open(false);
         }
+    }
+
+    /// Releases all buffers (code, decoded images, video players, tables, HTML) when a file side
+    /// tab is closed.
+    pub fn close_file(&mut self, path: &str) {
+        self.close_preview(path);
+        self.tables.remove(path);
+        self.html.remove(path);
+        self.images.remove(path);
+        self.videos.remove(path);
+        self.docs.remove(path);
     }
 
     pub(crate) fn shown_diagram(&self, path: &str) -> Option<std::rc::Rc<mermaid::Diagram>> {
@@ -364,6 +377,9 @@ pub struct FilesPane {
     pub(crate) dir_fetch: Latest<DirListing>,
     /// Each file's reads (`content`).
     pub reads: content::Reads,
+    /// Authenticated remote video downloads (`Authorization` header -> `TempMediaFile`).
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(crate) auth_videos: video::AuthVideoDownloads,
     /// The server watches the open files hold (`watch`).
     pub watches: watch::Watches,
     /// The file tab shown last, so a tab that comes to show arms its watch again.
@@ -396,6 +412,8 @@ impl Default for FilesPane {
             wrap: markdown::WrapPrefs::default(),
             dir_fetch: Latest::default(),
             reads: Default::default(),
+            #[cfg(not(target_arch = "wasm32"))]
+            auth_videos: Default::default(),
             watches: Default::default(),
             shown: None,
             shown_session: None,

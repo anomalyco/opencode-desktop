@@ -78,6 +78,10 @@ const TABLE: &[Entry] = &[
         s.close_window(tx);
         true
     }),
+    direct(Bind::WindowFullScreen, Phase::WindowAccelerator, false, |_, tx| {
+        tx.toggle_full_screen();
+        true
+    }),
     // ── BeforePlugins (dispatched inside `App::shortcut` before plugin shortcuts) ────────────────
     cmd(Bind::FocusInput, Phase::BeforePlugins, false),
     cmd(Bind::AddSelection, Phase::BeforePlugins, false),
@@ -113,8 +117,7 @@ const TABLE: &[Entry] = &[
         s.new_session(tx);
         true
     }),
-    #[cfg(not(target_arch = "wasm32"))]
-    cmd(Bind::OpenProject, Phase::AfterPlugins, true),
+    cmd(Bind::QuickOpen, Phase::AfterPlugins, true),
     cmd(Bind::SelectProject, Phase::AfterPlugins, true),
     direct(Bind::TabClose, Phase::AfterPlugins, true, |s, tx| {
         s.close_tab_key(tx);
@@ -124,6 +127,8 @@ const TABLE: &[Entry] = &[
         s.close_tab_key(tx);
         true
     }),
+    // Archive session, which toggles (`use-session-commands.tsx:609-614`, `keybind: "mod+shift+s"`).
+    cmd(Bind::ArchiveSession, Phase::AfterPlugins, true),
     // Desktop numbers the first nine it shows (`titlebar-tab-numbers`).
     direct(Bind::Tab1, Phase::AfterPlugins, true, |s, tx| {
         s.select_nth(0, tx);

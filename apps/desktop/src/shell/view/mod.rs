@@ -10,6 +10,7 @@ use rune::{
 
 use rune_theme_opencode::icons as ic;
 use opencode_ui::focus::FocusExt;
+use opencode_ui::tab::TabExt;
 use opencode_kit::model::{self, SessionInfo, Transcript};
 use crate::palette::{Elevate as _, Pal, pal};
 use crate::{App, Route, TabStatus};
@@ -25,7 +26,7 @@ pub(crate) mod home;
 pub(crate) mod location;
 pub(crate) mod location_card;
 pub(crate) mod move_recovery;
-mod inbox;
+pub(crate) mod inbox;
 mod narrow;
 mod narrow_story;
 mod peek_story;
@@ -80,7 +81,7 @@ pub fn app(s: &App, cx: &mut Cx<App>) -> El {
     if was_narrow != narrow {
         let reading = narrow.then(|| s.active_session_id()).flatten()
             .filter(|id| !s.timeline_fx.ends.due(id) && s.displayed_session(id) == Some(*id) && !s.settings_open())
-            .and_then(|id| s.timeline_fx.ends.recall.screen_place(id).map(|(key, y)| (id.to_owned(), key, y)));
+            .and_then(|id| s.timeline_fx.ends.recall.place(id).map(|(key, y)| (id.to_owned(), key, y)));
         *s.layout.narrow.reading.borrow_mut() = reading;
     }
     // A narrow window keeps top tabs' titlebar row in every layout, its tabs in a drawer.
@@ -100,7 +101,8 @@ pub fn app(s: &App, cx: &mut Cx<App>) -> El {
     } else {
         cx.titlebar_height(titlebar_height(*s.zoom));
     }
-    cx.caption_color(caption_color(p.bg_deep));
+    // A system contrast theme draws them in its text colour, as Desktop's `window-text` (opencode#65324).
+    cx.caption_color(if p.forced { p.text } else { caption_color(p.bg_deep) });
     // Text and fields left uncoloured take the theme's text, and focusable controls without a
     // ring of their own draw the shared one (`opencode_ui::focus`, base.css `:focus-visible`).
     cx.foreground(p.text);
@@ -138,7 +140,13 @@ pub fn app(s: &App, cx: &mut Cx<App>) -> El {
     root.on_key_up(|s: &mut App, ev, tx| crate::dictation::key_up(s, ev, tx))
         .on_window_focus(|s: &mut App, focused, tx| {
             s.plugins.window_blurred.set(!focused);
-            if !focused { crate::tab_hints::window_left(s, tx); }
+            if !focused {
+                #[cfg(not(target_arch = "wasm32"))]
+                s.workspace_panes.browser.host.close_extension_popup();
+                s.clear_app_link_reviews();
+                s.clear_preview(tx);
+                crate::tab_hints::window_left(s, tx);
+            }
             if focused { crate::launch::network_available(s, tx); }
             // The coordinator's `tip` opens on the window's `focus`.
             crate::tips::on_focus(s, focused);
@@ -146,7 +154,14 @@ pub fn app(s: &App, cx: &mut Cx<App>) -> El {
             crate::session::widgets::input::window_focus(s, focused);
         })
         // A resize across the breakpoint reaches the drawers in the frame it lands.
-        .on_layout_tx(|s: &mut App, _, tx: &mut Tx| { if !crate::narrow::settle(s, tx) { tx.live_only(); } })
+        .on_layout_tx(|s: &mut App, rect, tx: &mut Tx| {
+            #[cfg(not(target_arch = "wasm32"))]
+            let closed_popup = s.workspace_panes.browser.host.observe_window_size(rect[2], rect[3]);
+            #[cfg(target_arch = "wasm32")]
+            let closed_popup = false;
+            let flipped = s.observe_app_link_window_rect(rect, tx);
+            if !crate::narrow::settle(s, tx) && !flipped && !closed_popup { tx.live_only(); }
+        })
         .on_magnify(|s: &mut App, ev, tx| s.pinch(ev, tx))
         // A text field's menu shows and flips Settings › General › Spellcheck, as Desktop's
         // context menu does (`spellcheck.ts`).
@@ -266,7 +281,20 @@ fn shell(s: &App, cx: &mut Cx<App>) -> El {
         .role("window")
         .fill(p.bg_deep)
         .w_full()
-        .h_full()
+        .h_full();
+    // Desktop keeps its route history in memory (`titlebar.tsx:206-213`, UP-116 #65129), so mouse
+    // Back/Forward side buttons step it on release; wasm32 lets the host browser traverse its own.
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        root = root
+            .pointer_buttons([rune::PointerButton::Back, rune::PointerButton::Forward])
+            .on_background_press_tx(|s: &mut App, tx: &mut Tx| match tx.button() {
+                rune::PointerButton::Back => { s.navigate(false, tx); }
+                rune::PointerButton::Forward => { s.navigate(true, tx); }
+                _ => {}
+            });
+    }
+    root = root
         // The hover peek's zones only listen for the pointer, which reaches them under anything:
         // under the sidebar and the page, a right-click lands on the row under the pointer
         // rather than on them, and its menu opens.
@@ -280,7 +308,16 @@ fn shell(s: &App, cx: &mut Cx<App>) -> El {
         .children(band)
         // Toggle review comes next, before the page (`screen.tsx`: its `z-30` row ahead of the
         // chat panel), and paints over the page and the panels after it.
-        .children(crate::panels::view::side_toggle(s, p).map(|toggle| toggle.paint_order(1).paint_contained(main)))
+        // It is drawn at the window's level over the session header's slot, and Desktop's is inside the
+        // header (`message-timeline.tsx:644`), inside the timeline's scroll bar hover target: the
+        // pointer on it shows the timeline's thumb, as the pointer on the header does.
+        .children(crate::panels::view::side_toggle(s, p).map(|toggle| {
+            let toggle = match s.active_session_id() {
+                Some(id) => rune_kit::ScrollBar::scroll_bar_hover(toggle, &format!("scroll-{id}")),
+                None => toggle,
+            };
+            toggle.paint_order(1).paint_contained(main)
+        }))
         // `paint_contained` establishes its children's pixel grid. The painted frame is
         // itself inside <main> (shell.tsx:304), not the element establishing containment.
         // Keep its ring, shadow and clip on the same grid as the content they surround.
@@ -309,7 +346,6 @@ fn shell(s: &App, cx: &mut Cx<App>) -> El {
     if side_tabs && chrome().sidebar_header() {
         root = root.child(sidebar_toggle(s, p, *s.sidebar_open, w));
     }
-    root = root.children(crate::plugin_host::titlebar_items(s, p));
     // Plugins' `window.bottom` slot (the debug bar) runs across the window's foot, under the
     // panels, taking its own room (`shell.tsx`'s last `PluginSlot`).
     let sid = match &*s.route {

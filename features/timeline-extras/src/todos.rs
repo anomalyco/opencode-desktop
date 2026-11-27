@@ -10,6 +10,7 @@ use opencode_kit::model::{Message, Part, ToolStatus, Transcript};
 use rune::{El, Icon, Shape, TextStyle, Tween, Tx, canvas, col, el, icon, row, text};
 use rune_knobs::{Group, Knob, Knobs};
 use serde_json::Value;
+use session_view::focus::FocusExt;
 use session_view::palette::{Elevate as _, Pal};
 use session_view::style::{INSTANT, UI};
 
@@ -40,6 +41,11 @@ pub trait TodosHost: opencode_kernel::AppEnv {
     fn transcript(&self, id: &str) -> Option<&Transcript>;
     /// Monotonic version of `id`'s transcript family for plan caching.
     fn transcript_version(&self, id: &str) -> u64;
+    /// Session `id`'s first message that may have changed since [`Self::transcript_version`]
+    /// `since`, when only a streamed reply's writes came between; `None` when anything else may have.
+    fn transcript_changed_from(&self, _id: &str, _since: u64) -> Option<usize> {
+        None
+    }
     /// Active staged revert boundary for session `id`, if any.
     fn session_revert(&self, id: &str) -> Option<&str>;
     fn knobs(&self) -> &Knobs;
@@ -57,7 +63,8 @@ pub trait TodosHost: opencode_kernel::AppEnv {
     }
 }
 
-type PlanCache = Option<((String, u64, Option<String>), Vec<Todo>)>;
+/// The session, transcripts version and revert a plan was read at; the plan; the message it is in.
+type PlanCache = Option<((String, u64, Option<String>), Vec<Todo>, Option<usize>)>;
 
 thread_local! {
     /// The open session's plan, and the session, transcripts version and revert it was read at.
@@ -67,19 +74,25 @@ thread_local! {
 /// The plan in a transcript: the latest completed `todowrite` call's todos, among the messages
 /// a staged revert at `boundary` leaves.
 pub fn session_todos(t: &Transcript, boundary: Option<&str>) -> Vec<Todo> {
-    let input = t.messages[..t.visible_len(boundary)]
+    latest_plan(&t.messages[..t.visible_len(boundary)], 0).map_or_else(Vec::new, |(_, input)| parse(input))
+}
+
+/// The latest completed `todowrite` call among `messages[from..]`: its message and its input.
+fn latest_plan(messages: &[Message], from: usize) -> Option<(usize, &Value)> {
+    messages
         .iter()
+        .enumerate()
+        .skip(from)
         .rev()
-        .filter_map(|m| match m {
-            Message::Assistant(a) => Some(a),
+        .filter_map(|(i, m)| match m {
+            Message::Assistant(a) => Some((i, a)),
             _ => None,
         })
-        .flat_map(|a| a.parts.iter().rev())
-        .find_map(|p| match p {
-            Part::Tool { name, status: ToolStatus::Completed, input, .. } if name == "todowrite" => Some(input),
+        .flat_map(|(i, a)| a.parts.iter().rev().map(move |p| (i, p)))
+        .find_map(|(i, p)| match p {
+            Part::Tool { name, status: ToolStatus::Completed, input, .. } if name == "todowrite" => Some((i, input)),
             _ => None,
-        });
-    input.map_or_else(Vec::new, parse)
+        })
 }
 
 fn parse(input: &Value) -> Vec<Todo> {
@@ -121,13 +134,26 @@ pub fn shown_todos(host: &dyn TodosHost, id: &str) -> Vec<Todo> {
     // Every poll asks: the plan is read once per version of the transcripts, not by walking
     // a long session back to its last plan each frame.
     let version = (id.to_owned(), host.transcript_version(id), revert.map(str::to_owned));
-    let todos = PLAN.with_borrow_mut(|kept| match kept.as_ref().filter(|(v, _)| *v == version) {
-        Some((_, todos)) => todos.clone(),
-        None => {
-            let todos = session_todos(t, revert);
-            *kept = Some((version, todos.clone()));
-            todos
+    let todos = PLAN.with_borrow_mut(|kept| {
+        if let Some((_, todos, _)) = kept.as_ref().filter(|(v, ..)| *v == version) {
+            return todos.clone();
         }
+        // A streamed reply's writes change only the messages from the one they name on
+        // (`transcript_changed_from`): a plan found above them stands unless a newer one follows.
+        let from = kept
+            .as_ref()
+            .filter(|((sid, _, rev), ..)| *sid == version.0 && *rev == version.2)
+            .and_then(|((_, since, _), _, at)| host.transcript_changed_from(id, *since).filter(|&low| at.is_none_or(|at| at < low)))
+            .unwrap_or(0);
+        let (todos, at) = match latest_plan(&t.messages[..t.visible_len(revert)], from) {
+            Some((at, input)) => (parse(input), Some(at)),
+            None => match kept.take().filter(|_| from > 0) {
+                Some((_, todos, at)) => (todos, at),
+                None => (Vec::new(), None),
+            },
+        };
+        *kept = Some((version, todos.clone(), at));
+        todos
     });
     if todos.iter().all(Todo::finished) { Vec::new() } else { todos }
 }
@@ -255,11 +281,10 @@ fn words_width(todos: &[Todo]) -> f32 {
     panel_width(todos) - 2.0 * (PAD + 0.5 + 6.0) - 16.0 - 8.0
 }
 
-/// "2 of 5 todos done", the pill's and list's name for screen readers.
+/// "2 of 5 todos done", the pill's and list's name for screen readers (`todo-pill.tsx:31`).
 fn label(todos: &[Todo]) -> String {
     let done = todos.iter().filter(|t| t.status == Status::Completed).count();
-    let n = todos.len();
-    format!("{done} of {n} todo{} done", if n == 1 { "" } else { "s" })
+    opencode_i18n::plural!("session.todo.label", todos.len(), done = done)
 }
 
 /// Toggles the todo plan popover, notifies sibling popovers, and reveals the active todo.
@@ -287,13 +312,13 @@ fn pill_shell(host: &dyn TodosHost, p: &Pal, id: &str) -> Option<El> {
     let mut chip = host.todo_chip(p, "todo-pill", label(&todos), host.todo_open())
         .pl(8.0).gap(6.0).shrink().min_w(0.0)
         .child(glyph(p, now.status, 0.0, None))
-        .child(text(now.content.clone()).key("todo-now").font(UI).color(p.text).truncate_fade().max_w(PILL_TEXT_MAX).shrink().min_w(0.0));
+        .child(text(now.content.clone()).key("todo-now").dir(rune::Direction::Auto).font(UI).color(p.text).truncate_fade().max_w(PILL_TEXT_MAX).shrink().min_w(0.0));
     if more > 0 {
         // Desktop's compact `Badge`: 16 tall, a hairline over `layer-02`.
         let hairline = rune::Shadow { spread: 0.5, color: p.border, inset: true, ..rune::Shadow::default() };
         chip = chip.child(
             row().key("todo-more").h(16.0).px(4.0).center().radius(2.0).fill(p.layer2).box_shadow(hairline)
-                .child(text(format!("+{more}")).dir(rune::Direction::Ltr).font(BADGE).color(p.muted)),
+                .child(text(opencode_i18n::t!("session.todo.moreInProgress", count = more)).dir(rune::Direction::Ltr).font(BADGE).color(p.muted)),
         );
     }
     Some(chip)
@@ -366,7 +391,8 @@ fn default_chip(knobs: &Knobs, p: &Pal, key: &str, label: String, open: bool) ->
         (true, true) => p.layer2,
     };
     let [far, near, ring, edge] = p.raised;
-    let chip = row().key(key).role("button").label(label).h(session_view::jump::chip_height())
+    let chip = row().key(key).role("button").label(label).expanded(open).focus_default(p)
+        .h(session_view::jump::chip_height())
         .px(10.0).gap(8.0).center_y().radius(knobs.get(&session_view::knobs::CAPSULE_RADIUS)).fill(bg)
         .box_shadow(edge).box_shadow(ring).box_shadow(near).box_shadow(far).hover_motion(INSTANT, INSTANT);
     if open { chip } else { chip.hover(p.hover).press(p.pressed) }
@@ -375,7 +401,7 @@ fn default_chip(knobs: &Knobs, p: &Pal, key: &str, label: String, open: bool) ->
 /// A row's words, struck through once finished. A todo finishing draws its strike: the same
 /// words, struck with clear glyphs, over its own, in a clip that opens left to right.
 fn words(t: &Todo, color: rune::Color, wrap: f32, fill: Option<&Fill>) -> El {
-    let words = || text(t.content.clone()).font(ROW).wrap().w_full();
+    let words = || text(t.content.clone()).dir(rune::Direction::Auto).font(ROW).wrap().w_full();
     let own = words().key("text").color(color);
     let own = if t.finished() && fill.is_none() { own.strikes(strikes(&t.content, wrap, None)) } else { own };
     el().key("words").grow(1.0).shrink().min_w(0.0).transition(rune::Transition::none()).instant_changes().child(own).children(fill.map(|fill| {

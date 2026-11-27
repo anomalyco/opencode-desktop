@@ -1,6 +1,6 @@
 # Architecture
 
-`rune-desktop` uses **progressive disclosure** in its folder layout so contributors and agents can ship features without navigating core internals.
+`anomalyco/opencode-rune` uses **progressive disclosure** in its folder layout so contributors and agents can ship features without navigating core internals.
 
 ## 1. Progressive-Disclosure Layout
 
@@ -92,6 +92,8 @@ Host shells, installer, and sidecar binary.
 | `apps/desktop` | `opencode-desktop` | Shared desktop library (`opencode_desktop`) plus thin native binary (`src/main.rs`) |
 | `apps/web` | `opencode-web` | Thin `wasm32`/WebGPU browser entrypoint depending directly on `opencode-desktop` (`src/lib.rs`, `src/web.rs`, `src/browser_history.rs`) with zero duplicated `features/*` dependencies |
 | `apps/installer` | `opencode-rune-setup` | Windows per-user setup bootstrapper |
+| `apps/desktop-thin` | `opencode-desktop-thin` | The exe of a packaged Windows build (`opencode-desktop.exe` in an install): loads the app from the library beside it. Windows Defender checks a new exe before its first process exists at 30-36 ms per MiB, and a library not at all |
+| `apps/desktop-library` | `opencode-desktop-library` | `opencode-desktop` as a library (`opencode-desktop.dll` in an install): `apps/desktop/src/main.rs` with an export in place of `main`. Empty off Windows |
 | `apps/browser-engine` | `opencode-browser-engine` | Standalone out-of-process CEF sidecar bundle (`OpenCode Browser Engine`), excluded from the Cargo workspace in root `Cargo.toml` |
 
 Inside `apps/desktop/src/`:
@@ -303,7 +305,7 @@ pwsh scripts/guardrails.ps1   # Windows PowerShell
   - `apps/desktop/src/stories/order.rs` matches every story registered in `STORY_LIST` (no duplicates, stale entries, or unordered stories).
   - `apps/desktop/src/shell/commands/order.rs` assigns a unique order constant to every registered built-in `CommandEntry` (no raw literals, duplicate values, shared slots, unused constants, or duplicate command IDs).
   - `crates/opencode-i18n/locales/rune/*.json` reports translation coverage against `rune/en.json` and fails on invalid JSON or keys present in another locale that do not exist in `rune/en.json` (permitting valid CLDR plural sibling keys).
-  - `cargo run -q -p opencode-plugin-spec -- --check` confirms all generated contract files match `crates/opencode-plugin-spec/contract.json`.
+  - `cargo run -q -p opencode-plugin-spec -- --check` confirms all generated contract files match `crates/opencode-plugin-spec/contract.json`. It is the one step that starts cargo (and a compiler when that crate changed); `OPENCODE_GUARDRAILS_NO_CARGO=1` skips it and says so, for a machine that must not compile. CI never sets it.
 
 ### Slow / compile checks (run separately)
 

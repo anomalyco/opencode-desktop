@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 
 use windows_registry::CURRENT_USER;
 
+use crate::product::FAMILY;
 use crate::{EXE, HOMEPAGE, OPENCODE_SCHEME, PUBLISHER, Product};
 
 /// The toast icon the install folder ships (the release zip carries it beside the app).
@@ -51,6 +52,15 @@ pub fn other_entries(p: &Product) -> Vec<String> {
     names.filter(|name| name != p.id() && (name == family || name.starts_with(&format!("{family}.")))).collect()
 }
 
+/// Whether an uninstall entry of any build of the app names `root` as its install location.
+pub fn entry_at(root: &Path) -> bool {
+    let Ok(key) = CURRENT_USER.open(UNINSTALL) else { return false };
+    let Ok(names) = key.keys() else { return false };
+    names
+        .filter(|name| name == FAMILY || name.starts_with(&format!("{FAMILY}.")))
+        .any(|name| key.open(&name).and_then(|entry| entry.get_string("InstallLocation")).is_ok_and(|location| super::scheme::same_path(Path::new(&location), root)))
+}
+
 pub fn entry_root(p: &Product) -> Option<PathBuf> {
     let location = CURRENT_USER.open(entry_key(p)).ok()?.get_string("InstallLocation").ok()?;
     (!location.is_empty()).then(|| PathBuf::from(location))
@@ -72,6 +82,14 @@ pub fn write_scheme(scheme: &str, name: &str, exe: &Path) -> Result<(), String> 
     key.create("DefaultIcon").and_then(|k| k.set_string("", format!("\"{exe}\",0"))).map_err(err)?;
     key.create(r"shell\open\command").and_then(|k| k.set_string("", format!("\"{exe}\" \"%1\""))).map_err(err)?;
     Ok(())
+}
+
+/// `scheme`'s command (`shell\open\command`) when it's registered as a URL protocol; `None` for a
+/// missing key or one without `URL Protocol`, which `repair_scheme` writes again.
+pub fn scheme_command(scheme: &str) -> Option<String> {
+    let key = CURRENT_USER.open(format!(r"Software\Classes\{scheme}")).ok()?;
+    key.get_string("URL Protocol").ok()?;
+    key.open(r"shell\open\command").and_then(|k| k.get_string("")).ok()
 }
 
 /// Removes `scheme` when it still starts a program in `root`; another app's (OpenCode Desktop

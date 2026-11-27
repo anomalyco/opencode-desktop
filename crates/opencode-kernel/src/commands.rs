@@ -51,6 +51,9 @@ pub struct CommandEntry<S> {
     pub titled: Option<fn(&S) -> CommandTitle>,
     pub enabled: fn(&S) -> bool,
     pub run: fn(&mut S, &mut rune::Tx),
+    /// What its `/slash` does with the words typed after it, trimmed and possibly none, when it
+    /// takes any (Desktop's `slashArguments`).
+    pub words: Option<fn(&mut S, &str, &mut rune::Tx)>,
 }
 
 impl<S> Clone for CommandEntry<S> {
@@ -101,6 +104,7 @@ impl<S> CommandEntry<S> {
             titled: None,
             enabled: always_enabled,
             run,
+            words: None,
         }
     }
 
@@ -124,6 +128,7 @@ impl<S> CommandEntry<S> {
             titled: None,
             enabled: always_enabled,
             run,
+            words: None,
         }
     }
 
@@ -147,6 +152,7 @@ impl<S> CommandEntry<S> {
             titled: None,
             enabled: always_enabled,
             run,
+            words: None,
         }
     }
 
@@ -159,6 +165,14 @@ impl<S> CommandEntry<S> {
     /// Attaches a composer `/slash` trigger name (without a leading `/`).
     pub const fn slash(mut self, name: &'static str) -> Self {
         self.slash = Some(name);
+        self
+    }
+
+    /// Makes the `/slash` trigger take the words typed after it (Desktop's `slashArguments`):
+    /// picked from the list it types `/name ` instead of running, and sent it runs `words` with
+    /// what follows the name.
+    pub const fn slash_words(mut self, words: fn(&mut S, &str, &mut rune::Tx)) -> Self {
+        self.words = Some(words);
         self
     }
 

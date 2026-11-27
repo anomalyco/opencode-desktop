@@ -67,6 +67,9 @@ pub fn active_option_key<S: PickerHost>(s: &S) -> Option<String> {
 pub fn view<S: PickerHost>(s: &S, p: &Pal) -> Option<El> {
     let pk = s.pickers();
     let flyout = pk.hover.flyout_model().filter(|_| pk.open() == Some(Kind::Model))?;
+    if !s.picker_items().iter().any(|it| it.key == flyout) {
+        return None;
+    }
     let model = pk.models.iter().find(|m| m.key == flyout)?;
     let keyed = active_option_key(s);
     let lit = keyed.as_deref().or_else(|| pk.hover.lit());
@@ -80,7 +83,7 @@ pub fn view<S: PickerHost>(s: &S, p: &Pal) -> Option<El> {
         let label = if effort.is_empty() { opencode_i18n::t!("common.default").to_owned() } else { capitalize(&effort) };
         let id = format!("effort-{}", if effort.is_empty() { "default" } else { effort.as_str() });
         let is_checked = effort == now;
-        let check = icon(&ic::CHECK, 14.0).color(p.icon);
+        let check = icon(&ic::CHECK, pop::SLOT).color(p.icon);
         let indicator = row().key("indicator").size(pop::SLOT, pop::SLOT).center().children(is_checked.then_some(check));
         let key = flyout.to_owned();
         list = list.child(item::<S>(p, lit, &id, "menuitemradio", Some(is_checked), &label, indicator, move |s: &mut S, tx: &mut Tx| s.choose_effort(&key, &effort, tx)));
@@ -91,13 +94,45 @@ pub fn view<S: PickerHost>(s: &S, p: &Pal) -> Option<El> {
     list = list.child(item::<S>(p, lit, "effort-favorite", "menuitem", None, favorite, keycaps(p), move |s: &mut S, tx: &mut Tx| {
         tx.instant();
         // The row moves between Favorites and its group, so the flyout would be left beside nothing.
-        s.toggle_favorite(&key);
+        s.toggle_favorite(&key, true);
         s.model_flyout_dismissed(tx);
     }));
     list = list.child(separator(p, "details-separator"));
     list = list.child(details(p, &model.group, pk.limits.get(&model.key).copied().unwrap_or(0), &model.inputs, model.tools));
     let menu = super::hover::flyout::<S>(pop::surface::<S>(p, MENU, "effort-flyout", opencode_i18n::t!("ui.promptInput.chooseVariant")).w(W).child(list));
-    Some(menu.anchored_fit("effort-anchor", Side::Right, Align::Start, GAP))
+    let mut placed = menu.anchored("effort-anchor", Side::Right, Align::Start, GAP).anchored_round();
+    // Match Official `placeFlyout` (`select-dialog-machine.ts:554-572`): keep full 160 pt width
+    // and slide inward over the dialog layer when neither side has room (instead of shrinking
+    // `max_width` via `anchored_fit`).
+    if let Some(dx) = slide_inward_dx() {
+        placed = placed.offset(dx, 0.0).offset_motion(rune::Anim::INSTANT);
+    }
+    Some(placed)
+}
+
+/// Horizontal slide needed when neither side of `"effort-anchor"` fits `W` inside the dialog
+/// layer (`select-dialog-machine.ts:560-564`). Returns `None` when Rune's default `anchored`
+/// placement already matches `placeFlyout`.
+fn slide_inward_dx() -> Option<f32> {
+    let row = rune::memo::layout("effort-anchor")?;
+    let layer = rune::memo::layout("picker-model-scrim")?;
+    let rtl = opencode_i18n::direction() == opencode_i18n::Direction::Rtl;
+    let (l_left, l_right) = (layer[0], layer[0] + layer[2]);
+    let end = if rtl { row[0] - GAP - W } else { row[0] + row[2] + GAP };
+    let start = if rtl { row[0] + row[2] + GAP } else { row[0] - GAP - W };
+    let fits = |x: f32| x >= l_left && x + W <= l_right;
+    let over = end.clamp(l_left, (l_right - W).max(l_left));
+    let target_x = if fits(end) { end } else if fits(start) { start } else { over };
+    let margin = 8.0;
+    let placed_x = if rtl {
+        if end < margin && start + W <= l_right - margin { start } else { end.max(margin) }
+    } else if end + W > l_right - margin && start >= margin {
+        start
+    } else {
+        end.max(margin)
+    };
+    let dx = (target_x + 0.5).floor() - (placed_x + 0.5).floor();
+    (dx.abs() >= 0.5).then_some(dx)
 }
 
 /// A `menu-v2-item` (`menu.css:35-161`): 28 pt, 12 pt before its words and 6 after, 4 pt
@@ -156,7 +191,8 @@ fn details(p: &Pal, provider: &str, context: u64, inputs: &[String], tools: bool
         "audio" => opencode_i18n::t!("model.details.input.audio"),
         _ => opencode_i18n::t!("model.details.input.video"),
     }).chain(tools.then(|| opencode_i18n::t!("model.details.tools"))).collect();
-    col().key("effort-details").w_full().px(12.0).py(8.0)
+    // `select-dialog.css:229-231` (`padding: 2px` on `[data-scrollable]`) + `details.tsx:151` (`px-3 py-2`).
+    col().key("effort-details").w_full().px(12.0 + MENU.inset).py(8.0)
         .child(text(summary).key("summary").font(STATS).color(p.muted).wrap())
         .children((!abilities.is_empty()).then(|| text(abilities.join(", ")).key("abilities").font(STATS).color(p.muted).wrap()))
 }

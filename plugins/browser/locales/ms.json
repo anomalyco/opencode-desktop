@@ -64,5 +64,6 @@
   "zoom.reset": "Tetapkan semula zum",
   "zoom.percent": "{{percent}}%",
   "link.copy": "Salin pautan",
-  "history.clear": "Kosongkan sejarah"
+  "history.clear": "Kosongkan sejarah",
+  "extensions.compat.feature.management": "Mengurus sambungan lain"
 }

@@ -42,13 +42,23 @@ pub fn shows_whole_prompt() -> bool {
 /// composer, its words where they were typed. Read further up, nothing flies: the timeline cuts
 /// to its end, where the message already stands. A prompt longer than the composer, whose words
 /// start out of sight in it, arrives where it lands instead of flying.
-pub fn land<S: TimelineHost>(s: &S, session: &str, local: &str, from: &str, tx: &mut Tx) {
+pub fn land<S: TimelineHost>(s: &mut S, session: &str, local: &str, from: &str, tx: &mut Tx) {
     if s.ends().at_end(session) {
         if shows_whole_prompt() {
             tx.launch(from, format!("u-{local}/bubble"));
         }
     } else {
+        // Re-attach follow immediately alongside the instant jump so a same-tick settle cannot
+        // snap back to the old scrolled-up anchor (`interaction.ts:183-199`).
+        s.ends_mut().set_at_end(session, true);
         tx.scroll_to_bottom_instant(format!("scroll-{session}"));
+    }
+}
+
+/// Like [`land`], but keeps a scrolled-up timeline where it is instead of jumping to the end.
+pub fn land_in_place<S: TimelineHost>(s: &mut S, session: &str, local: &str, from: &str, tx: &mut Tx) {
+    if s.ends().at_end(session) && shows_whole_prompt() {
+        tx.launch(from, format!("u-{local}/bubble"));
     }
 }
 
@@ -223,6 +233,12 @@ pub trait ComposerHost: TimelineHost {
         self.active_session_id().is_some_and(|id| self.is_session_live(id))
     }
     fn composer_send(&mut self, tx: &mut Tx);
+    fn composer_send_in_place(&mut self, tx: &mut Tx) {
+        self.composer_send(tx);
+    }
+    fn composer_shift_held(&self) -> bool {
+        false
+    }
     fn composer_stop(&mut self, tx: &mut Tx);
 
     fn composer_attachments(&self) -> &[Attachment] {
@@ -311,7 +327,12 @@ pub trait ComposerHost: TimelineHost {
         None
     }
     fn composer_on_change(&mut self, _tx: &mut Tx) {}
+    fn composer_set_hovered(&mut self, _hovered: bool) {}
     fn composer_on_key(&mut self, _ev: &KeyEvent, _tx: &mut Tx) -> bool {
+        false
+    }
+    /// Right-click on an inline mention pill inside the composer (`El::on_pill_secondary`).
+    fn composer_on_pill_secondary(&mut self, _id: &str, _press: rune::PointerPress, _tx: &mut Tx) -> bool {
         false
     }
 }
@@ -377,8 +398,9 @@ pub fn submit_surface(base: El, p: &Pal, live: bool) -> El {
         .motion(Spring::NONE)
         .motion_intent(MotionIntent::CUT);
     if !live {
-        // Disabled, so not a Tab stop either.
-        return b.opacity(0.4).focusable(false);
+        // Disabled, so neither clickable nor a Tab stop (`editor.tsx:1548`), under the not-allowed cursor
+        // (`packages/ui/src/actions/submit.css:79`; Desktop's cursor reset leaves `:disabled` alone).
+        return b.opacity(0.4).disabled(true).focusable(false).hit().cursor(rune::Cursor::NotAllowed);
     }
     let (hover, pressed) = if p.dark { (black.alpha(0.08), black.alpha(0.4)) } else { (white.alpha(0.12), white.alpha(0.24)) };
     b.hover(hover).press(pressed).focus_default(p)
@@ -392,6 +414,26 @@ const SCROLLBAR: f32 = 8.0;
 /// its lines its own (`unicode-bidi: plaintext`); a shell command runs left to right.
 fn prompt_dir(field: El, shell: bool) -> El {
     if shell { field.dir(rune::Direction::Ltr) } else { field.dir(rune::Direction::Auto).dir_by_paragraph() }
+}
+
+/// Renders only an active request dock (question or permission) without the prompt composer,
+/// used on child/subagent sessions where no composer is shown
+/// (`packages/app/src/session/composer/session-composer-region.tsx:66-98`).
+pub fn request_dock<S: ComposerHost>(s: &S, p: &Pal) -> Option<El> {
+    let face = s.composer_face(p)?;
+    let box_el = col()
+        .key("composer")
+        .role("form")
+        .w_full()
+        .max_w(crate::style::dock_w())
+        .corners([RADIUS; 4]);
+    let box_el = if s.composer_face_bare() {
+        box_el
+    } else {
+        let underlay = if s.composer_border_underlay() { box_el.box_shadow(Pal::ring_out(p.bg_base)) } else { box_el };
+        underlay.fill(composer_fill(p)).elevate(p.raised).clip_soft(0.0)
+    };
+    Some(box_el.children(face))
 }
 
 pub fn composer<S: ComposerHost>(s: &S, p: &Pal) -> El {
@@ -415,24 +457,35 @@ pub fn composer_in<S: ComposerHost>(s: &S, p: &Pal, scope: &str) -> El {
         (false, false) => icon(&ic::ARROW_UP, 16.0).key("send-glyph"),
     };
     // Send finishes a dictation and sends its words, so it stays live while one runs.
-    let submit = (!docked).then(|| submit_button(p, ready || stop || s.composer_dictating())
-        .label(if stop { opencode_i18n::t!("ui.promptInput.stop") } else { opencode_i18n::t!("ui.promptInput.send") })
-        .on_press_tx(move |s: &mut S, tx: &mut Tx| {
-            if stop {
-                s.composer_stop(tx);
-            } else {
-                s.composer_send(tx);
-            }
-        })
-        .child(glyph.color(p.q.submit_text).transition(stop_glyph_swap())));
+    let submit = (!docked).then(|| {
+        let live = ready || stop || s.composer_dictating();
+        let label = if stop { opencode_i18n::t!("ui.promptInput.stop") } else { opencode_i18n::t!("ui.promptInput.send") };
+        let b = submit_button(p, live).label(label).child(glyph.color(p.q.submit_text).transition(stop_glyph_swap()));
+        // Official `<Tooltip placement="top" inactive={!stopping && disabled}>` and
+        // `tabIndex={mode === "normal" ? undefined : -1}` (`editor.tsx:1546-1569`).
+        if live {
+            let b = if s.composer_shell_mode() { b.tab_index(-1) } else { b };
+            b.help(label).help_above().on_press_tx(move |s: &mut S, tx: &mut Tx| {
+                if stop {
+                    s.composer_stop(tx);
+                } else if s.composer_shift_held() {
+                    s.composer_send_in_place(tx);
+                } else {
+                    s.composer_send(tx);
+                }
+            })
+        } else {
+            b
+        }
+    });
     let key = if scope.is_empty() {
         "composer".to_owned()
     } else {
         format!("{scope}-composer")
     };
     let face = s.composer_face(p);
-    // A hover group: the default effort shows only while the pointer is over the composer
-    // (`editor.css:75-80`), at once both ways.
+    // Track pointer hover explicitly rather than `.hover_group()` so prompt keyboard focus does
+    // not reveal the default effort button (`editor.css:87`).
     // A landmark F6 lands on (the prompt, or the request standing in its place).
     let box_el = col()
         .key(key)
@@ -444,8 +497,10 @@ pub fn composer_in<S: ComposerHost>(s: &S, p: &Pal, scope: &str) -> El {
         .min_h(if docked && s.composer_shell_mode() { 44.0 } else { 88.0 })
         // `rounded-xl` (`editor.tsx:254`): the app's `--radius-xl` is 0.625rem (`theme.css:50`).
         .corners([RADIUS; 4])
-        .hover_group()
-        .hover_motion(rune::Anim::INSTANT, rune::Anim::INSTANT);
+        .on_hover_change(|s: &mut S, inside, tx: &mut Tx| {
+            s.composer_set_hovered(inside);
+            tx.instant();
+        });
     // A face with surfaces of its own keeps its shadows: no card under it and no clip over it.
     // Otherwise `--v2-elevation-raised` (`editor.tsx:248-251`): two drops, a 0.5 pt ring and
     // dark's lit top edge.
@@ -463,6 +518,20 @@ pub fn composer_in<S: ComposerHost>(s: &S, p: &Pal, scope: &str) -> El {
     match face {
         Some(face) => box_el.children(face),
         None => box_el
+            // Clicking empty space on the composer card (padding, gutter, toolbar spacer) puts
+            // pointer focus in the prompt without a keyboard ring (`field-focus.tsx` `pointer()`),
+            // instead of blurring it so typing enters via `type_to_compose` as a stray keyboard focus.
+            .preserve_focus_on_press(true)
+            .press_on_down()
+            .on_press_tx(|s: &mut S, tx: &mut Tx| {
+                if !s.composer_edit().focused {
+                    let end = s.composer_edit().text.len();
+                    let e = s.composer_edit_mut();
+                    e.set_selection(end, end);
+                    e.focused = true;
+                }
+                tx.focus("prompt", false);
+            })
             // Shell mode sends no attachments, so it shows none (`editor.tsx:272`).
             .children(if s.composer_shell_mode() { None } else { attachments::chips(s, p) })
             .child(
@@ -472,20 +541,22 @@ pub fn composer_in<S: ComposerHost>(s: &S, p: &Pal, scope: &str) -> El {
                     .w_full()
                     .shrink()
                     .grow(if held.is_some() { 1.0 } else { 0.0 })
-                    .pb(8.0)
                     // `composer-scroll`: a plain `overflow-y: auto` box's bar (`editor.tsx:296-300`), in
-                    // the room `editor-pad` keeps for it.
+                    // the room `editor-pad` keeps for it. Drop the 180 pt cap while holding height for
+                    // history previews (`editor.tsx:297`).
                     .child(crate::scroller::scroller("editor-scroll").bar(crate::scroller::Bar::Styled(crate::scroller::native_bar(p))).build::<S>(
                         p,
-                        col()
-                            .w_full()
-                            .shrink()
-                            .max_h(COMPOSER_MAX_H - 8.0)
-                            // `editor.css:9-20`: a fixed 16 fade over the top padding, and the
-                            // bottom feathering by as much as is left to scroll, up to 16.
-                            .clip_fade_linear(0.0, 16.0, 0.0, 0.0)
-                            .scroll_fade(rune::ScrollFade::feather(16.0).end_only())
-                            .scroll_margin(16.0),
+                        {
+                            let vp = col()
+                                .w_full()
+                                .shrink()
+                                // `editor.css:9-20`: a fixed 16 fade over the top padding, and the
+                                // bottom feathering by as much as is left to scroll, up to 16.
+                                .clip_fade_linear(0.0, 16.0, 0.0, 0.0)
+                                .scroll_fade(rune::ScrollFade::feather(16.0).end_only())
+                                .scroll_margin(16.0);
+                            if held.is_some() { vp.grow(1.0) } else { vp.max_h(COMPOSER_MAX_H) }
+                        },
                                 // The scroll box keeps its 8 pt scroll bar's room at its end
                                 // (`scrollbar-gutter: stable`, `--scrollbar-size`), on the app's side.
                                 col().key("editor-pad").w_full().pr(SCROLLBAR).child(
@@ -497,21 +568,23 @@ pub fn composer_in<S: ComposerHost>(s: &S, p: &Pal, scope: &str) -> El {
                                         s.composer_shell_mode(),
                                     )
                                     .key("prompt"))
-                                    // `ps-4 pt-4`, and 12 less the gutter at the end
-                                    // (`editor.css:29-34`), on the editor itself, so they follow
-                                    // its own direction as Desktop's `#editor` padding does.
+                                    // `ps-4 pt-4 pb-2`, and 12 less the gutter at the end
+                                    // (`editor.tsx:314`, `editor.css:29-34`), on the editor itself,
+                                    // so they follow its own direction and cover the full 44 pt hit box.
                                     .pl(16.0)
                                     .pr(12.0 - SCROLLBAR)
                                     .pt(16.0)
+                                    .pb(8.0)
                                     .color(p.text)
                                     .w_full()
-                                    .min_h(20.0 + 16.0)
+                                    .min_h(20.0 + 16.0 + 8.0)
                                     .animate_edit_layout()
                                     .placeholder(s.composer_placeholder(), p.faint)
                                     .caret(p.text, p.selection).selection_style(p.field_selection)
                                     .spellcheck(s.composer_spellcheck() && !s.composer_shell_mode())
                                     .on_edit(S::composer_edit_mut)
                                     .pill_style(mention_pill_style(p))
+                                    .on_pill_secondary(S::composer_on_pill_secondary)
                                     .on_input_change(S::composer_on_change)
                                     .on_input_key(S::composer_on_key)
                                     .on_input_paste(attachments::paste::<S>)

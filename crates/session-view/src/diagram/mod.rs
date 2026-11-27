@@ -12,10 +12,11 @@ use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 use std::rc::Rc;
 
-use rune::{Cursor, El, Icon, Key, KeyEvent, Tx, el, icon};
+use rune::{El, Icon, Key, KeyEvent, Tx, el, icon};
 use rune_kit::{DiagramFrame, MarkdownStyle};
 
 use crate::TimelineHost;
+use crate::focus::FocusExt;
 use crate::keymap::Bind;
 use crate::palette::Pal;
 use crate::style::INSTANT;
@@ -87,6 +88,7 @@ thread_local! {
 /// Called at the top of each view, before the timeline builds.
 pub fn prepare<S: TimelineHost>(s: &S) {
     SHOWN.set(s.diagrams().open.as_ref().map(|o| o.id));
+    s.media_store().begin_frame();
 }
 
 fn id_of(source: &str) -> u64 {
@@ -104,6 +106,12 @@ impl Diagrams {
     /// hides and comes back.
     pub fn hidden_in(&self, body: &str) -> Option<u64> {
         self.open.as_ref().filter(|o| body.contains(&*o.seen.source)).map(|o| o.id)
+    }
+
+    /// Releases cached diagram snapshots; visible cards re-register on the next view pass.
+    pub fn rest(&mut self) {
+        let open_id = self.open.as_ref().map(|o| o.id);
+        self.seen.retain(|id, _| open_id == Some(*id));
     }
 }
 
@@ -184,7 +192,7 @@ pub fn frame<S: TimelineHost>(p: &Pal, card: El, d: &DiagramFrame<'_>, style: &R
         return wrap;
     }
     let (source, style) = (Rc::<str>::from(d.source), style.clone());
-    wrap.hover_group()
+    wrap.hover_group_focus()
         .on_layout_tx(move |s: &mut S, rect, tx| {
             s.diagrams_mut().seen.insert(id, Seen { rect, source: source.clone(), style: style.clone() });
             tx.live_only();
@@ -204,21 +212,23 @@ pub fn frame<S: TimelineHost>(p: &Pal, card: El, d: &DiagramFrame<'_>, style: &R
 }
 
 fn button<S: TimelineHost>(p: &Pal, id: u64) -> El {
-    el().key("diagram-open")
-        .size(25.0, 25.0)
-        .radius(5.0)
-        .center()
-        .cursor(Cursor::Pointer)
-        .fill(p.bg_base)
-        .border(0.5, p.border_muted)
-        .hover(p.hover)
-        .hover_motion(INSTANT, INSTANT)
-        .group_opacity(0.0, 1.0)
-        .role("button")
-        .label_static(opencode_i18n::t!("rune.diagram.openFullSize"))
-        .help(opencode_i18n::t!("rune.diagram.openFullSize"))
-        .on_press_tx(move |s: &mut S, tx| {
-            open(s, id, tx);
-        })
-        .child(icon(&EXPAND_ICON, 13.0).color(p.icon_muted))
+    crate::style::hover_reveal(
+        el().key("diagram-open")
+            .size(25.0, 25.0)
+            .radius(5.0)
+            .center()
+            .focus_default(p)
+            .fill(p.bg_base)
+            .border(0.5, p.border_muted)
+            .hover(p.hover)
+            .press(p.pressed)
+            .hover_motion(INSTANT, INSTANT)
+            .role("button")
+            .label_static(opencode_i18n::t!("rune.diagram.openFullSize"))
+            .help(opencode_i18n::t!("rune.diagram.openFullSize"))
+            .on_press_tx(move |s: &mut S, tx| {
+                open(s, id, tx);
+            })
+            .child(icon(&EXPAND_ICON, 13.0).color(p.icon_muted)),
+    )
 }

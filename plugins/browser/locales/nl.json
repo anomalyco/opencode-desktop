@@ -64,5 +64,6 @@
   "zoom.reset": "Zoom herstellen",
   "zoom.percent": "{{percent}}%",
   "link.copy": "Link kopiëren",
-  "history.clear": "Geschiedenis wissen"
+  "history.clear": "Geschiedenis wissen",
+  "extensions.compat.feature.management": "Andere extensies beheren"
 }

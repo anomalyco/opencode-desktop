@@ -40,15 +40,24 @@ fn route_href(route: &RestoreRoute) -> String {
 /// draws them); every other session's are `side.rest`, read after it, so the record doesn't
 /// grow with every session ever opened (3,600 sessions made it 1.2 MB).
 fn window_keys(host: &dyn RestoreHost) -> [(&'static str, Value); 6] {
-    let key = host
-        .current_tab_uid()
+    let routed = host.routed_child();
+    let key = routed
+        .as_ref()
+        .map(|(uid, _)| uid.clone())
+        .or_else(|| host.current_tab_uid())
         .or_else(|| host.home_return_tab().map(str::to_owned))
         .and_then(|uid| host.tab_key_by_uid(&uid))
         .map(|k| k.encode());
     let target = host
         .last_project()
         .map(|(server, directory)| json!({ "server": server, "directory": directory }));
-    let recent = json!({ "key": key, "target": target });
+    let mut recent = json!({ "key": key, "target": target });
+    // A subagent's page: the session routed in that tab, as Desktop keeps it on the tab itself
+    // (`routeSessionId`, `packages/app/src/shell/tabs/tabs.tsx`). Without it `key` may be the tab
+    // Home returns to, which says nothing of the page: a launch takes a page's tab from here only.
+    if let (Some((_, session)), true) = (routed, key.is_some()) {
+        recent["routeSessionId"] = json!(session);
+    }
     let tabs = host.tabs();
     let route = host.route();
     let hot = |k: &str| tabs.iter().any(|t| t.id == k) || matches!(&route, RestoreRoute::Session { id, .. } if id == k);

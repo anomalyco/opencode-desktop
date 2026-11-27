@@ -9,8 +9,10 @@
 //! The state is [`Pickers`]; a host implements [`PickerHost`] for the session it shows, mounts
 //! [`view::layer`] over its window and calls [`hover::poll`] each frame.
 
+pub mod choices;
 pub mod dialog;
 pub mod drawer;
+pub mod effort;
 pub mod flyout;
 mod host;
 pub mod hover;
@@ -18,10 +20,12 @@ pub mod manage;
 pub use opencode_ui::provider_mark as mark;
 pub mod menu;
 pub mod prefs;
+pub mod speed;
 pub use opencode_search::model_search as search;
 pub mod view;
 
 use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 
 pub use opencode_kit::model::{AttachmentInput, Model};
 use opencode_kit::model::ModelRef;
@@ -30,13 +34,15 @@ use serde_json::Value;
 
 use crate::popover::Highlight;
 
+pub use choices::{Choice, DRAFT};
+pub use effort::Effort;
 pub use flyout::EffortFlyout;
 pub use host::PickerHost;
 pub use hover::ModelHover;
 pub use prefs::ModelPrefs;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Kind { Agent, Model, Effort, Project }
+pub enum Kind { Agent, Model, Effort, Speed, Project }
 
 pub const ADD_PROJECT_KEY: &str = "+add";
 
@@ -57,22 +63,68 @@ impl ModelAction {
 
 impl Kind {
     pub fn key(self) -> &'static str {
-        match self { Self::Agent => "agent", Self::Model => "model", Self::Effort => "effort", Self::Project => "project" }
+        match self { Self::Agent => "agent", Self::Model => "model", Self::Effort => "effort", Self::Speed => "speed", Self::Project => "project" }
     }
 
-    /// Its trigger's and menu's name: Choose model, Choose agent, Choose model variant.
+    /// Its trigger's and menu's name: Choose model, Choose agent, Choose model variant, Choose model speed.
     pub fn choose_label(self) -> &'static str {
         match self {
             Self::Agent => opencode_i18n::t!("ui.promptInput.chooseAgent"),
             Self::Model => opencode_i18n::t!("ui.promptInput.chooseModel"),
             Self::Effort => opencode_i18n::t!("ui.promptInput.chooseVariant"),
+            Self::Speed => opencode_i18n::t!("ui.promptInput.chooseSpeed"),
             Self::Project => opencode_i18n::t!("session.new.project.trigger.tooltip"),
         }
     }
 }
 
+/// An agent and its model. `effort` says whether the model's `variant` was chosen or is the one
+/// the model inherits.
 #[derive(Clone, Debug, PartialEq)]
-pub struct Selection { pub model: ModelRef, pub agent: String }
+pub struct Selection { pub model: ModelRef, pub agent: String, pub effort: Effort }
+
+/// Picks by session ("draft" for a new one), each installed as its own edit: picking again
+/// starts a new one even when it revisits the same model and effort, so a send can release the
+/// edit it carried and leave a later pick, or the same pick again, alone.
+#[derive(Default)]
+pub struct Selections(HashMap<String, Arc<Selection>>);
+
+impl Selections {
+    pub fn insert(&mut self, scope: String, pick: Selection) {
+        self.0.insert(scope, Arc::new(pick));
+    }
+
+    pub fn get(&self, scope: &str) -> Option<&Selection> {
+        self.0.get(scope).map(Arc::as_ref)
+    }
+
+    pub fn remove(&mut self, scope: &str) {
+        self.0.remove(scope);
+    }
+
+    /// The edit a prompt carries, for its admission to release: only when the prompt names the
+    /// agent or model this session's pick holds. A pick that chose no effort holds its model at
+    /// whichever effort the prompt went out with.
+    pub fn submitted(&self, scope: &str, agent: Option<&str>, model: Option<&ModelRef>) -> Option<Arc<Selection>> {
+        let pick = self.0.get(scope)?;
+        let holds = |m: &ModelRef| m.id == pick.model.id && m.provider == pick.model.provider && (pick.effort == Effort::Inherited || m.variant == pick.model.variant);
+        ((agent.is_some() || model.is_some())
+            && agent.is_none_or(|a| a == pick.agent)
+            && model.is_none_or(holds))
+            .then(|| Arc::clone(pick))
+    }
+
+    /// The edit `edit` is still the one held: the server runs with it, so it goes and the
+    /// session follows changes made elsewhere. A later pick stays, even one that chose the same
+    /// model again.
+    pub fn admitted(&mut self, scope: &str, edit: &Arc<Selection>) -> bool {
+        if !self.0.get(scope).is_some_and(|held| Arc::ptr_eq(held, edit)) {
+            return false;
+        }
+        self.0.remove(scope);
+        true
+    }
+}
 
 #[derive(Clone, Default)]
 pub struct Item {
@@ -121,13 +173,11 @@ pub struct Pickers {
     pub search: TextEdit,
     pub(crate) active: Highlight,
     /// Picks by session id ("draft" for a new session), until the server runs with them.
-    pub selections: HashMap<String, Selection>,
-    /// The model each agent last had in a session, by session then agent, so switching back to
-    /// an agent brings its model back (Desktop's `choices`).
-    pub(crate) choices: HashMap<String, HashMap<String, ModelRef>>,
-    /// The effort last picked for each model, which picking that model again brings back
-    /// (Desktop's per-model `variant` preference).
-    pub(crate) efforts: HashMap<String, String>,
+    pub selections: Selections,
+    /// The model each agent last had, by session ("draft" for a new one) then agent, so
+    /// switching back to an agent brings its model back ([`choices`]).
+    pub(crate) choices: HashMap<String, HashMap<String, Choice>>,
+
     /// Efforts chosen with ← → on a model's row in the open list, which picking it applies
     /// (Desktop's staged variant). Opening the list clears them.
     pub(crate) staged: HashMap<String, String>,
@@ -138,6 +188,9 @@ pub struct Pickers {
     /// Manage models, while it's open.
     pub manage: Option<manage::Manage>,
     manage_scratch: TextEdit,
+    /// Whether the pointer is currently over the composer box (used to reveal the default effort
+    /// chip without lighting on prompt keyboard focus, `editor.css:87`).
+    pub composer_hovered: bool,
 }
 
 /// `items` with each group's rows together, groups in the order they first appear: the server
@@ -158,6 +211,18 @@ fn wall_ms() -> i64 {
 }
 
 impl Pickers {
+    /// A session need not name its agent, so a pick and the server's confirmation compare
+    /// through the same default.
+    pub fn effective_agent<'a>(&'a self, agent: &'a str) -> &'a str {
+        if !agent.is_empty() {
+            return agent;
+        }
+        if self.agents.iter().any(|a| a == "build") {
+            return "build";
+        }
+        self.agents.first().map_or("build", String::as_str)
+    }
+
     pub(crate) fn manage_search_mut(&mut self) -> &mut TextEdit {
         match &mut self.manage {
             Some(m) => &mut m.search,
@@ -176,8 +241,9 @@ impl Pickers {
             Model { key: format!("{}:{}", s("provider"), s("id")), id: s("id"), provider: s("provider"),
                 group: s("group"), name: s("name"), variants: v["variants"].as_array().into_iter().flatten()
                     .filter_map(Value::as_str).map(str::to_owned).collect(), hidden: false, free: false, latest: false,
-                inputs: inputs(v), tools: v["capabilities"]["tools"].as_bool().unwrap_or(false) }
+                inputs: inputs(v), tools: v["capabilities"]["tools"].as_bool().unwrap_or(false), speed: speed::parse(&v["speed"]) }
         }).collect();
+        speed::settle(&mut self.models);
         self.load_limits(&fixture["models"]);
         // A fixture may name its providers too, as the server's `/api/provider` does.
         self.load_providers(&fixture["providers"]);
@@ -221,10 +287,11 @@ impl Pickers {
             let (id, provider) = (s(v, "id"), s(v, "providerID"));
             let key = format!("{provider}:{id}");
             let name = s(v, "name");
-            Model { hidden: !shown.contains(&key), free: is_free(v), latest: name.contains("(latest)"), inputs: inputs(v), tools: v["capabilities"]["tools"].as_bool().unwrap_or(false),
+            Model { speed: speed::parse(&v["experimental"]["speed"]), hidden: !shown.contains(&key), free: is_free(v), latest: name.contains("(latest)"), inputs: inputs(v), tools: v["capabilities"]["tools"].as_bool().unwrap_or(false),
                 key, id, group: names.get(&provider).cloned().unwrap_or_else(|| provider.clone()), provider, name: name.replace("(latest)", "").trim().to_owned(),
                 variants: v["variants"].as_array().into_iter().flatten().filter_map(|x| x["id"].as_str().or(x.as_str())).map(str::to_owned).collect() }
         }).collect();
+        speed::settle(&mut self.models);
         self.load_limits(models);
     }
 

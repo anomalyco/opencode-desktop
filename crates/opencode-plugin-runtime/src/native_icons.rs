@@ -7,33 +7,33 @@ use rune::Icon;
 
 static ARROW_LEFT: Icon = Icon {
     name: "review-arrow-left",
-    view: 20.0,
-    body: r#"<path d="M8.33464 4.58398L2.91797 10.0007L8.33464 15.4173M3.33464 10.0007H17.0846" stroke="currentColor" stroke-linecap="square" fill="none"/>"#,
+    view: 16.0,
+    body: r#"<g transform="rotate(270 8 8)"><path d="M8 12.5V3.5M11.5 7L8 3.5L4.5 7" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" fill="none"/></g>"#,
 };
 static ARROW_RIGHT: Icon = Icon {
     name: "review-arrow-right",
-    view: 20.0,
-    body: r#"<path d="M11.6654 4.58398L17.082 10.0007L11.6654 15.4173M16.6654 10.0007H2.91536" stroke="currentColor" stroke-linecap="square" fill="none"/>"#,
+    view: 16.0,
+    body: r#"<g transform="rotate(90 8 8)"><path d="M8 12.5V3.5M11.5 7L8 3.5L4.5 7" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" fill="none"/></g>"#,
 };
 static UNIFIED: Icon = Icon {
     name: "review-unified",
     view: 16.0,
-    body: r#"<path d="M3.00001 4.00045L12.9998 4L13 6.99955L3 7L3.00001 4.00045Z" fill="currentColor" fill-opacity="0.5"/><path d="M3.0001 9H13L12.9999 12H3L3.0001 9Z" fill="currentColor" fill-opacity="0.5"/><path d="M1 14H15L15 2H1V14Z" stroke="currentColor" fill="none"/>"#,
+    body: r#"<path d="M14.5 13.5H1.5V2.5H14.5V13.5Z" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" fill="none"/><rect opacity="0.5" x="3" y="4" width="10" height="3" fill="currentColor"/><rect opacity="0.5" x="3" y="9" width="10" height="3" fill="currentColor"/>"#,
 };
 static SPLIT: Icon = Icon {
     name: "review-split",
     view: 16.0,
-    body: r#"<path d="M1 14H15L15 2H1V14Z" stroke="currentColor" fill="none"/><rect x="3" y="4" width="4" height="8" fill="currentColor" fill-opacity="0.5"/><rect x="9" y="4" width="4" height="8" fill="currentColor" fill-opacity="0.5"/>"#,
+    body: r#"<path d="M14.5 13.5H1.5V2.5H14.5V13.5Z" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" fill="none"/><rect opacity="0.5" x="3" y="4" width="4" height="8" fill="currentColor"/><rect opacity="0.5" x="9" y="4" width="4" height="8" fill="currentColor"/>"#,
 };
 static EXPAND_LINES: Icon = Icon {
     name: "review-expand-lines",
     view: 16.0,
-    body: r#"<path d="M8.25 6.17773V1.17773M11.25 4.17773L8.25 1.17773L5.25 4.17773" stroke="currentColor" fill="none"/><path d="M8.25 9.17773V14.1777M11.25 11.1777L8.25 14.1777L5.25 11.1777" stroke="currentColor" fill="none"/><path d="M4.25 7.67773H12.25" stroke="currentColor"/>"#,
+    body: r#"<path d="M10.5 4.5L8 2L5.5 4.5M10.5 11.5L8 14L5.5 11.5" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" fill="none"/><path d="M2.5 8H13.5" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" fill="none"/>"#,
 };
 static COLLAPSE_LINES: Icon = Icon {
     name: "review-collapse-lines",
     view: 16.0,
-    body: r#"<path d="M8 1V6M11 3L8 6L5 3" stroke="currentColor" fill="none"/><path d="M8 15V10M11 13L8 10L5 13" stroke="currentColor" fill="none"/><path d="M4 8H6M7 8H9M10 8H12" stroke="currentColor"/>"#,
+    body: r#"<path d="M5.5 2.5L8 5L10.5 2.5M5.5 13.5L8 11L10.5 13.5" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" fill="none"/><path d="M2.5 8H13.5" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" fill="none"/>"#,
 };
 
 /// select-v2's chevron (`ChevronDown`, turned to point down).

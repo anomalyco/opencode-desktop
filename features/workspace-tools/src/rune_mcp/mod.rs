@@ -27,9 +27,26 @@ use rune::{Tx, Waker};
 
 pub const MCP_NAME: &str = "rune";
 pub const SESSION_NOT_OPEN_ERROR: &str = "This session isn't open in OpenCode (Rune)";
+pub const REMOTE_BROWSER_MCP_ERROR: &str =
+    "Local browser MCP tools are refused on remote servers to prevent access to the local machine network.";
+pub const RPC_ATTACHED_BROWSER_MCP_ERROR: &str =
+    "This session is attached to the built-in experimental.browser tools; local browser_* MCP tools are refused.";
 /// Sent in `initialize.result.instructions` for forward compatibility when OpenCode surfaces
 /// instructions from attached client MCP sockets alongside configured MCP servers.
 pub const MCP_INSTRUCTIONS: &str = "OpenCode (Rune) UI tools for sessions open in OpenCode (Rune). Load the `rune-ui` skill before writing ```ui outlines.";
+
+/// Whether an MCP tool name belongs to the legacy local `browser_*` / `browser_cdp` tool family.
+pub fn is_browser_tool(name: &str) -> bool {
+    name.starts_with("browser_")
+}
+
+/// Announces whether `window_id` currently suppresses local `browser_*` tools on `server`
+/// (because `experimental.browser` v4 is attached or in sticky transient reconnect), updating
+/// `ClientMcp::set_tools` (`notifications/tools/list_changed`) in place without affecting other
+/// windows attached to the same endpoint.
+pub fn set_browser_rpc_attached(window_id: u64, server: &Server, suppressed: Option<bool>) {
+    global_hub().set_browser_rpc_attached(window_id, server, suppressed);
+}
 
 static NEXT_WINDOW_ID: AtomicU64 = AtomicU64::new(1);
 static GLOBAL_HUB: OnceLock<Arc<RuneMcpHub>> = OnceLock::new();
@@ -86,6 +103,10 @@ pub trait RuneMcpHost: opencode_kernel::AppEnv {
     fn root_of<'a>(&'a self, id: &'a str) -> &'a str { id }
     fn active_server(&self) -> &ServerKey;
 
+    /// Returns `Some(reason)` when local `browser_*` / `browser_cdp` MCP tools must be refused for
+    /// `session_id` (remote server without tunnel confinement, or session/server attached via
+    /// `experimental.browser` v4 RPC).
+    fn browser_mcp_refusal(&self, _session_id: &str) -> Option<&'static str> { None }
     /// Dispatches an incoming `tools/call` to the plugin owning it; returns `Some(call)` when no
     /// plugin handles the tool so `tools::execute` responds with `"Unknown tool: ..."`.
     fn dispatch_mcp_call(&mut self, _session_id: &str, call: McpCall, _tx: &mut Tx) -> Option<McpCall> { Some(call) }
@@ -116,8 +137,14 @@ struct WindowEntry {
 struct HubInner {
     /// Per window, per server it has tabs on.
     windows: HashMap<(u64, EndpointKey), WindowEntry>,
-    connections: HashMap<FolderKey, ClientMcp>,
+    /// Open connections and whether `browser_*` tools were suppressed in the last pushed catalog.
+    connections: HashMap<FolderKey, (ClientMcp, bool)>,
     routers: HashMap<EndpointKey, Sender<McpCall>>,
+    /// `(window_id, EndpointKey)` pairs actively suppressing legacy `browser_*` tools.
+    browser_rpc_attached: HashSet<(u64, EndpointKey)>,
+    /// `(window_id, EndpointKey)` pairs where `experimental.browser` was explicitly proven
+    /// `Unsupported` or `Unavailable` (legacy `browser_*` fails closed until present here).
+    legacy_browser_allowed: HashSet<(u64, EndpointKey)>,
     /// The plugin tools generation the open connections listed (`tools::generation`).
     tools_generation: u64,
     reconnect_min: Duration,
@@ -141,12 +168,64 @@ impl RuneMcpHub {
                 windows: HashMap::new(),
                 connections: HashMap::new(),
                 routers: HashMap::new(),
+                browser_rpc_attached: HashSet::new(),
+                legacy_browser_allowed: HashSet::new(),
                 tools_generation: tools::generation(),
                 reconnect_min,
                 reconnect_max,
                 unsupported_retry,
             }),
         })
+    }
+
+    /// Updates `(window_id, server)` suppression vote: `Some(true)` suppresses legacy `browser_*`,
+    /// `Some(false)` marks `server` proven `Unsupported`/`Unavailable`, and `None` clears the
+    /// window's vote (reverting to fail-closed if no other window proved legacy fallback).
+    pub fn set_browser_rpc_attached(self: &Arc<Self>, window_id: u64, server: &Server, suppressed: Option<bool>) {
+        let ep = server.endpoint_key();
+        let to_drop = {
+            let mut inner = lock(&self.inner);
+            let changed = match suppressed {
+                Some(true) => {
+                    let a = inner.browser_rpc_attached.insert((window_id, ep.clone()));
+                    let b = inner.legacy_browser_allowed.remove(&(window_id, ep));
+                    a || b
+                }
+                Some(false) => {
+                    let a = inner.browser_rpc_attached.remove(&(window_id, ep.clone()));
+                    let b = inner.legacy_browser_allowed.insert((window_id, ep));
+                    a || b
+                }
+                None => {
+                    let a = inner.browser_rpc_attached.remove(&(window_id, ep.clone()));
+                    let b = inner.legacy_browser_allowed.remove(&(window_id, ep));
+                    a || b
+                }
+            };
+            if !changed {
+                return;
+            }
+            Self::reconcile_locked(self, &mut inner)
+        };
+        close_later(to_drop);
+    }
+
+    fn browser_tools_refusal(&self, server: &Server) -> Option<&'static str> {
+        if !server.is_local() {
+            return Some(REMOTE_BROWSER_MCP_ERROR);
+        }
+        let inner = lock(&self.inner);
+        let ep = server.endpoint_key();
+        let any_remote = inner
+            .windows
+            .iter()
+            .any(|((_, k), win)| *k == ep && !win.runtime.is_sidecar());
+        if any_remote {
+            return Some(REMOTE_BROWSER_MCP_ERROR);
+        }
+        let suppressed = inner.browser_rpc_attached.iter().any(|(_, k)| *k == ep)
+            || !inner.legacy_browser_allowed.iter().any(|(_, k)| *k == ep);
+        suppressed.then_some(RPC_ATTACHED_BROWSER_MCP_ERROR)
     }
 
     /// The window shows `entry`'s server now. Its entries for the other servers it still has tabs on
@@ -172,9 +251,16 @@ impl RuneMcpHub {
     fn remove_window(self: &Arc<Self>, window_id: u64) {
         let to_drop = {
             let mut inner = lock(&self.inner);
-            let before = inner.windows.len();
+            let before_w = inner.windows.len();
+            let before_s = inner.browser_rpc_attached.len();
+            let before_l = inner.legacy_browser_allowed.len();
             inner.windows.retain(|(w, _), _| *w != window_id);
-            if inner.windows.len() == before {
+            inner.browser_rpc_attached.retain(|(w, _)| *w != window_id);
+            inner.legacy_browser_allowed.retain(|(w, _)| *w != window_id);
+            if inner.windows.len() == before_w
+                && inner.browser_rpc_attached.len() == before_s
+                && inner.legacy_browser_allowed.len() == before_l
+            {
                 return;
             }
             Self::reconcile_locked(self, &mut inner)
@@ -184,9 +270,13 @@ impl RuneMcpHub {
 
     fn reconcile_locked(hub: &Arc<Self>, inner: &mut HubInner) -> Vec<ClientMcp> {
         let mut wanted: HashMap<FolderKey, Server> = HashMap::new();
+        let mut remote_endpoints: HashSet<EndpointKey> = HashSet::new();
         for win in inner.windows.values() {
             let Some(srv) = &win.server else { continue };
             let ep = srv.endpoint_key();
+            if !win.runtime.is_sidecar() || !srv.is_local() {
+                remote_endpoints.insert(ep.clone());
+            }
             for dir in &win.folders {
                 if !dir.is_empty() {
                     wanted.entry((ep.clone(), dir.clone())).or_insert_with(|| srv.clone());
@@ -197,18 +287,43 @@ impl RuneMcpHub {
         let mut removed = Vec::new();
         let generation = tools::generation();
         let retool = std::mem::replace(&mut inner.tools_generation, generation) != generation;
-        let tool_defs = tools::catalog();
+        let all_tools = tools::catalog();
+        let filtered_tools: Vec<_> = all_tools
+            .iter()
+            .filter(|t| !is_browser_tool(&t.name))
+            .cloned()
+            .collect();
+        let suppress_for = |ep: &EndpointKey| -> bool {
+            remote_endpoints.contains(ep)
+                || inner.browser_rpc_attached.iter().any(|(_, k)| k == ep)
+                || !inner.legacy_browser_allowed.iter().any(|(_, k)| k == ep)
+        };
+
         // OpenCode's attached MCP client refreshes on `notifications/tools/list_changed`
         // (`packages/core/src/mcp/index.ts` `attach`), so open connections announce the new list
         // in place and keep calls in flight; reconnect only when a client lacks `list_changed`.
-        let stale: Vec<FolderKey> = inner
-            .connections
-            .iter()
-            .filter(|&(k, conn)| !wanted.contains_key(k) || (retool && !conn.set_tools(tool_defs.clone())))
-            .map(|(k, _)| k.clone())
-            .collect();
+        let mut stale: Vec<FolderKey> = Vec::new();
+        for (k, (conn, was_suppressed)) in &mut inner.connections {
+            if !wanted.contains_key(k) {
+                stale.push(k.clone());
+                continue;
+            }
+            let want_suppressed = suppress_for(&k.0);
+            if retool || *was_suppressed != want_suppressed {
+                let next_tools = if want_suppressed {
+                    filtered_tools.clone()
+                } else {
+                    all_tools.clone()
+                };
+                if conn.set_tools(next_tools) {
+                    *was_suppressed = want_suppressed;
+                } else {
+                    stale.push(k.clone());
+                }
+            }
+        }
         for k in stale {
-            if let Some(conn) = inner.connections.remove(&k) {
+            if let Some((conn, _)) = inner.connections.remove(&k) {
                 removed.push(conn);
             }
         }
@@ -236,8 +351,10 @@ impl RuneMcpHub {
                 }
             };
 
+            let suppress = suppress_for(&key.0);
             let dir = key.1.clone();
-            let mut opts = ClientMcpOptions::new(MCP_NAME, dir, tool_defs.clone()).with_instructions(MCP_INSTRUCTIONS);
+            let catalog = if suppress { filtered_tools.clone() } else { all_tools.clone() };
+            let mut opts = ClientMcpOptions::new(MCP_NAME, dir, catalog).with_instructions(MCP_INSTRUCTIONS);
             opts.reconnect_min = inner.reconnect_min;
             opts.reconnect_max = inner.reconnect_max;
             opts.unsupported_retry = inner.unsupported_retry;
@@ -259,7 +376,7 @@ impl RuneMcpHub {
             });
 
             let conn = srv.connect_client_mcp_with(opts, call_tx, waker);
-            inner.connections.insert(key, conn);
+            inner.connections.insert(key, (conn, suppress));
         }
 
         removed
@@ -273,6 +390,14 @@ fn route(weak_hub: &Weak<RuneMcpHub>, server: &Server, parent_cache: &mut HashMa
         call.respond(McpResult::error(SESSION_NOT_OPEN_ERROR));
         return ControlFlow::Break(());
     };
+    // Hard enforcement at execution time (not merely hiding from `tools/list`): refuse `browser_*`
+    // and raw `browser_cdp` on remote servers and on servers attached via `experimental.browser` v4.
+    if is_browser_tool(&call.name)
+        && let Some(reason) = hub.browser_tools_refusal(server)
+    {
+        call.respond(McpResult::error(reason));
+        return ControlFlow::Continue(());
+    }
     let Some(sid) = call.session_id.clone().filter(|s| !s.is_empty()) else {
         call.respond(McpResult::error(SESSION_NOT_OPEN_ERROR));
         return ControlFlow::Continue(());
@@ -441,6 +566,10 @@ pub struct WindowMcp {
 }
 
 impl WindowMcp {
+    pub fn window_id(&self) -> u64 {
+        self.window_id
+    }
+
     pub fn force_enabled(&self) -> bool {
         self.force_enabled
     }

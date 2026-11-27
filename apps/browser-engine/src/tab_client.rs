@@ -1,9 +1,125 @@
+use std::sync::Arc;
+
 use cef::rc::Rc as _;
 use cef::{
-    Client, ContextMenuHandler, DialogHandler, DisplayHandler, DownloadHandler, FindHandler,
-    ImplClient, JsdialogHandler, LifeSpanHandler, LoadHandler, PermissionHandler, RenderHandler,
-    RequestHandler, WrapClient, wrap_client,
+    Browser, CefString, Client, CommandHandler, ContextMenuHandler, DictionaryValue, ImplDictionaryValue, DialogHandler, DisplayHandler, DownloadHandler,
+    FindHandler, Frame, FrameHandler, ImplBrowser, ImplClient, ImplFrame, ImplFrameHandler,
+    ImplCommandHandler, ImplListValue, ImplProcessMessage, JsdialogHandler, LifeSpanHandler, LoadHandler,
+    PermissionHandler, ProcessId, ProcessMessage, RenderHandler, RequestHandler, WrapClient,
+    WindowOpenDisposition, WrapCommandHandler, WrapFrameHandler, sys, wrap_client, wrap_command_handler,
+    wrap_frame_handler,
 };
+
+pub(crate) fn ping_renderer_pid(frame: &Frame) {
+    if frame.is_main() == 0 {
+        return;
+    }
+    if let Some(mut msg) = cef::process_message_create(Some(&"opencode.renderer_pid_ping".into())) {
+        frame.send_process_message(sys::cef_process_id_t::PID_RENDERER.into(), Some(&mut msg));
+    }
+}
+
+wrap_frame_handler! {
+    pub struct TabFrameHandler {
+        tab_id: u64,
+        prompts: Arc<crate::prompts::TabPrompts>,
+        events: std::sync::mpsc::Sender<crate::Event>,
+    }
+
+    impl FrameHandler {
+        fn on_frame_attached(
+            &self,
+            _browser: Option<&mut Browser>,
+            frame: Option<&mut Frame>,
+            reattached: ::std::os::raw::c_int,
+        ) {
+            let Some(frame) = frame else { return };
+            if frame.is_main() == 0 {
+                return;
+            }
+            let fid = CefString::from(&frame.identifier()).to_string();
+            if reattached != 0 || self.prompts.needs_frame_pid(&fid) {
+                ping_renderer_pid(frame);
+            }
+        }
+
+        fn on_main_frame_changed(
+            &self,
+            _browser: Option<&mut Browser>,
+            _old_frame: Option<&mut Frame>,
+            new_frame: Option<&mut Frame>,
+        ) {
+            let fid = new_frame
+                .as_deref()
+                .map(|f| CefString::from(&f.identifier()).to_string())
+                .filter(|id| !id.is_empty());
+            if self.prompts.on_main_frame_changed(fid)
+                && let Some(frame) = new_frame
+            {
+                ping_renderer_pid(frame);
+            }
+        }
+
+        fn on_frame_destroyed(&self, _browser: Option<&mut Browser>, frame: Option<&mut Frame>) {
+            let Some(frame) = frame else { return };
+            let fid = CefString::from(&frame.identifier()).to_string();
+            self.prompts.on_frame_destroyed(&fid);
+            if frame.is_main() == 0 {
+                let _ = self.events.send(crate::Event::WebNav(crate::extensions::web_nav::WebNavSignal {
+                    tab_id: self.tab_id,
+                    cef_frame_id: fid,
+                    parent_cef_id: None,
+                    is_main: false,
+                    url: String::new(),
+                    kind: crate::extensions::web_nav::WebNavKind::FrameDestroyed,
+                }));
+            }
+        }
+    }
+}
+
+/// `extra_info` for a new browser: born print-gated, every frame's context locks `window.print`
+/// in the renderer before any page script (`opencode_browser_engine_helper::lock_print`), which
+/// no CDP-attached script can race (#662-B1).
+pub fn print_gate_info(gated: bool) -> Option<DictionaryValue> {
+    let dict = cef::dictionary_value_create().filter(|_| gated)?;
+    dict.set_bool(Some(&CefString::from("opencode.print_gated")), 1);
+    Some(dict)
+}
+
+/// Chrome's own browser commands a key can reach (`cef_command_ids.h`). Official's Electron has none
+/// of them, so a key the pane passes to the page (Ctrl+P / S / U / O / H / J / D / T / W / R,
+/// Ctrl+1..9, F1, F5, F11, F12, Ctrl+Shift+I / J / C / M, Shift+Esc) reaches the page and nothing
+/// else: print (whose native dialog stops the whole engine), save page, view source, DevTools, help,
+/// fullscreen, reload, open file, history, downloads, bookmark, task manager, tab and location commands.
+const REFUSED_COMMANDS: [i32; 36] = [
+    33002, 33007, 33009, // IDC_RELOAD, _BYPASSING_CACHE, _CLEARING_CACHE
+    34014, 34015, 34016, 34017, // IDC_NEW_TAB, IDC_CLOSE_TAB, IDC_SELECT_NEXT_TAB, IDC_SELECT_PREVIOUS_TAB
+    34018, 34019, 34020, 34021, 34022, 34023, 34024, 34025, 34026, // IDC_SELECT_TAB_0..7, IDC_SELECT_LAST_TAB
+    34030, // IDC_FULLSCREEN
+    35000, 35002, 35003, 35004, 35007, // IDC_BOOKMARK_THIS_TAB, IDC_VIEW_SOURCE, IDC_PRINT, IDC_SAVE_PAGE, IDC_BASIC_PRINT
+    39001, // IDC_FOCUS_LOCATION
+    40000, 40004, 40005, 40006, 40007, // IDC_OPEN_FILE, IDC_DEV_TOOLS, _CONSOLE, IDC_TASK_MANAGER, IDC_DEV_TOOLS_DEVICES
+    40010, 40012, 40019, 40023, 40237, // IDC_SHOW_HISTORY, IDC_SHOW_DOWNLOADS, IDC_HELP_PAGE_VIA_KEYBOARD, IDC_DEV_TOOLS_INSPECT, _TOGGLE
+    40286, 40287, 40288, // IDC_TASK_MANAGER_SHORTCUT, _CONTEXT_MENU, _MAIN_MENU
+];
+
+// Refuses `REFUSED_COMMANDS` on every tab (WS-6, #681: the pane keeps those chords with the page, as
+// official does). A page's own `window.print()` is not a command: it is gated per tab kind (#662).
+wrap_command_handler! {
+    pub struct TabCommandHandler;
+
+    impl CommandHandler {
+        fn on_chrome_command(
+            &self,
+            _browser: Option<&mut Browser>,
+            command_id: ::std::os::raw::c_int,
+            _disposition: WindowOpenDisposition,
+        ) -> ::std::os::raw::c_int {
+            i32::from(REFUSED_COMMANDS.contains(&command_id))
+        }
+    }
+}
 
 wrap_client! {
     pub struct SidecarTabClient {
@@ -18,6 +134,8 @@ wrap_client! {
         dialog: DialogHandler,
         find: FindHandler,
         context_menu: ContextMenuHandler,
+        frame_handler: FrameHandler,
+        prompts: Arc<crate::prompts::TabPrompts>,
     }
 
     impl Client {
@@ -53,6 +171,43 @@ wrap_client! {
         }
         fn context_menu_handler(&self) -> Option<ContextMenuHandler> {
             Some(self.context_menu.clone())
+        }
+        fn frame_handler(&self) -> Option<FrameHandler> {
+            Some(self.frame_handler.clone())
+        }
+        fn command_handler(&self) -> Option<CommandHandler> {
+            Some(TabCommandHandler::new())
+        }
+        fn on_process_message_received(
+            &self,
+            browser: Option<&mut Browser>,
+            frame: Option<&mut Frame>,
+            source_process: ProcessId,
+            message: Option<&mut ProcessMessage>,
+        ) -> ::std::os::raw::c_int {
+            if source_process != ProcessId::from(sys::cef_process_id_t::PID_RENDERER) {
+                return 0;
+            }
+            let Some(frame) = frame else { return 0 };
+            if frame.is_main() == 0 {
+                return 0;
+            }
+            let Some(msg) = message else { return 0 };
+            let name = CefString::from(&msg.name()).to_string();
+            if name != "opencode.renderer_pid" {
+                return 0;
+            }
+            if let Some(args) = msg.argument_list() {
+                let pid = args.int(0);
+                if pid > 0 {
+                    let fid = CefString::from(&frame.identifier()).to_string();
+                    let main_id = browser
+                        .and_then(|b| b.main_frame())
+                        .map(|m| CefString::from(&m.identifier()).to_string());
+                    self.prompts.record_frame_pid(fid, pid as u32, main_id.as_deref());
+                }
+            }
+            1
         }
     }
 }

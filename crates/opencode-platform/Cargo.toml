@@ -6,6 +6,7 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
+browser-policy = { path = "../browser-policy" }
 opencode-kit = { path = "../opencode-kit" }
 otlp-lite = { path = "../otlp-lite" }
 rune.workspace = true

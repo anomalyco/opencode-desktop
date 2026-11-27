@@ -117,7 +117,7 @@ impl NarrowHost for App {
                 (provider, &fallback)
             }
             None => {
-                let stored = self.kernel.slots.get(&crate::panels::SIDE).sessions.get(session_id).map(|st| &st.tab_state.tabs);
+                let stored = self.kernel.slots.get(&crate::panels::SIDE).sessions.get(self.panel_root(session_id)).map(|st| &st.tab_state.tabs);
                 let active = stored.and_then(|t| t.active.clone()).filter(|k| k.starts_with(&format!("{view}:")));
                 match active
                     .as_deref()
@@ -135,7 +135,7 @@ impl NarrowHost for App {
         };
         let ctx = crate::panels::PanelViewCtx {
             plugin: provider.plugin,
-            session_id: &reg.session_id,
+            session_id: &reg.view_session,
             directory: &reg.directory,
             project_id: &reg.project_id,
             pane: crate::panels::SessionPane::Side,
@@ -150,13 +150,8 @@ impl NarrowHost for App {
     }
 
     fn on_enter_narrow_view(&mut self, session_id: &str, view: &str, tx: &mut Tx) {
-        if view == "terminal:main" {
-            let wk = self.terminal_workspace_key_for_session(session_id);
-            self.ensure_terminal_workspace_hydrated(&wk);
-            let empty = self.kernel.slots.get(&crate::terminal::TERMINAL).workspaces.get(&wk).is_none_or(|w| w.tabs.is_empty() && w.failure.is_none());
-            if empty && self.live_terminals().is_some_and(|(_, observer)| !observer) {
-                self.create_terminal_tab(None, tx);
-            }
+        if view == "terminal:main" && self.active_session_id() == Some(session_id) {
+            self.first_terminal(tx);
         }
     }
 

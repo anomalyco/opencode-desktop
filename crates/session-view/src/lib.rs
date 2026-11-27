@@ -48,6 +48,7 @@ pub mod turn_errors;
 pub mod turns;
 pub mod usage;
 pub mod user_parts;
+pub mod user_quotes;
 pub mod widget;
 pub mod working;
 
@@ -71,11 +72,14 @@ pub struct ViewState {
     pub line_hold: line_reveal::Hold,
     pub ends: jump::Ends,
     pub composer: composer::ComposerState,
+    /// This window's part in display math: its wake and what it has seen finish.
+    pub math: rune_kit::math::Client,
 }
 
 impl ViewState {
-    /// Connects the background waker for media decoding.
+    /// Connects the background waker for media decoding and display math.
     pub fn setup(&mut self, waker: Waker, _headless: bool) {
+        self.math.set_waker(waker.clone());
         self.media.set_waker(waker);
     }
 }
@@ -98,6 +102,7 @@ macro_rules! delegate_view_state {
         fn line_hold_mut(&mut self) -> &mut $crate::line_reveal::Hold { &mut self.$field.line_hold }
         fn ends(&self) -> &$crate::jump::Ends { &self.$field.ends }
         fn ends_mut(&mut self) -> &mut $crate::jump::Ends { &mut self.$field.ends }
+        fn math_client(&self) -> Option<&rune_kit::math::Client> { Some(&self.$field.math) }
     };
 }
 
@@ -246,12 +251,26 @@ pub trait TimelineHost: Sized + 'static {
     fn ends(&self) -> &jump::Ends;
     fn ends_mut(&mut self) -> &mut jump::Ends;
 
+    /// This window's display math client (`rune_kit::math::Client`): its wake when an equation
+    /// finishes rendering, and its say in when cached bitmaps go. `None`: the host doesn't follow
+    /// renders, and equations show once something else builds their row.
+    fn math_client(&self) -> Option<&rune_kit::math::Client> {
+        None
+    }
+
     fn fold_user_messages(&self) -> bool {
         true
+    }
+    /// A sent prompt shows its quotes and comments inline in its bubble (`user_quotes`) instead of
+    /// as comment cards. Desktop turns it on in local and dev builds only
+    /// (`packages/app/src/session/timeline/inline-quotes.ts`).
+    fn inline_quotes(&self) -> bool {
+        false
     }
     /// Desktop supplies contextual actions and resolves media on the session's own machine.
     fn reply_link_menu(&mut self, _url: &str, _press: rune::PointerPress, _tx: &mut Tx) -> bool { false }
     fn reply_video_source(&self, _url: &str) -> Option<String> { None }
+    fn load_reply_video(&mut self, _url: &str, _tx: &mut Tx) -> Option<String> { None }
 
     fn open_link(&mut self, _url: &str, _tx: &mut Tx) {}
     /// A right-click in the timeline on `at`: a message, an image, or an image in a message.
@@ -306,6 +325,13 @@ pub trait TimelineHost: Sized + 'static {
         false
     }
     fn switch_model(&mut self, _tx: &mut Tx) {}
+    /// Returns focus to the composer after a keyboard-triggered Jump to latest (`virtualizer.tsx:1171`).
+    fn focus_composer(&mut self, _tx: &mut Tx) {}
+    /// A move from `previous` to `model` that changed the model's speed, not the model: the
+    /// speed it moved to, none for its standard one (`pickers::Pickers::speed_switch`).
+    fn model_speed_switch(&self, _model: &ModelRef, _previous: &ModelRef) -> Option<Option<String>> {
+        None
+    }
     fn model_name(&self, model: &ModelRef) -> String {
         if model.id.is_empty() {
             model.provider.clone()
@@ -369,6 +395,8 @@ pub trait TimelineHost: Sized + 'static {
     fn loading_error(&self, _session: &str) -> Option<&str> {
         None
     }
+    /// The loading row's Retry, after `loading_error`: read the messages again.
+    fn retry_loading(&mut self, _session: &str, _tx: &mut Tx) {}
     fn partial_output(&self, _session:&str) -> Option<&str>{None}
     fn loading_older(&self, _session: &str) -> bool {
         false
@@ -386,6 +414,11 @@ pub trait TimelineHost: Sized + 'static {
         None
     }
     fn on_timeline_selection_change(_s: &mut Self, _change: &SelectionChange, _tx: &mut Tx) {}
+    /// Key handler checked on the timeline viewport ahead of Rune's `caret_browsing` keys when
+    /// the chat timeline holds focus (`tx.focused() == Some("timeline")`).
+    fn on_timeline_key(&mut self, _ev: &rune::KeyEvent, _tx: &mut Tx) -> bool {
+        false
+    }
 
     fn find_row_version(&self, _row_key: &str) -> u64 {
         0
@@ -432,6 +465,8 @@ pub trait TimelineHost: Sized + 'static {
     fn pending_steer_label(&self, item: &InboxItem) -> String {
         item.text.clone()
     }
+    /// What sits beside the status line in a turn's lane, 8 after its words and centred on it
+    /// (OpenCode (Rune)'s "Move to background" hint).
     fn turn_tail_extra(&self, _p: &palette::Pal, _session: &str, _busy: bool) -> Option<El> {
         None
     }
@@ -444,6 +479,21 @@ pub trait TimelineHost: Sized + 'static {
     fn turn_diffs(&self) -> bool {
         false
     }
+    /// The server's `full_codemode` flag (`GET /api/experimental/flag`, `opencode#66509`):
+    /// gates script file diffs/counts and enables the flat execute layout.
+    fn full_codemode(&self, _session: &str) -> bool {
+        false
+    }
+    /// Settings › Preferences › Wrap code blocks (`general.wrapCodeBlocks`, anomalyco/opencode#64545).
+    fn wrap_code_blocks(&self) -> bool {
+        false
+    }
+    /// Per-block code-wrap overrides keyed by `"{row_key}:{block_index}"`.
+    fn code_wrap_overrides(&self) -> Option<&std::collections::HashMap<String, bool>> {
+        None
+    }
+    /// Sets or clears a per-block code-wrap override (`None` resumes following `wrap_code_blocks`).
+    fn set_code_wrap_override(&mut self, _key: String, _override: Option<bool>) {}
     /// The diff of session `session`'s run from prompt `from`, for Changed files; a host loads
     /// it when first asked.
     fn turn_diff(&self, _session: &str, _from: &str) -> turn_diff::State<'_> {
@@ -513,7 +563,15 @@ pub fn poll<S: TimelineHost>(s: &mut S, now: f64, tx: &mut Tx) -> bool {
     changed |= copied::poll(s, now, tx);
     changed |= diagram::poll(s, now, tx);
     changed |= images::poll(s, now, tx);
+    changed |= poll_math(s);
     changed
+}
+
+/// True on this window's frame after background LaTeX renders finish, so the rows that drew them
+/// (only those: `rune_kit::math::version`) swap from the code fallback to the rendered equation
+/// without waiting for user input.
+pub fn poll_math<S: TimelineHost>(s: &S) -> bool {
+    s.math_client().is_some_and(rune_kit::math::Client::changed)
 }
 
 /// All ⌘⇧K knob groups owned by `session-view`.

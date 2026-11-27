@@ -22,6 +22,7 @@ mod execute;
 mod files;
 mod lists;
 mod log;
+pub mod script;
 pub(crate) mod plain;
 
 use std::borrow::Cow;
@@ -32,12 +33,14 @@ use rune::{El, col, el, row, text};
 use serde_json::Value;
 
 use crate::TimelineHost;
+use crate::focus::FocusExt;
 use crate::palette::Pal;
 use crate::style::{HOVER_FADE, TOOL_CODE, UI, arrow, readable};
 
 pub use console::{console_open, follow as shell_follow};
 pub use details::overlay as details_overlay;
-pub use files::{group as file_group, is_file_tool, shut_group};
+pub use files::{draws_card as file_draws_card, group as file_group, is_file_tool, shut_group};
+pub use execute::script_output_text;
 pub use lists::{read_group, skill_group, skill_name};
 pub use plain::strip_ansi;
 
@@ -156,6 +159,12 @@ pub fn sub_key(id: &str, part: impl std::fmt::Display) -> String {
 /// Whether call `c` shows a body below its 28 pt trigger line (so its visual foot sits at its
 /// box's bottom rather than 6 pt inside the trigger).
 pub fn shows_body<S: TimelineHost>(s: &S, cx: Ctx, c: &Call) -> bool {
+    shows_body_with(s, cx, c, false)
+}
+
+/// Like [`shows_body`], with `after_changes` indicating whether a flat `execute` call's Output
+/// row moved after its script file changes (`opencode#66509`).
+pub fn shows_body_with<S: TimelineHost>(s: &S, cx: Ctx, c: &Call, after_changes: bool) -> bool {
     let cx = if opencode_kit::model::shell_message(c.metadata) { Ctx { live: true, ..cx } } else { cx };
     let stopped_shell = matches!(c.name, "shell" | "bash") && crate::activity::rules::stopped(c.status, c.metadata);
     if *c.status == ToolStatus::Error && c.name != "execute" && !stopped_shell {
@@ -171,10 +180,13 @@ pub fn shows_body<S: TimelineHost>(s: &S, cx: Ctx, c: &Call) -> bool {
         "execute" => {
             let calls = execute::calls(c.metadata);
             let err = execute::error(c);
-            let out = if err.is_some() { "" } else { output(c).trim() };
-            Display::of(s, cx, c, !calls.is_empty() || err.is_some() || !out.is_empty()).open()
+            let out = execute::script_output_text(c);
+            let flat = s.full_codemode(cx.session);
+            let output_here = !out.is_empty() && !(flat && after_changes);
+            let opens = !calls.is_empty() || err.is_some() || output_here;
+            if flat { opens } else { Display::of(s, cx, c, opens).open() }
         }
-        "edit" | "multiedit" | "write" | "patch" | "apply_patch" => true,
+        "edit" | "multiedit" | "write" | "patch" | "apply_patch" => files::draws_card(c),
         "websearch" => {
             let out = output(c);
             let opens = !busy(c.status, cx.live) && (out.len() > 8192 || !plain::urls(out).is_empty());
@@ -188,6 +200,12 @@ pub fn shows_body<S: TimelineHost>(s: &S, cx: Ctx, c: &Call) -> bool {
 /// when what it shows changes. A shimmering title isn't cached, so its sweep keeps the run's
 /// rhythm.
 pub fn view<S: TimelineHost>(s: &S, p: &Pal, cx: Ctx, c: &Call) -> El {
+    view_with(s, p, cx, c, false)
+}
+
+/// Like [`view`]; `after_changes` moves a flat `execute` script's Output row after its file
+/// changes (`opencode#66509`).
+pub fn view_with<S: TimelineHost>(s: &S, p: &Pal, cx: Ctx, c: &Call, after_changes: bool) -> El {
     // A shell command run from the composer runs whether or not its session does: its title
     // shimmers while the command runs (`SessionShellMessage` passes its own status).
     let cx = if opencode_kit::model::shell_message(c.metadata) { Ctx { live: true, ..cx } } else { cx };
@@ -201,7 +219,7 @@ pub fn view<S: TimelineHost>(s: &S, p: &Pal, cx: Ctx, c: &Call) -> El {
         match c.name {
             "shell" if opencode_kit::model::shell_message(c.metadata) => shell_message(s, p, cx, c),
             "shell" | "bash" => console::shell(s, p, cx, c),
-            "execute" => execute::execute(s, p, cx, c),
+            "execute" => execute::execute(s, p, cx, c, after_changes),
             "edit" | "multiedit" | "write" | "patch" | "apply_patch" => files::group(s, p, cx, &[*c]),
             "read" => lists::read(s, p, cx, c),
             "list" | "glob" | "grep" => lists::search(s, p, cx, c),
@@ -212,7 +230,7 @@ pub fn view<S: TimelineHost>(s: &S, p: &Pal, cx: Ctx, c: &Call) -> El {
             _ => lists::generic(s, p, cx, c),
         }
     };
-    cached(s, p, cx, &[*c], build)
+    cached_with(s, p, cx, &[*c], after_changes, build)
 }
 
 /// A `widget` call of assistant message `message`: the agent widget itself, which the host runs
@@ -270,12 +288,17 @@ fn shell_message<S: TimelineHost>(s: &S, p: &Pal, cx: Ctx, c: &Call) -> El {
 /// `build` for `calls`, kept until one of them, the parts of them held open, their copy
 /// buttons, the host's buttons beside them or the look changes.
 pub fn cached<S: TimelineHost>(s: &S, p: &Pal, cx: Ctx, calls: &[Call], build: impl FnOnce() -> El) -> El {
+    cached_with(s, p, cx, calls, false, build)
+}
+
+fn cached_with<S: TimelineHost>(s: &S, p: &Pal, cx: Ctx, calls: &[Call], after_changes: bool, build: impl FnOnce() -> El) -> El {
     let Some(first) = calls.first() else { return col() };
     if !s.reduced_motion() && calls.iter().any(|c| busy(c.status, cx.live)) {
         return build();
     }
     let mut h = std::hash::DefaultHasher::new();
     (cx.session, cx.live, cx.sticky.to_bits(), crate::scroller::device_scale().to_bits(), p.theme, p.generation, p.dark, opencode_i18n::locale().id(), crate::style::hover_none(), s.reduced_motion(), s.session_directory(cx.session), s.timeline_detail()).hash(&mut h);
+    (s.full_codemode(cx.session), after_changes).hash(&mut h);
     let copied = crate::copied::current(s);
     for c in calls {
         (c.id, c.name, std::mem::discriminant(c.status), s.tool_row_action_version(c.id)).hash(&mut h);
@@ -283,10 +306,12 @@ pub fn cached<S: TimelineHost>(s: &S, p: &Pal, cx: Ctx, calls: &[Call], build: i
         fingerprint(c.metadata, &mut h);
         // The output the host read from the call's shell (`console::follow`).
         console::follow(c, |_| false).and_then(|(id, _)| s.shell_output(id)).map(str::len).hash(&mut h);
+        // Each part of it the reader touched, and how: one shut where it opens by default reads
+        // apart from one never touched.
         let own = key(c.id);
-        let mut open: Vec<&String> = s.expanded().iter().filter(|k| k.starts_with(&own)).collect();
-        open.sort();
-        open.hash(&mut h);
+        let mut touched: Vec<(&String, bool)> = s.expanded().touched().filter(|(k, _)| k.starts_with(&own)).collect();
+        touched.sort_by(|a, b| a.0.cmp(b.0));
+        touched.hash(&mut h);
         copied.iter().filter(|k| k.contains(c.id)).for_each(|k| k.hash(&mut h));
     }
     // The memo keys its root with its own id, so the row keeps its keys one level down.
@@ -363,14 +388,17 @@ pub fn trigger<S: TimelineHost>(s: &S, p: &Pal, cx: Ctx, c: &Call, d: Display, t
     // muted, what it worked on bright, counts muted, all at one weight.
     let mut words = row().key("words").gap(gap).center_y().shrink().min_w(0.0).child(title(s, p, &t.title, UI, d));
     if let Some(sub) = t.subtitle.filter(|x| !x.is_empty()) {
-        let font = if t.code { TOOL_CODE.lh(16.0) } else { UI };
+        // `basic-tool.css:111` sets `font-variant-numeric: tabular-nums` (inherited under
+        // `message-part.css:1438`), which in Inter widens digits and operators (`=`, `/`, `*`).
+        let font = if t.code { TOOL_CODE.lh(16.0) } else { UI.features("\"tnum\"") };
         // A command reads left to right in any window; a path, a pattern or a task's words read
         // their own way, and fade at their own end.
         let dir = if t.code { rune::Direction::Ltr } else { rune::Direction::Auto };
         words = words.child(readable(p, text(sub).key("subtitle").dir(dir).font(font).color(p.text).truncate_fade()).shrink().min_w(0.0));
     }
     for (k, a) in t.args.into_iter().enumerate() {
-        words = words.child(readable(p, text(a).key(format!("arg-{k}")).dir(rune::Direction::Auto).font(UI).color(p.text).truncate_fade()).shrink().min_w(0.0));
+        // `basic-tool.css:157`: `font-variant-numeric: tabular-nums` on tool arguments.
+        words = words.child(readable(p, text(a).key(format!("arg-{k}")).dir(rune::Direction::Auto).font(UI.features("\"tnum\"")).color(p.text).truncate_fade()).shrink().min_w(0.0));
     }
     if let Some(l) = t.link {
         words = words.child(l);
@@ -390,7 +418,9 @@ pub fn trigger<S: TimelineHost>(s: &S, p: &Pal, cx: Ctx, c: &Call, d: Display, t
             .role("button")
             .label(t.title.into_owned())
             .expanded(d.open())
-            .hover_group()
+            .radius(4.0)
+            .focus_default(p)
+            .hover_group_focus()
             // The arrow fades in under the pointer (`collapsible.css:26-29`).
             .hover_motion(HOVER_FADE, HOVER_FADE)
             .on_press_tx(crate::disclosure::set::<S>(k, d.open(), id));
@@ -417,7 +447,7 @@ fn title<S: TimelineHost>(s: &S, p: &Pal, t: &str, font: rune::TextStyle, d: Dis
 
 /// A tool with nothing to open: its trigger line, the hover group its buttons follow.
 pub fn still(line: El) -> El {
-    col().w_full().hover_group().child(line)
+    col().w_full().hover_group_focus().child(line)
 }
 
 /// What an open call shows, under its trigger: `rail` insets it 12, as Desktop insets a tool's
@@ -430,7 +460,7 @@ pub fn body(content: El, rail: bool, gap: f32) -> El {
 /// A trigger line, and `content` under it while open, folding open and shut; the whole tool is
 /// the hover group its buttons follow.
 pub fn disclosure<S: TimelineHost>(s: &S, line: El, d: Display, content: impl FnOnce() -> El) -> El {
-    let c = col().w_full().hover_group().child(line);
+    let c = col().w_full().hover_group_focus().child(line);
     if d.open() { c.child(crate::disclosure::reveal(s.knobs(), content())) } else { c }
 }
 
@@ -455,14 +485,44 @@ pub fn file_name(path: &str) -> &str {
 }
 
 /// `path` inside the session's `directory`, relative to it, as Desktop's `relativizeProjectPath`.
+/// On Windows paths, compares drive letters case-insensitively and treats `/` and `\` as equal
+/// separators so e.g. `c:\repo` matches `C:\repo`.
 pub fn relative<'a>(path: &'a str, directory: Option<&str>) -> &'a str {
     let Some(dir) = directory.filter(|d| !d.is_empty() && *d != "/" && *d != "\\") else { return path };
-    if path == dir {
-        return "";
+    let win = is_windows_path(dir);
+    let dir = dir.trim_end_matches(['/', '\\']);
+    let rest = if win { strip_windows_prefix(path, dir) } else { path.strip_prefix(dir) };
+    match rest {
+        Some("") => "",
+        Some(r) => r.strip_prefix('/').or_else(|| win.then(|| r.strip_prefix('\\')).flatten()).unwrap_or(path),
+        None => path,
     }
-    let sep = if dir.contains('\\') { '\\' } else { '/' };
-    let dir = dir.trim_end_matches(sep);
-    path.strip_prefix(dir).and_then(|r| r.strip_prefix(sep)).unwrap_or(path)
+}
+
+fn is_windows_path(s: &str) -> bool {
+    let b = s.as_bytes();
+    (b.len() >= 2 && b[0].is_ascii_alphabetic() && b[1] == b':') || s.contains('\\')
+}
+
+fn strip_windows_prefix<'a>(path: &'a str, dir: &str) -> Option<&'a str> {
+    let (pb, db) = (path.as_bytes(), dir.as_bytes());
+    if pb.len() < db.len() || !path.is_char_boundary(db.len()) {
+        return None;
+    }
+    let drive = db.len() >= 2 && db[0].is_ascii_alphabetic() && db[1] == b':';
+    for (i, (&p, &d)) in pb.iter().zip(db.iter()).enumerate() {
+        let eq = if i == 0 && drive {
+            p.eq_ignore_ascii_case(&d)
+        } else if d == b'\\' || d == b'/' {
+            p == b'\\' || p == b'/'
+        } else {
+            p == d
+        };
+        if !eq {
+            return None;
+        }
+    }
+    Some(&path[db.len()..])
 }
 
 /// `path` relative to session `session`'s directory.
@@ -470,12 +530,11 @@ pub fn session_relative<'a, S: TimelineHost>(s: &S, session: &str, path: &'a str
     relative(path, s.session_directory(session))
 }
 
-/// The directory a search ran in, relative to the session's, as its subtitle shows it; none
-/// for the session's own directory. Desktop shows the searched directory's parent
-/// (`displayDirectory(getDirectory(path))`), which names the wrong folder; this names the one
-/// searched, as an intentional Rune design.
+/// The directory a search ran in, relative to the session's, as its subtitle shows it; `"/"` for
+/// the session's own root directory (`displayFolder`, `tool-renderer.tsx`, `#65460`).
 pub fn directory<S: TimelineHost>(s: &S, session: &str, path: &str) -> Option<String> {
-    Some(session_relative(s, session, path).to_owned()).filter(|r| !r.is_empty())
+    let rel = session_relative(s, session, path);
+    Some(if rel.is_empty() { "/".to_owned() } else { rel.to_owned() })
 }
 
 /// "1 file", "3 files" (`ui.common.file`).

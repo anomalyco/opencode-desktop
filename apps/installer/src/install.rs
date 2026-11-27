@@ -4,7 +4,7 @@ use std::fs::OpenOptions;
 use std::io::Write as _;
 use std::os::windows::process::CommandExt;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
 use std::time::Duration;
 
 use win_install::{EXE, Product};
@@ -13,6 +13,8 @@ use win_install::{EXE, Product};
 static PAYLOAD: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/payload.zip"));
 
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+const BELOW_NORMAL_PRIORITY_CLASS: u32 = 0x0000_4000;
+const CREATE_SUSPENDED: u32 = 0x0000_0004;
 const DETACHED_PROCESS: u32 = 0x0000_0008;
 /// How long a running copy has to close on its own before setup ends it.
 const CLOSE_GRACE: Duration = Duration::from_secs(10);
@@ -74,7 +76,11 @@ pub fn run() -> i32 {
     }
     match install(&p, &root, args.desktop_shortcut, &|line| args.log(line)) {
         Ok(()) if args.launch => launch(&root, &args),
-        Ok(()) => 0,
+        Ok(()) => {
+            // Nobody waits on a silent install's last moment: Windows' check of the new exe is paid here.
+            first_start(&root, &args.log).join().ok();
+            0
+        }
         Err(e) => {
             args.log(&format!("couldn't install: {e}"));
             1
@@ -105,8 +111,18 @@ pub fn install(p: &Product, root: &Path, desktop_shortcut: bool, log: &dyn Fn(&s
     result?;
     // A version the updater staged for the install it replaced would go back in on the next restart.
     win_install::remove_dir(&beside(root, "staged"));
+    // The receipt that makes this install the app's own to update (the updater writes it too, for
+    // a setup's install that lacks it).
+    if let Err(e) = win_install::write_receipt(root) {
+        log(&e);
+    }
     let unpacked = started.elapsed();
-    let changed = win_install::register(p, root, desktop_shortcut)?;
+    let (changed, flushed) = std::thread::scope(|scope| {
+        let writing = scope.spawn(|| flush(root));
+        (win_install::register(p, root, desktop_shortcut), writing.join().unwrap_or_default())
+    });
+    let changed = changed?;
+    log(&format!("Windows wrote {} programs to the disk in {} µs", flushed.0, flushed.1.as_micros()));
     log(&format!("registered {} (Start menu{}, Apps & features, {}://, notification identity)", p.name(), if desktop_shortcut { ", desktop" } else { "" }, p.scheme()));
     changed.iter().for_each(|line| log(line));
     log(&format!("installed in {} µs ({} µs to put the files in place, {} µs to register)", started.elapsed().as_micros(), unpacked.as_micros(), (started.elapsed() - unpacked).as_micros()));
@@ -114,17 +130,19 @@ pub fn install(p: &Product, root: &Path, desktop_shortcut: bool, log: &dyn Fn(&s
 }
 
 /// Unpacks the payload into `staging` with Windows' own bsdtar (as the updater does); returns
-/// the app's folder in it.
+/// the app's folder in it. bsdtar reads its arguments in the ANSI code page, where a user folder
+/// named `测试` arrives as `??`: so the zip goes in on standard input and `staging` is the
+/// working directory, and no path is an argument.
 fn unpack(staging: &Path) -> Result<PathBuf, String> {
     std::fs::create_dir_all(staging).map_err(|e| format!("{}: {e}", staging.display()))?;
     let zip = staging.join("payload.zip");
     std::fs::write(&zip, PAYLOAD).map_err(|e| format!("couldn't write the app: {e}"))?;
+    let archive = std::fs::File::open(&zip).map_err(|e| format!("couldn't read the app: {e}"))?;
     let system = std::env::var_os("SystemRoot").map_or_else(|| PathBuf::from(r"C:\Windows"), PathBuf::from);
     let out = Command::new(system.join("System32").join("tar.exe"))
-        .arg("-xf")
-        .arg(&zip)
-        .arg("-C")
-        .arg(staging)
+        .args(["-xf", "-"])
+        .current_dir(staging)
+        .stdin(archive)
         .creation_flags(CREATE_NO_WINDOW)
         .output()
         .map_err(|e| format!("couldn't run tar: {e}"))?;
@@ -140,6 +158,29 @@ fn unpack(staging: &Path) -> Result<PathBuf, String> {
         [one] if one.join(EXE).is_file() => Ok(one.clone()),
         _ => Err(format!("The app in this setup has no {EXE}.")),
     }
+}
+
+/// Has Windows write every program and library of the new install to the disk now, while the
+/// Installing page still shows; returns how many and how long it took.
+///
+/// Windows doesn't map a file as an image while bytes of it are only in its file cache: the
+/// first run of a build `tar` had just unpacked waited 775 to 1,481 ms for that (the 146 MiB
+/// library, n = 8, a folder Windows Defender doesn't scan), against 26 to 29 ms once the files
+/// were flushed, and it is per file, not per MiB. Left alone it takes Windows 20 to 60 s.
+/// The setup's own first start (`first_start`) begins when the last page shows, so a Launch
+/// within a second of that page waited with it: 1,030 to 1,454 ms, against 15 to 80 ms after
+/// a flush. The flush takes 1 to 2 s of the Installing page instead.
+fn flush(root: &Path) -> (usize, Duration) {
+    let started = std::time::Instant::now();
+    let programs = std::fs::read_dir(root)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .map(|entry| entry.path())
+        .filter(|path| path.extension().is_some_and(|x| x.eq_ignore_ascii_case("exe") || x.eq_ignore_ascii_case("dll")))
+        .filter(|path| OpenOptions::new().write(true).open(path).and_then(|file| file.sync_all()).is_ok())
+        .count();
+    (programs, started.elapsed())
 }
 
 /// Puts `app` at `root` with renames on one volume; a previous install goes aside first and comes
@@ -177,11 +218,55 @@ fn beside(root: &Path, what: &str) -> PathBuf {
     root.parent().unwrap_or(root).join(format!(".{name}.{what}"))
 }
 
+/// Makes a process from the installed exe and ends it before a line of it runs, on a thread of
+/// its own (as the updater does for a staged update: `features/updater/src/windows.rs`).
+///
+/// Windows Defender checks a new executable the first time a process is made from it, inside
+/// `CreateProcess`, before that process exists; opening, reading or mapping the file does not
+/// get the answer early. For this exe, unpacked as here into a folder Defender scans, that is
+/// 372,854 to 704,455 µs of the person's first start (the signed build of 23 Nov, n = 3; an
+/// unsigned one 900,000 µs). Windows keeps the answer for the file, so paid here, while the last
+/// page shows, their own first start (its Launch box, or the Start menu later) has its process
+/// after 2,000 to 3,500 µs (the updater's measure of the same call).
+pub fn first_start(root: &Path, log: &Option<PathBuf>) -> std::thread::JoinHandle<()> {
+    let (exe, args) = (root.join(EXE), Args { log: log.clone(), ..Args::default() });
+    std::thread::spawn(move || {
+        let started = std::time::Instant::now();
+        let child = Command::new(&exe).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).creation_flags(CREATE_SUSPENDED | CREATE_NO_WINDOW).spawn();
+        match child {
+            Ok(mut child) => {
+                child.kill().ok();
+                child.wait().ok();
+                args.log(&format!("Windows checked {} in {} µs", exe.display(), started.elapsed().as_micros()));
+            }
+            Err(e) => args.log(&format!("couldn't check {} ahead: {e}", exe.display())),
+        }
+        // The GPU's cache for this exe, made now in a process nobody waits for (`--warm-gpu`):
+        // Direct3D keeps it per user and per exe path, so the first launch finds its pipelines
+        // compiled and its cache databases made. Below normal, so the last page stays smooth.
+        let warm = Command::new(&exe)
+            .arg("--warm-gpu")
+            .env_remove("__COMPAT_LAYER")
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .creation_flags(CREATE_NO_WINDOW | BELOW_NORMAL_PRIORITY_CLASS)
+            .spawn();
+        if let Err(e) = warm {
+            args.log(&format!("couldn't warm the GPU's cache for {}: {e}", exe.display()));
+        }    })
+}
 /// Starts the installed app, in the user's home folder, as its Start menu shortcut does.
+///
+/// Without `__COMPAT_LAYER`: Windows starts a setup program with its Program Compatibility
+/// Assistant's layer (`DetectorsAppHealth`) in the environment, and a process created with that
+/// variable runs with ntdll's shim engine (`apphelp.dll` hooking every module before `main`):
+/// the app's first start would take 6,320 µs longer than the Start menu's, and so would every
+/// start the app itself made afterwards (an update's relaunch).
 pub fn launch(root: &Path, args: &Args) -> i32 {
     let exe = root.join(EXE);
     let home = std::env::var_os("USERPROFILE").map_or_else(|| root.to_path_buf(), PathBuf::from);
-    match Command::new(&exe).current_dir(home).creation_flags(DETACHED_PROCESS).spawn() {
+    match Command::new(&exe).current_dir(home).env_remove("__COMPAT_LAYER").creation_flags(DETACHED_PROCESS).spawn() {
         Ok(child) => {
             args.log(&format!("started {} (pid {})", exe.display(), child.id()));
             0

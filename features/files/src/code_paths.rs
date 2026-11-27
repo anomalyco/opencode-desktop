@@ -75,8 +75,8 @@ pub fn reads_as_path(text: &str) -> bool {
     if text.contains(['{', '}', '<', '>', '"', '\'', '`', ';', '=', '|', '&', '*', ',']) {
         return false;
     }
-    // A network share (`\\host\share`) would make the server connect to the host just to check it.
-    if text.len() >= 2 && text.as_bytes()[..2].iter().all(|b| matches!(b, b'\\' | b'/')) {
+    // A network share (`\\host\share`), device path, or remote `file:` URI is never probed.
+    if browser_policy::is_raw_unc_href(text) {
         return false;
     }
     let path = path_line_suffix(text).0;
@@ -227,15 +227,28 @@ pub(crate) fn execute_check_code_path(srv: &Server, dir: &str, target: &str) -> 
         .any(|(p, is_dir)| !is_dir && p == target)
 }
 
-/// `checkFileLinkExists` with no base: `~` (the server's home, which the app can't expand) and
-/// network shares are no; an absolute path is listed in its folder; any other is searched for.
-fn reply_path_exists(srv: &Server, dir: &str, code: &str) -> bool {
+/// `checkFileLinkExists` with no base: `~` names the server's `home` (no until it is known,
+/// opencode#65689) and network shares are no; an absolute path is listed in its folder; any other is
+/// searched for.
+fn reply_path_exists(srv: &Server, dir: &str, home: &str, code: &str) -> bool {
+    if browser_policy::is_raw_unc_href(code) {
+        return false;
+    }
     let (path, _) = file_link(code);
-    if path.is_empty() || path.starts_with('~') || path.starts_with("//") {
+    let home = home.replace('\\', "/");
+    let expanded = path.strip_prefix("~/").or((path == "~").then_some("")).filter(|_| !home.is_empty()).map(|rest| format!("{}/{rest}", home.trim_end_matches('/')));
+    let path = expanded.unwrap_or(path);
+    if path.is_empty() || path.starts_with('~') || path.starts_with("//") || browser_policy::is_raw_unc_href(&path) {
         return false;
     }
     if !is_absolute_link(&path) {
         return execute_resolve_code_link(srv, dir, &path).is_some();
+    }
+    // On a local server, verify fixed-drive/MNT_LOCAL and zero reparse points BEFORE asking the
+    // server to list an absolute parent directory (prevents zero-click SMB/autofs probes on
+    // mapped drives, `subst`-to-UNC, junctions, or `/net/`).
+    if srv.is_local() {
+        return browser_policy::verify_local_path(&path).is_ok_and(|v| v.is_file);
     }
     // Lists the folder instead of reading the file, so a check moves no content.
     let name = opencode_kit::path::basename(&path);
@@ -287,7 +300,7 @@ pub fn check_code_paths(host: &mut dyn FilesHost, sid: &str, path: &str) {
     }
     let dir = link_directory(host, sid);
     let base = opencode_kit::path::parent(path).to_owned();
-    let home = host.home_directory().to_owned();
+    let home = host.home_directory().into_owned();
     let live = host.is_live();
     let mut jobs = Vec::new();
     {
@@ -295,7 +308,7 @@ pub fn check_code_paths(host: &mut dyn FilesHost, sid: &str, path: &str) {
         for code in todo {
             let target = match classify(&code, &base, &dir, &home) {
                 Link::Inside { path, .. } => Some(path),
-                Link::Web(_) | Link::Heading(_) | Link::Outside { .. } => None,
+                Link::Web(_) | Link::Heading(_) | Link::Outside { .. } | Link::Skill { .. } => None,
             };
             let known_exists = target.as_ref().is_some_and(|t| ws.known_files.contains(t));
             let checks = ws.code_paths.entry(path.to_owned()).or_default();
@@ -361,7 +374,7 @@ pub fn reply_code_links(host: &dyn FilesHost, body: &str, live: bool) -> Option<
     let waker = host.waker();
     host.files_untracked()
         .replies
-        .read(sid, codes, server, || link_directory(host, sid), waker.as_ref())
+        .read(sid, codes, server, || link_directory(host, sid), host.home_directory().into_owned(), waker.as_ref())
 }
 
 /// A click on reply code naming a file (`code`): a plugin's link handler takes it first, as
@@ -369,6 +382,10 @@ pub fn reply_code_links(host: &dyn FilesHost, body: &str, live: bool) -> Option<
 /// files end with it; a path the search doesn't find still opens as written, which covers
 /// files the search skips (an ignored `.env`).
 pub fn open_code_path(host: &mut dyn FilesHost, code: &str, tx: &mut Tx) {
+    if browser_policy::is_raw_unc_href(code) {
+        host.toast_say(opencode_i18n::t!("rune.files.link.outside").to_owned(), code.trim().to_owned());
+        return;
+    }
     if host.plugin_open_link(code, tx) {
         return;
     }
@@ -413,7 +430,6 @@ pub(crate) fn apply_code_link_resolved(
 
 /// The side region's Open file picker, its filter holding `query` (`renderer.tsx` `openPicker`).
 pub fn open_file_picker(host: &mut dyn FilesHost, query: &str, tx: &mut Tx) {
-    tx.instant();
     let Some(sid) = host.active_session_id().map(str::to_owned) else { return };
     crate::ops::ensure_workspace_files(host, &sid);
     {

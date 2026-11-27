@@ -14,7 +14,7 @@ use sha2::{Digest, Sha256};
 /// revision (`156.0.26.1`). Bump it when the app needs an engine built from newer engine code (a
 /// protocol change); a release of a newer CEF with the same revision is an update for every app
 /// that accepts it.
-pub const ENGINE_REVISION: u32 = 2;
+pub const ENGINE_REVISION: u32 = 24;
 #[cfg(not(any(windows, target_os = "linux")))]
 pub const ENGINE_BUNDLE_NAME: &str = "OpenCode Browser Engine.app";
 #[cfg(not(any(windows, target_os = "linux")))]
@@ -44,6 +44,17 @@ pub(crate) const TRUST_MARKER: &str = "trust";
 /// The OS named no folder for the app's data (`Fault::Dirs`).
 #[cfg(feature = "engine")]
 pub(crate) const NO_DIRS: &str = "the OS has no folder for the browser's data";
+
+/// A development override from the environment (`OPENCODE_BROWSER_ENGINE_BIN`, `_APP`,
+/// `OPENCODE_BROWSER_SOCKET`): read only in a debug build, as
+/// `source::inputs` reads `_SOURCE` and `_TRUST`, so a variable can't make a shipped app run an
+/// engine past its trust rule (whoever sets one could also pass a headless flag).
+pub(crate) fn dev_override(name: &str) -> Option<std::ffi::OsString> {
+    cfg!(debug_assertions)
+        .then(|| std::env::var_os(name))
+        .flatten()
+        .filter(|v| !v.is_empty())
+}
 
 /// What went wrong getting the engine or keeping it running: each one names its cause and what
 /// the user can do, and the app words it from its catalog (`Display` is the English the logs and
@@ -182,16 +193,18 @@ impl std::fmt::Display for Fault {
 ///                                     (Retry starts it again; a late answer takes it back)
 /// ```
 ///
-/// `Downloading` is the download a page waits for (full speed, one try). An update downloads
-/// beside the running engine, once a run after its first page opens, and never shows here. Nothing
-/// of this runs before a page opens: no request, timer or thread.
+/// `Downloading` is the download a page waits for (full speed, one try). A launch that finds no
+/// engine this build accepts downloads it quietly once the app is up (`BrowserHost::fetch_in_background`),
+/// and an update downloads beside the running engine, once a run after its first page opens:
+/// neither shows here, until a page opens and joins it. Nothing of this runs before the app has
+/// drawn and takes input: no request, timer or thread.
 #[derive(Clone, Debug, PartialEq)]
 pub enum EngineStatus {
     /// This build has no engine for its platform (it is built without the `engine` feature, or
     /// for a platform without a Unix-socket engine), so the pane never downloads or starts one.
     Unsupported,
-    /// Not looked for yet: a launch touches nothing of the engine (its files, its socket, its
-    /// source) until a page opens (or BrowserHost::prepare starts it), which then finds out.
+    /// Not looked for by this host yet: a page that opens (or BrowserHost::prepare) finds out.
+    /// The launch's quiet fetch leaves it so: what it installs is found when a page looks.
     Unchecked,
 
     NotInstalled,
@@ -220,6 +233,11 @@ impl EngineStatus {
     pub fn is_hung(&self) -> bool {
         matches!(self, Self::Failed(f) if f.fault == Fault::Hung)
     }
+
+    /// The source publishes no engine this build accepts for this platform.
+    pub fn is_not_published(&self) -> bool {
+        matches!(self, Self::Failed(f) if f.fault == Fault::NotPublished)
+    }
 }
 
 impl Failure {
@@ -247,6 +265,8 @@ pub enum PauseReason {
     Metered,
     /// The computer runs on its battery.
     OnBattery,
+    /// The computer saves energy (Windows' battery saver, macOS's Low Power Mode).
+    BatterySaver,
 }
 
 impl PauseReason {
@@ -254,6 +274,7 @@ impl PauseReason {
         match self {
             Self::Metered => "Paused on a metered connection",
             Self::OnBattery => "Paused on battery power",
+            Self::BatterySaver => "Paused while the computer saves energy",
         }
     }
 }
@@ -302,6 +323,29 @@ pub fn set_home(dirs: rune::dirs::AppDirs) {
     HOME.set(dirs).ok();
 }
 
+/// The app quits: an engine download that runs in the background stops where it is, its threads
+/// get normal priority back for what they still do, and it closes the files it writes
+/// ([`quit_wait`] waits for that).
+pub fn quit() {
+    #[cfg(feature = "engine")]
+    crate::prefetch::Prefetch::global().quit();
+}
+
+/// The quit's last step, after [`quit`]: waits, half a second at most, until the engine's download
+/// has closed the files it writes, so the process's end has none of them to close (Windows
+/// Defender scans a half-written DLL inside that close, for seconds). False when they are still
+/// open.
+pub fn quit_wait() -> bool {
+    #[cfg(feature = "engine")]
+    {
+        crate::prefetch::Prefetch::global().wait_closed()
+    }
+    #[cfg(not(feature = "engine"))]
+    {
+        true
+    }
+}
+
 #[cfg(feature = "engine")]
 pub(crate) fn engine_dirs() -> Option<rune::dirs::AppDirs> {
     HOME.get().cloned().or_else(|| rune::dirs::AppDirs::new("co.anomaly.opencode"))
@@ -346,21 +390,53 @@ pub struct Installed {
 /// the newest installed version this build accepts. Reads one folder; call it off the UI thread.
 #[cfg(feature = "engine")]
 pub fn installed() -> Option<Installed> {
-    if let Some(bin) = std::env::var_os("OPENCODE_BROWSER_ENGINE_BIN").map(PathBuf::from).filter(|p| p.is_file()) {
+    if let Some(bin) = dev_override("OPENCODE_BROWSER_ENGINE_BIN").map(PathBuf::from).filter(|p| p.is_file()) {
         return Some(Installed { version: None, bin });
     }
-    if let Some(bin) = std::env::var_os("OPENCODE_BROWSER_ENGINE_APP").map(|app| PathBuf::from(app).join(ENGINE_BIN_REL)).filter(|p| p.is_file()) {
+    if let Some(bin) = dev_override("OPENCODE_BROWSER_ENGINE_APP").map(|app| PathBuf::from(app).join(ENGINE_BIN_REL)).filter(|p| p.is_file()) {
         return Some(Installed { version: None, bin });
     }
     let root = try_engines_root()?;
-    // Only a version installed under a rule this build accepts: a release build never starts an
-    // engine an older build took from the loopback stand-in, or one it can't tell the origin of.
+    // Only a complete version installed under a rule this build accepts: a release build never
+    // starts an engine an older build took from the loopback stand-in, one it can't tell the
+    // origin of, or a half-installed folder missing its executable (which must not hide an older
+    // intact version).
     installed_versions(&root)
         .into_iter()
-        .filter(|v| v.accepted() && crate::source::accepts_install(&root.join(v.to_string())))
+        .filter(|v| {
+            let dir = root.join(v.to_string());
+            v.accepted() && is_complete(&dir) && crate::source::accepts_install(&dir)
+        })
         .max()
         .map(|version| Installed { version: Some(version), bin: bin_in(&root.join(version.to_string())) })
-        .filter(|i| i.bin.is_file())
+}
+
+/// True when `version_dir` is a non-link directory holding every platform entry binary required
+/// for a complete install (`#617` half-installed recovery + Windows `bootstrap.exe` + client DLL).
+#[cfg(feature = "engine")]
+pub(crate) fn is_complete(version_dir: &Path) -> bool {
+    if is_reparse_or_symlink(version_dir) || is_reparse_or_symlink(&version_dir.join(ENGINE_BUNDLE_NAME)) {
+        return false;
+    }
+    let bin = bin_in(version_dir);
+    if is_reparse_or_symlink(&bin) || !bin.is_file() {
+        return false;
+    }
+    #[cfg(windows)]
+    {
+        let dll = bin.with_file_name("opencode-browser-engine.dll");
+        if is_reparse_or_symlink(&dll) || !dll.is_file() {
+            return false;
+        }
+    }
+    #[cfg(target_os = "linux")]
+    {
+        let helper = bin.with_file_name("opencode-browser-engine-helper");
+        if is_reparse_or_symlink(&helper) || !helper.is_file() {
+            return false;
+        }
+    }
+    true
 }
 
 /// The versions with a folder in `root`, accepted by this build or not.
@@ -394,6 +470,9 @@ pub(crate) fn remove_old(root: &Path, keep: Version) {
             continue;
         }
         let dir = root.join(v.to_string());
+        if is_reparse_or_symlink(&dir) {
+            continue;
+        }
         #[cfg(target_os = "linux")]
         let _executables = {
             if Some(v) == other || *v == keep { continue; }
@@ -406,7 +485,8 @@ pub(crate) fn remove_old(root: &Path, keep: Version) {
             let Ok(helper) = open(bin.with_file_name("opencode-browser-engine-helper")) else { continue };
             (main, helper)
         };
-        let trash = root.join(format!(".{v}.old-{}", std::process::id()));
+        let seq = DISCARD_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let trash = root.join(format!(".{v}.old-{}-{seq}", std::process::id()));
         if std::fs::rename(&dir, &trash).is_ok() {
             std::fs::remove_dir_all(&trash).ok();
         }
@@ -422,20 +502,58 @@ pub(crate) fn sweep_unpacking(root: &Path) {
     for entry in entries.flatten() {
         let name = entry.file_name();
         let Some(name) = name.to_str() else { continue };
-        // `.<version>.staging-<pid>-<n>` and `.<version>.old-<pid>`: the process that made it is gone.
+        // `.<version>.staging-<pid>-<n>` and `.<version>.old-<pid>[-<n>]`: the process that made it is gone.
         let pid = name.strip_prefix('.').and_then(|name| {
             let (version, pid) = if let Some((version, rest)) = name.split_once(".staging-") {
                 let (pid, seq) = rest.split_once('-')?;
                 seq.parse::<u64>().ok()?;
                 (version, pid)
             } else {
-                name.split_once(".old-")?
+                let (version, rest) = name.split_once(".old-")?;
+                let pid = match rest.split_once('-') {
+                    Some((pid, seq)) => {
+                        seq.parse::<u64>().ok()?;
+                        pid
+                    }
+                    None => rest,
+                };
+                (version, pid)
             };
             Version::parse(version)?;
             pid.parse::<u32>().ok()
         });
         if pid.is_some_and(|pid| pid != std::process::id() && !crate::background::pid_alive(pid)) {
-            std::fs::remove_dir_all(entry.path()).ok();
+            let path = entry.path();
+            if !is_reparse_or_symlink(&path) {
+                std::fs::remove_dir_all(path).ok();
+            }
+        }
+    }
+}
+
+/// Removes the partial downloads nobody has touched for a day: an earlier version's, left when
+/// the app was updated before its engine arrived, each up to an archive's size. The one a
+/// download writes is locked (`download::Body`), also by another app or an older build beside
+/// this one, and stays; so does a recent one that such a build goes on from at its next try.
+#[cfg(feature = "engine")]
+pub(crate) fn sweep_partials(root: &Path) {
+    const STALE: std::time::Duration = std::time::Duration::from_secs(24 * 60 * 60);
+    let Ok(entries) = std::fs::read_dir(root) else { return };
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        // `.<version>-<16 hex of the archive's hash>.part`
+        let ours = name.to_str().and_then(|name| name.strip_prefix('.')?.strip_suffix(".part")?.rsplit_once('-')).is_some_and(|(version, hash)| {
+            Version::parse(version).is_some() && hash.len() == 16 && hash.bytes().all(|b| b.is_ascii_hexdigit())
+        });
+        let path = entry.path();
+        let stale = entry.metadata().and_then(|m| m.modified()).is_ok_and(|at| at.elapsed().is_ok_and(|age| age >= STALE));
+        if !ours || !stale || is_reparse_or_symlink(&path) {
+            continue;
+        }
+        let Ok(file) = std::fs::OpenOptions::new().read(true).write(true).open(&path) else { continue };
+        // Removed while the lock is held, so no download starts on it in between.
+        if file.try_lock().is_ok() {
+            std::fs::remove_file(&path).ok();
         }
     }
 }
@@ -448,7 +566,7 @@ pub fn socket_path() -> PathBuf {
 
 #[cfg(feature = "engine")]
 pub fn try_socket_path() -> Result<PathBuf, &'static str> {
-    if let Some(custom) = std::env::var_os("OPENCODE_BROWSER_SOCKET") {
+    if let Some(custom) = dev_override("OPENCODE_BROWSER_SOCKET") {
         return custom_socket(Path::new(&custom));
     }
     let dirs = engine_dirs().ok_or(NO_DIRS)?;
@@ -519,10 +637,35 @@ fn short_socket_dir() -> PathBuf {
     base.join("opencode-browser")
 }
 
-/// Windows: the user's own temporary folder.
+/// Windows: the user's own temporary folder, or when its path is too long (a long user folder name,
+/// or a short one in a script whose UTF-8 bytes add up: Cyrillic, CJK), the same folder by its 8.3
+/// name where the volume keeps them, or a short folder only this user can open (`private_dir`)
+/// where it doesn't. Without them such a user had no browser at all: "Couldn't create the browser
+/// socket directory."
 #[cfg(all(feature = "engine", windows))]
+#[allow(unsafe_code)]
 fn short_socket_dir() -> PathBuf {
-    std::env::temp_dir().join("opencode-browser")
+    use std::os::windows::ffi::{OsStrExt, OsStringExt};
+    // `\s-<16 hex>.sock` inside `opencode-browser`.
+    const LEAF: usize = 24;
+    let tmp = std::env::temp_dir();
+    let candidate = tmp.join("opencode-browser");
+    if candidate.as_os_str().len() + LEAF <= SOCKET_PATH_MAX {
+        return candidate;
+    }
+    let wide: Vec<u16> = tmp.as_os_str().encode_wide().chain(Some(0)).collect();
+    let mut buf = [0u16; 1024];
+    // SAFETY: `wide` is a NUL-terminated path that outlives the call; the call writes at most
+    // `buf.len()` units, NUL included, and returns the length written without it (0 on failure, or
+    // the size it needs when `buf` is too small).
+    let n = unsafe { windows::Win32::Storage::FileSystem::GetShortPathNameW(windows::core::PCWSTR(wide.as_ptr()), Some(&mut buf)) } as usize;
+    let base = if n > 0 && n < buf.len() { PathBuf::from(std::ffi::OsString::from_wide(&buf[..n])) } else { tmp };
+    let short = base.join("opencode-browser");
+    if short.as_os_str().len() + LEAF <= SOCKET_PATH_MAX {
+        return short;
+    }
+    // No 8.3 name either (8.3 off, ReFS, a Dev Drive): a short folder only this user can open.
+    crate::private_dir::private_short_dir().unwrap_or(short)
 }
 
 /// The engine chmods its socket's parent. On Linux, only pass an override in an already private
@@ -605,12 +748,45 @@ pub(crate) fn err_write(err: &std::io::Error) -> Fault {
     if full || err.kind() == std::io::ErrorKind::StorageFull { Fault::DiskFull } else { Fault::Write(err.to_string()) }
 }
 
-/// Removes an installed version whose files are damaged, so the next start downloads it again.
-/// A folder an engine still runs from stays (Windows refuses the move while its files are open).
+/// True when `path` itself is a symlink or (on Windows) any reparse point such as a junction.
+#[cfg(feature = "engine")]
+pub(crate) fn is_reparse_or_symlink(path: &Path) -> bool {
+    let Ok(meta) = std::fs::symlink_metadata(path) else { return false };
+    if meta.file_type().is_symlink() {
+        return true;
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::MetadataExt as _;
+        const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x0400;
+        meta.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0
+    }
+    #[cfg(not(windows))]
+    {
+        false
+    }
+}
+
+#[cfg(feature = "engine")]
+static DISCARD_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+
+/// Removes an installed version whose files are damaged or incomplete, so the next start downloads
+/// it again. Never follows symlinks or Windows junctions. A folder an engine still runs from stays
+/// (Windows refuses the move while its files are open).
 #[cfg(feature = "engine")]
 pub(crate) fn discard(root: &Path, version: Version) {
-    let trash = root.join(format!(".{version}.old-{}", std::process::id()));
-    if std::fs::rename(root.join(version.to_string()), &trash).is_ok() {
+    let dir = root.join(version.to_string());
+    let Ok(meta) = std::fs::symlink_metadata(&dir) else { return };
+    if is_reparse_or_symlink(&dir) {
+        return;
+    }
+    if !meta.is_dir() {
+        std::fs::remove_file(&dir).ok();
+        return;
+    }
+    let seq = DISCARD_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let trash = root.join(format!(".{version}.old-{}-{seq}", std::process::id()));
+    if std::fs::rename(&dir, &trash).is_ok() {
         std::fs::remove_dir_all(&trash).ok();
     }
 }

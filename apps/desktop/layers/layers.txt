@@ -1,0 +1,28 @@
+# The macOS app's code as several libraries (apps/desktop/scripts/layers.py; build-app.sh, OPENCODE_RUNE_LAYERS).
+#
+# One line per library, lowest first: `name: crate crate ...`. A library holds the named crates and
+# everything they need that no lower library holds; each library links the ones below it, so a
+# crate is in exactly one file. What no line names stays in the exe. Names are package names;
+# `@rune` is every crate of the Rune repository, `@third` every crate that is not ours and that
+# something other than the office engines needs, `@app` our crates in `crates/`, `@features`
+# the ones in `features/`. The line `exe:` names crates that must stay in the exe.
+#
+# Why: at the first run of a new build macOS reads every file of the bundle, 8 at a time, and
+# `main` waits for the largest (proof/launch/mac-first-run-law.md: the same 112 MiB of our code as
+# 1 file 1,424 ms, 4 files 599, 8 files 426). So the sizes should be alike: move a name to
+# another line when one file outgrows the rest (the build prints each file's size).
+#
+# Few libraries, not many: at every launch dyld looks up each name one file takes from another
+# and walks each library's exported names. Measured before `main`, by path: 8 libraries that
+# export everything +16 ms; 4 with layers-exports.py (only the taken names exported) +7 ms. So a
+# line is worth its launch cost only where few calls cross it. One library here: everything that
+# is not ours (the standard library, the third-party crates, Rune); our own crates stay in the exe.
+#
+# `base` must stay the first line: it holds the standard library and the allocator every other
+# file uses (layers/base.rs).
+base: procwatch mimalloc @third @rune
+# The office engines are a library of their own with a C interface, loaded at the first office
+# file (crates/office-library, #945): the linker keeps only what that library uses of them, where
+# a library of this file keeps every public function (78 MiB against 28). So their host crate and
+# the engines stay out of these libraries; in the exe nothing calls them and the linker drops them.
+exe: office-preview opencode-feature-office

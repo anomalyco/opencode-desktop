@@ -108,7 +108,10 @@ fn is_allowed_favicon_url(url: &str, preview: Option<&Arc<crate::preview::Previe
     let is_safe_data = lower.starts_with("data:image/png;base64,")
         || lower.starts_with("data:image/jpeg;base64,")
         || lower.starts_with("data:image/x-icon;base64,")
-        || lower.starts_with("data:image/vnd.microsoft.icon;base64,");
+        || lower.starts_with("data:image/vnd.microsoft.icon;base64,")
+        || lower.starts_with("data:image/svg+xml,")
+        || lower.starts_with("data:image/svg+xml;base64,")
+        || lower.starts_with("data:image/svg+xml;charset=utf-8,");
     if let Some(grant) = preview {
         if grant.is_artifact() || grant.is_revoked() {
             return false;

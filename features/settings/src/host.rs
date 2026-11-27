@@ -192,6 +192,10 @@ pub trait SettingsHost: opencode_kernel::AppEnv + opencode_kernel::AppFeedback +
     fn can_write(&self) -> bool {
         false
     }
+    /// The folder the window's server was started in (`GET /api/location`), once it's known.
+    fn server_directory(&self) -> Option<&str> {
+        None
+    }
     fn set_zoom_level(&mut self, level: f32) {
         let _ = level;
     }
@@ -504,6 +508,17 @@ pub trait SettingsHost: opencode_kernel::AppEnv + opencode_kernel::AppFeedback +
     fn remove_http_server(&mut self, url: &str, tx: &mut Tx) {
         let _ = (url, tx);
     }
+    fn server_is_hidden(&self, key: &ServerKey) -> bool {
+        let _ = key;
+        false
+    }
+    fn server_can_hide(&self, key: &ServerKey) -> bool {
+        let _ = key;
+        false
+    }
+    fn set_server_hidden(&mut self, key: &ServerKey, hidden: bool) {
+        let _ = (key, hidden);
+    }
     fn server_add_menu_items(&self) -> Vec<(String, String)> {
         Vec::new()
     }
@@ -541,7 +556,7 @@ pub trait SettingsHost: opencode_kernel::AppEnv + opencode_kernel::AppFeedback +
         let _ = tx;
     }
     fn open_external(&mut self, url: &str, tx: &mut Tx) {
-        drop(tx.open_url(url));
+        harness_log::open_url(tx, url);
     }
     fn toast_failed_wire(&mut self, title: String, err: &WireError) {
         self.toast_fail(title, err.to_string());

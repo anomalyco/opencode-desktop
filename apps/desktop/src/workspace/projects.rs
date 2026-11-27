@@ -13,8 +13,6 @@ use rune::{El, FileDialogOptions, Tx};
 use serde_json::Value;
 use session_view::palette::Pal;
 
-#[cfg(not(target_arch = "wasm32"))]
-use crate::keymap::Bind;
 use crate::pickers::PickerHost as _;
 use crate::{App, Route, Source};
 
@@ -198,6 +196,10 @@ impl ProjectsHost for App {
 
     fn is_server_connected(&self, key: &ServerKey) -> bool {
         matches!(self.launch.phase(key.as_str()), Some(crate::launch::Phase::Connected))
+    }
+
+    fn lists_saved_sessions(&self, key: &ServerKey) -> bool {
+        key.is_sidecar() && self.launch.saved_list.is_some()
     }
 
     fn server_sources_hydrated(&self) -> bool {
@@ -490,12 +492,11 @@ impl Feature<App> for ProjectsFeature {
                 opencode_i18n::key!("command.project.open"),
                 crate::commands::order::OPEN_PROJECT,
                 |s, tx| s.open_project_dialog(tx),
-            )
-            .bind_id(Bind::OpenProject.id()),
+            ),
         );
         builder.add_command(
             CommandEntry::<App>::from_key(
-                "copy-project",
+                "project.copyID",
                 opencode_i18n::key!("command.project.copyID"),
                 crate::commands::order::COPY_PROJECT,
                 |s, tx| {

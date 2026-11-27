@@ -10,7 +10,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use opencode_i18n::t;
 use opencode_kernel::Slot;
 use opencode_kit::servers::ServerKey;
-use rune::{TextEdit, Tx};
+use rune::Tx;
 use serde_json::{Value, json};
 
 use crate::App;
@@ -205,6 +205,14 @@ impl PinsDoc {
         })
     }
 
+    /// Every pinned session in the pins' order, a group's among them (`pins.ts` `pinnedRefs`).
+    pub fn refs(&self) -> impl Iterator<Item = &PinRef> {
+        self.items.iter().flat_map(|item| match item {
+            PinItem::Session(r) => std::slice::from_ref(r),
+            PinItem::Group(g) => g.sessions.as_slice(),
+        })
+    }
+
     pub fn group_of(&self, r: &PinRef) -> Option<&PinGroup> {
         self.items.iter().find_map(|item| match item {
             PinItem::Group(g) if g.sessions.contains(r) => Some(g),
@@ -393,77 +401,9 @@ impl PinsDoc {
     }
 }
 
-/// Inline rename state machine for a pin group header.
-#[derive(Default)]
-pub enum PinRename {
-    #[default]
-    Idle,
-    Arming { group: String, field: TextEdit },
-    Editing { group: String, field: TextEdit },
-}
-
-pub enum RenameEvent<'a> {
-    Start { group: &'a str, name: &'a str },
-    Focused(bool),
-    Typed,
-    Done,
-}
-
-#[derive(Debug, PartialEq, Eq)]
-pub enum RenameEffect {
-    None,
-    Focus,
-    Rename { group: String, name: String },
-}
-
-impl PinRename {
-    pub fn editing(&self, group: &str) -> Option<&TextEdit> {
-        match self {
-            PinRename::Arming { group: g, field } | PinRename::Editing { group: g, field } if g == group => Some(field),
-            _ => None,
-        }
-    }
-
-    pub fn step(&mut self, event: RenameEvent<'_>) -> RenameEffect {
-        match (std::mem::take(self), event) {
-            (_, RenameEvent::Start { group, name }) => {
-                let mut field = TextEdit::new(name);
-                field.set_selection(0, field.text.len());
-                *self = PinRename::Arming { group: group.to_owned(), field };
-                RenameEffect::Focus
-            }
-            (PinRename::Arming { group, field }, RenameEvent::Focused(true))
-            | (PinRename::Editing { group, field }, RenameEvent::Focused(true)) => {
-                *self = PinRename::Editing { group, field };
-                RenameEffect::None
-            }
-            (PinRename::Arming { group, field }, RenameEvent::Focused(false)) => {
-                *self = PinRename::Arming { group, field };
-                RenameEffect::Focus
-            }
-            (PinRename::Arming { group, field }, RenameEvent::Typed) => {
-                let effect = RenameEffect::Rename { group: group.clone(), name: field.text.clone() };
-                *self = PinRename::Arming { group, field };
-                effect
-            }
-            (PinRename::Editing { group, field }, RenameEvent::Typed) => {
-                let effect = RenameEffect::Rename { group: group.clone(), name: field.text.clone() };
-                *self = PinRename::Editing { group, field };
-                effect
-            }
-            (PinRename::Editing { .. }, RenameEvent::Focused(false))
-            | (_, RenameEvent::Done)
-            | (PinRename::Idle, RenameEvent::Typed | RenameEvent::Focused(_)) => RenameEffect::None,
-        }
-    }
-}
-
 #[derive(Default)]
 pub struct PinsState {
     pub doc: PinsDoc,
-    pub rename: PinRename,
-    /// Fallback scratch edit never shown; avoids returning an unrelated edit if a late callback arrives.
-    pub scratch: TextEdit,
 }
 
 pub fn state(s: &App) -> &PinsState {
@@ -486,29 +426,19 @@ fn save(s: &App) {
 }
 
 pub fn update(s: &mut App, f: impl FnOnce(&mut PinsDoc) -> bool) {
+    let before = super::pin_sync::before(s);
     if f(&mut state_mut(s).doc) {
         save(s);
+        if let Some(before) = before {
+            super::pin_sync::changed(s, before);
+        }
     }
 }
 
-pub fn poll(s: &mut App, tx: &mut Tx) -> bool {
-    let focused = match &s.kernel.slots.untracked(&PINS).rename {
-        PinRename::Arming { field, .. } => Some(field.focused),
-        PinRename::Editing { field, .. } if !field.focused => Some(false),
-        PinRename::Editing { .. } | PinRename::Idle => None,
-    };
-    if let Some(focused) = focused {
-        rename_step(s, RenameEvent::Focused(focused), tx);
-        return true;
-    }
-    false
-}
-
-pub fn rename_step(s: &mut App, event: RenameEvent<'_>, tx: &mut Tx) {
-    match state_mut(s).rename.step(event) {
-        RenameEffect::None => {}
-        RenameEffect::Focus => tx.focus("pin-group-name", false),
-        RenameEffect::Rename { group, name } => update(s, |d| d.rename_group(&group, name)),
+/// [`update`] with what a server's pins space says (`pin_sync`): nothing goes back to it.
+pub(super) fn follow(s: &mut App, f: impl FnOnce(&mut PinsDoc) -> bool) {
+    if f(&mut state_mut(s).doc) {
+        save(s);
     }
 }
 
@@ -567,6 +497,17 @@ pub fn visible_uids(s: &App) -> Vec<String> {
 pub fn open_pin(s: &mut App, r: &PinRef, tx: &mut Tx) {
     crate::servers::runtime::switch(s, &r.server);
     s.open(&r.session_id, tx);
+}
+
+/// A middle click on a pinned session (`pinned-area.tsx`'s `close`, opencode#66265): unpins it
+/// and closes its tab, if one is open.
+pub fn close(s: &mut App, r: &PinRef, tx: &mut Tx) {
+    tx.instant();
+    update(s, |d| d.unpin(r));
+    let open = s.tabs.iter().find(|t| !t.is_draft() && t.is(&r.server, &r.session_id)).map(Tab::uid);
+    if let Some(uid) = open {
+        s.close_tab(&uid, tx);
+    }
 }
 
 pub fn open_by_uid(s: &mut App, uid: &str, tx: &mut Tx) -> bool {

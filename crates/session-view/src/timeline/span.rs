@@ -30,6 +30,7 @@ pub(super) struct Inputs<'a> {
     pub older: bool,
     pub detail: Detail,
     pub turn_diffs: bool,
+    pub full_codemode: bool,
 }
 
 impl<'a> Inputs<'a> {
@@ -37,12 +38,16 @@ impl<'a> Inputs<'a> {
         let busy = s.timeline_busy(t) && !s.is_session_stopped(&t.session);
         let revert = s.session_revert(&t.session);
         let shown = t.visible_len(revert);
-        let last_assistant = t.messages[..shown].iter().rposition(|m| matches!(m, Message::Assistant(_)));
+        // A later prompt owns the tail; the previous reply already has its inline footer
+        // (`packages/session-ui/src/timeline-next/projection.ts`, per-turn `turnRows`).
+        // Notices, compaction and Changed files do not start a new prompt.
+        let last_turn = t.messages[..shown].iter().rposition(|m| matches!(m, Message::Assistant(_) | Message::User { .. }));
+        let last_assistant = last_turn.filter(|&i| matches!(t.messages[i], Message::Assistant(_)));
         let pending = if revert.is_some() { Vec::new() } else { s.inbox_for(&t.session).map(|i| i.steering().collect()).unwrap_or_default() };
         // Working, or a compaction waiting to start, sits between the last prompt and the steers.
         let queued = if revert.is_none() { s.queued_compaction(&t.session) } else { None };
         // A new session's first prompt has no reply above it yet, and Working shows under it all the same.
-        let actions = last_assistant.or_else(|| (busy && revert.is_none() && shown > 0).then(|| shown - 1));
+        let actions = last_assistant.or_else(|| ((busy || s.is_session_live(&t.session)) && revert.is_none() && shown > 0).then(|| last_turn.unwrap_or(shown - 1)));
         Inputs {
             busy,
             revert,
@@ -55,6 +60,7 @@ impl<'a> Inputs<'a> {
             older: s.more_above(&t.session),
             detail: s.timeline_detail(),
             turn_diffs: s.turn_diffs(),
+            full_codemode: s.full_codemode(&t.session),
         }
     }
 }
@@ -114,6 +120,7 @@ pub(super) fn project<S: TimelineHost>(s: &S, t: &Transcript, inp: &Inputs, rang
     let shown = inp.shown;
     let messages = &t.messages[..shown];
     let detail = &inp.detail;
+    let script_diffs = inp.full_codemode;
     // Rows stand above a span that doesn't start the transcript.
     let base = range.start > 0;
     let older = inp.older || base;
@@ -136,7 +143,7 @@ pub(super) fn project<S: TimelineHost>(s: &S, t: &Transcript, inp: &Inputs, rang
             Message::Assistant(a) => {
                 // A reply doesn't join a shell command's turn.
                 if std::mem::take(&mut shell_turn) {
-                    turn_rows(&mut out, &std::mem::take(&mut steps), start, mi, false, detail);
+                    turn_rows(&mut out, &std::mem::take(&mut steps), start, mi, false, detail, script_diffs);
                 }
                 if let Some(r) = &mut run {
                     r.1.extend(a.changed.iter().cloned());
@@ -147,22 +154,22 @@ pub(super) fn project<S: TimelineHost>(s: &S, t: &Transcript, inp: &Inputs, rang
                 // Interrupted divider: the user stopped the turn, so the timeline confirms it
                 // whatever the setting (`timeline-next/projection.ts`'s `turnRows`).
                 if a.failure.as_ref().is_some_and(|f| interrupted(&f.kind)) && matches!(messages.get(mi + 1), Some(Message::Assistant(_))) {
-                    turn_rows(&mut out, &std::mem::take(&mut steps), start, mi + 1, false, detail);
-                    out.push(RowSpec { key: format!("d-{}", a.id), content: RowContent::TurnDivider(Run::default()), streaming: false });
+                    turn_rows(&mut out, &std::mem::take(&mut steps), start, mi + 1, false, detail, script_diffs);
+                    out.push(RowSpec { key: format!("d-{}", a.id), content: RowContent::TurnDivider(Run::default()), streaming: false, under: 0.0, divider: None });
                 }
             }
             // A run ends: with Changed files on, the files it changed list after its work.
             Message::Notice(n) if n.is_idle() => {
                 // A run that failed outside its steps reports its error where it ended.
                 if idle_reports(messages, mi) {
-                    turn_rows(&mut out, &std::mem::take(&mut steps), start, mi, false, detail);
-                    out.push(RowSpec { key: format!("e-{}", n.id), content: RowContent::Error { message: mi, pt: 24.0 }, streaming: false });
+                    turn_rows(&mut out, &std::mem::take(&mut steps), start, mi, false, detail, script_diffs);
+                    out.push(RowSpec { key: format!("e-{}", n.id), content: RowContent::Error { message: mi, pt: 24.0 }, streaming: false, under: 0.0, divider: None });
                 }
                 match run.take().filter(|r| inp.turn_diffs && !r.1.is_empty()) {
                     Some((from, files)) => {
-                        turn_rows(&mut out, &std::mem::take(&mut steps), start, mi, false, detail);
+                        turn_rows(&mut out, &std::mem::take(&mut steps), start, mi, false, detail, script_diffs);
                         diff_at = Some(out.len());
-                        out.push(RowSpec { key: format!("td-{}", n.id), content: RowContent::TurnDiff { idle: mi, from, files: files.into_iter().collect(), pt: 16.0 }, streaming: false });
+                        out.push(RowSpec { key: format!("td-{}", n.id), content: RowContent::TurnDiff { idle: mi, from, files: files.into_iter().collect(), pt: 16.0 }, streaming: false, under: 0.0, divider: None });
                     }
                     None if !steps.is_empty() => steps.push(Entry::Idle),
                     None => {}
@@ -176,14 +183,14 @@ pub(super) fn project<S: TimelineHost>(s: &S, t: &Transcript, inp: &Inputs, rang
                     }
                     Placement::Hidden => steps.push(Entry::Skip),
                     _ => {
-                        turn_rows(&mut out, &std::mem::take(&mut steps), start, mi, false, detail);
-                        out.push(RowSpec { key: format!("n-{}", n.id), content: RowContent::Notice(mi, Run::default(), rhythm::NOTICE_PT), streaming: false });
+                        turn_rows(&mut out, &std::mem::take(&mut steps), start, mi, false, detail, script_diffs);
+                        out.push(RowSpec { key: format!("n-{}", n.id), content: RowContent::Notice(mi, Run::default(), rhythm::NOTICE_PT), streaming: false, under: 0.0, divider: None });
                     }
                 }
             }
             Message::Notice(n) => {
                 if notice_placement(n, detail) == Placement::Separate {
-                    out.push(RowSpec { key: format!("n-{}", n.id), content: RowContent::Notice(mi, Run::default(), rhythm::NOTICE_PT), streaming: false });
+                    out.push(RowSpec { key: format!("n-{}", n.id), content: RowContent::Notice(mi, Run::default(), rhythm::NOTICE_PT), streaming: false, under: 0.0, divider: None });
                 }
             }
             Message::User { id, .. } => {
@@ -191,7 +198,7 @@ pub(super) fn project<S: TimelineHost>(s: &S, t: &Transcript, inp: &Inputs, rang
                 let end = delivery::end(&steps, messages, mi);
                 // Keep source indices: the virtualizer rebuilds each group from this slice.
                 if !steps.is_empty() { steps.extend(entries(&messages[mi..end], detail)); }
-                turn_rows(&mut out, &std::mem::take(&mut steps), start, end, false, detail);
+                turn_rows(&mut out, &std::mem::take(&mut steps), start, end, false, detail, script_diffs);
                 delivery::rows(&mut out, messages, mi..end, older, detail, &fold, inp.pending.first().copied().filter(|_| !inp.runs_off));
                 while at.next_if(|(i, _)| *i < end).is_some() {}
             }
@@ -200,7 +207,7 @@ pub(super) fn project<S: TimelineHost>(s: &S, t: &Transcript, inp: &Inputs, rang
             // group after it (`projection.ts` Shell rows, `groupMessages`). It shows unless
             // Shell is hidden, and a failed one always.
             Message::Note { step, .. } => {
-                turn_rows(&mut out, &std::mem::take(&mut steps), start, mi, false, detail);
+                turn_rows(&mut out, &std::mem::take(&mut steps), start, mi, false, detail, script_diffs);
                 // Desktop's TurnGap over every turn but the first (16), whose row sits 8 lower
                 // than a turn's rows under a prompt.
                 shell_gaps.push((out.len(), mi, if out.is_empty() && !base { 8.0 } else { 16.0 }));
@@ -209,9 +216,9 @@ pub(super) fn project<S: TimelineHost>(s: &S, t: &Transcript, inp: &Inputs, rang
                 shell_turn = true;
             }
             Message::Compaction(c) => {
-                turn_rows(&mut out, &std::mem::take(&mut steps), start, mi, false, detail);
+                turn_rows(&mut out, &std::mem::take(&mut steps), start, mi, false, detail, script_diffs);
                 for piece in crate::compaction::pieces(c) {
-                    out.push(RowSpec { key: piece.key(&c.id), content: RowContent::Compaction { message: mi, piece, run: Run::default() }, streaming: false });
+                    out.push(RowSpec { key: piece.key(&c.id), content: RowContent::Compaction { message: mi, piece, run: Run::default() }, streaming: false, under: 0.0, divider: None });
                 }
             }
         }
@@ -220,19 +227,19 @@ pub(super) fn project<S: TimelineHost>(s: &S, t: &Transcript, inp: &Inputs, rang
         // The next span's first prompt ends this span's turn, as it would mid-transcript.
         let end = delivery::end(&steps, messages, range.end);
         if !steps.is_empty() { steps.extend(entries(&messages[range.end..end], detail)); }
-        turn_rows(&mut out, &steps, start, end, false, detail);
+        turn_rows(&mut out, &steps, start, end, false, detail, script_diffs);
         space_shells(&mut out, shell_gaps);
         dividers::stack(t, &mut out);
-        rhythm::space(t, detail, &mut out);
+        rhythm::space(t, detail, script_diffs, &mut out);
         return out;
     }
-    turn_rows(&mut out, &steps, start, shown, inp.busy && inp.revert.is_none(), detail);
+    turn_rows(&mut out, &steps, start, shown, inp.busy && inp.revert.is_none(), detail, script_diffs);
     space_shells(&mut out, shell_gaps);
     if let Some(last) = inp.actions {
         // Working lasts the whole run, like Desktop's session status: each step's message
         // finishes before the next one starts, and those gaps used to blink it out.
         let busy = inp.busy || s.is_session_live(&t.session);
-        let actions = RowSpec { key: "turn-actions".into(), content: RowContent::Actions { message: last, busy, asking: busy && s.session_asking(&t.session), last: false }, streaming: false };
+        let actions = RowSpec { key: "turn-actions".into(), content: RowContent::Actions { message: last, busy, asking: busy && s.session_asking(&t.session), last: false }, streaming: false, under: 0.0, divider: None };
         // The reply's footer stays with its words, above the run's Changed files.
         match diff_at.filter(|at| at + 1 == out.len()) {
             Some(at) => {
@@ -249,7 +256,7 @@ pub(super) fn project<S: TimelineHost>(s: &S, t: &Transcript, inp: &Inputs, rang
     }
     // A compaction waiting to start sits under Working, above the steers, as Desktop's.
     if let Some(id) = inp.queued {
-        out.push(RowSpec { key: format!("cmpq-{id}"), content: RowContent::CompactionQueued(Run::default()), streaming: false });
+        out.push(RowSpec { key: format!("cmpq-{id}"), content: RowContent::CompactionQueued(Run::default()), streaming: false, under: 0.0, divider: None });
     }
     // Undelivered steers wait under Working, as Desktop shows them, in the row each becomes
     // when the server delivers it to the end of the transcript; Rune slides it up into place.
@@ -266,27 +273,27 @@ pub(super) fn project<S: TimelineHost>(s: &S, t: &Transcript, inp: &Inputs, rang
     // Job reports belong to work already started, not to the steers waiting to run.
     let (jobs, notices): (Vec<_>, Vec<_>) = notices.into_iter().partition(|n| matches!(n.kind, model::NoticeKind::Job { .. }));
     for n in jobs {
-        out.push(RowSpec { key: format!("n-{}", n.id), content: RowContent::PendingNotice(n.id.clone(), rhythm::NOTICE_PT), streaming: false });
+        out.push(RowSpec { key: format!("n-{}", n.id), content: RowContent::PendingNotice(n.id.clone(), rhythm::NOTICE_PT), streaming: false, under: 0.0, divider: None });
         prev = None;
     }
     let pending = &inp.pending;
     let mut notices = notices.into_iter().peekable();
     for (k, item) in pending.iter().enumerate() {
         while let Some(n) = notices.next_if(|n| n.id < item.id) {
-            out.push(RowSpec { key: format!("n-{}", n.id), content: RowContent::PendingNotice(n.id.clone(), rhythm::NOTICE_PT), streaming: false });
+            out.push(RowSpec { key: format!("n-{}", n.id), content: RowContent::PendingNotice(n.id.clone(), rhythm::NOTICE_PT), streaming: false, under: 0.0, divider: None });
             prev = None;
         }
         let above = prev.is_some_and(|x| prompts_join(x, item));
         let below = pending.get(k + 1).is_some_and(|n| prompts_join(&item.text, n)) && notices.peek().is_none_or(|n| n.id > pending[k + 1].id);
-        let tight = prompt_images(&mut out, &item.id, older);
-        out.push(RowSpec { key: format!("u-{}", item.id), content: RowContent::Pending { id: item.id.clone(), tight, above, below, reply: 0.0, fold: fold(&item.id) }, streaming: false });
+        let top = prompt_images(&mut out, &item.id, older, above);
+        out.push(RowSpec { key: format!("u-{}", item.id), content: RowContent::Pending { id: item.id.clone(), above, below, top, fold: fold(&item.id) }, streaming: false, under: 0.0, divider: None });
         prev = Some(&item.text);
     }
     for n in notices {
-        out.push(RowSpec { key: format!("n-{}", n.id), content: RowContent::PendingNotice(n.id.clone(), rhythm::NOTICE_PT), streaming: false });
+        out.push(RowSpec { key: format!("n-{}", n.id), content: RowContent::PendingNotice(n.id.clone(), rhythm::NOTICE_PT), streaming: false, under: 0.0, divider: None });
     }
     dividers::stack(t, &mut out);
-    rhythm::space(t, detail, &mut out);
+    rhythm::space(t, detail, script_diffs, &mut out);
     // Input waiting to send (queued, or steers) lands as the turn ends, so the reply's footer
     // takes its room only once nothing waits.
     let waiting = s.inbox_for(&t.session).is_some_and(|i| !i.items.is_empty() || i.compaction.is_some());

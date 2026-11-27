@@ -9,18 +9,19 @@ license.workspace = true
 # Off by default, so `--workspace` builds don't turn it on for the app where no engine ships.
 default = []
 # Download, start and talk to the CEF engine over a Unix socket (AF_UNIX on Windows too). Without it,
-# the pane keeps its tab model and reports `EngineStatus::Unsupported`. The app turns it on for macOS
-# and Windows, and for Linux x86_64.
-engine = ["dep:authenticode", "dep:libc", "dep:memchr", "dep:sha2", "dep:ureq", "dep:uds_windows", "dep:windows", "dep:zstd"]
+# the pane keeps its tab model and reports `EngineStatus::Unsupported`. The app turns it on for macOS,
+# Windows, and Linux.
+engine = ["dep:authenticode", "dep:libc", "dep:memchr", "dep:ring", "dep:rusqlite", "dep:rusty-leveldb", "dep:security-framework", "dep:sha2", "dep:ureq", "dep:uds_windows", "dep:windows", "dep:zstd"]
 # Harness builds: injected faults (`unpack.rs`), never in a release.
 faults = ["engine"]
 
 [dependencies]
 base64.workspace = true
+browser-extensions = { path = "../browser-extensions" }
 browser-policy = { path = "../browser-policy" }
 opencode-i18n = { path = "../opencode-i18n" }
 rune.workspace = true
-rusqlite = { version = "0.41", default-features = false, features = ["bundled"] }
+rusqlite = { version = "0.41", default-features = false, features = ["bundled", "limits"] }
 serde = { version = "1", features = ["derive"] }
 serde_json.workspace = true
 sha2 = { version = "0.10", optional = true }
@@ -30,24 +31,45 @@ ureq = { workspace = true, features = ["rustls", "platform-verifier"], optional 
 # decoder's speed, so a fast connection isn't held up by it.
 zstd = { version = "0.13", default-features = false, optional = true }
 
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+ring = { version = "0.17", optional = true }
+rusqlite = { version = "0.41", default-features = false, features = ["bundled", "limits"], optional = true }
+# Reads a private copy of the engine profile's `Local Storage` LevelDB (Clear browsing data's check).
+rusty-leveldb = { version = "4.0.2", optional = true }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+security-framework = { version = "3.7", optional = true }
+
 [target.'cfg(unix)'.dependencies]
 libc = { version = "0.2", optional = true }
 # Line ends in the engine's megabyte-long paint lines (`fd_lines.rs`, Linux).
 memchr = { version = "2", optional = true }
 
 # The engine's socket: AF_UNIX, in Windows 10 1803 and later. `windows`: the background download's
-# thread priority and its pause checks (power line, connection cost); whether commit memory was short when the engine ended.
+# thread priority and its pause checks (power line, connection cost), the warm-up's wait for a still keyboard and
+# its peak memory; whether commit memory was short when the engine ended;
+# DPAPI `CryptUnprotectData` for Windows Chromium cookie import.
 [target.'cfg(windows)'.dependencies]
 authenticode = { path = "../authenticode", optional = true }
 uds_windows = { version = "1.1", optional = true }
 windows = { version = "0.62", optional = true, features = [
     "Networking_Connectivity",
+    "Win32_Foundation",
+    "Win32_Graphics_Gdi",
+    "Win32_Security",
+    "Win32_Security_Authorization",
+    "Win32_Security_Cryptography",
     "Win32_System_Diagnostics_ToolHelp",
     "Win32_System_JobObjects",
+    "Win32_System_Memory",
     "Win32_System_SystemInformation",
     "Win32_Storage_FileSystem",
     "Win32_System_Power",
+    "Win32_System_ProcessStatus",
+    "Win32_System_Registry",
     "Win32_System_Threading",
+    "Win32_UI_Input_KeyboardAndMouse",
+    "Win32_UI_WindowsAndMessaging",
 ] }
 
 [lints]

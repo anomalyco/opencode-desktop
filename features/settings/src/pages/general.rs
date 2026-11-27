@@ -1,19 +1,20 @@
 //! Settings › Preferences (`settings/general/general.tsx`): Interface layout, Language, Default
-//! environment, Auto-accept permissions, Show agent, Follow-up behavior, Pinch to zoom and
-//! Spellcheck, this app's own rows (Terminal placement, macOS Option-as-Meta, Windows shell
+//! environment, Auto-accept permissions, Show agent, Follow-up behavior, Submit question answers
+//! with, Pinch to zoom and Spellcheck, this app's own rows (Terminal placement, macOS Option-as-Meta, Windows shell
 //! prompt marks), and the sections plugins put on the page (`PluginSettingsSections page="general"`).
 
 use opencode_i18n::t;
+use opencode_ui::focus::FocusExt;
 use opencode_ui::keymap::Bind;
 use opencode_ui::popup::PopupHost;
 use rune::{Color, El, Tx, col, row, text};
 use opencode_ui::palette::Pal;
 use opencode_ui::style::UI;
 
-use super::{choice, header, page_with, select};
+use super::{choice, header_with, page_with, select};
 use crate::host::SettingsHost;
 use crate::types::{DockPlacement, TerminalMarkShell};
-use crate::{Choice as _, Destination, FollowUp, TitlebarPosition, change_settings, list, set_show_agent, set_terminal_placement, setting, setting_at, switch};
+use crate::{Choice as _, FollowUp, QuestionSubmitKey, StartIn, TitlebarPosition, Worktree, change_settings, list, set_show_agent, set_terminal_placement, setting, setting_at, switch};
 
 fn toggle_shared_side_panel(s: &mut dyn SettingsHost) {
     change_settings(s, |x| x.shared_side_panel = !x.shared_side_panel);
@@ -23,8 +24,35 @@ fn pick_language(s: &mut dyn SettingsHost, id: &str, _tx: &mut Tx) {
     s.set_language(id);
 }
 
-fn pick_destination(s: &mut dyn SettingsHost, id: &str, _tx: &mut Tx) {
-    change_settings(s, |x| x.default_destination = Destination::parse(Some(id)));
+fn pick_start_in(s: &mut dyn SettingsHost, id: &str, _tx: &mut Tx) {
+    change_settings(s, |x| x.start_in = StartIn::parse(Some(id)));
+}
+
+fn pick_worktree(s: &mut dyn SettingsHost, id: &str, _tx: &mut Tx) {
+    change_settings(s, |x| x.worktree = Worktree::parse(Some(id)));
+}
+
+/// New sessions start in, and under Current project the Worktree it uses. Default directory
+/// names the folder the server reports for itself (`GET /api/location`) once it's known.
+fn start_rows<H: SettingsHost + PopupHost + 'static>(s: &H, p: &Pal) -> Vec<(&'static str, El)> {
+    let st = s.settings();
+    let title = t!("rune.settings.newSession.startIn.title");
+    let about = match (st.start_in, s.server_directory()) {
+        (StartIn::Directory, Some(dir)) => t!("rune.settings.newSession.startIn.directoryDescription", directory = dir).to_string(),
+        (StartIn::Directory, None) => t!("rune.settings.newSession.startIn.directoryUnknown").to_owned(),
+        (StartIn::Project, _) => t!("rune.settings.newSession.startIn.description").to_owned(),
+    };
+    let mut rows = vec![("settings-new-session-start", setting(p, "settings-new-session-start", title, &about, choice(s, p, "settings-new-session-start-select", title, st.start_in, pick_start_in)))];
+    if st.start_in == StartIn::Project {
+        let title = t!("rune.settings.newSession.worktree.title");
+        let about = match st.worktree {
+            Worktree::Default => t!("rune.settings.newSession.worktree.defaultDescription"),
+            Worktree::New => t!("rune.settings.newSession.worktree.newDescription"),
+            Worktree::LastUsed => t!("rune.settings.newSession.worktree.lastUsedDescription"),
+        };
+        rows.push(("settings-new-session-worktree", setting(p, "settings-new-session-worktree", title, about, choice(s, p, "settings-new-session-worktree-select", title, st.worktree, pick_worktree))));
+    }
+    rows
 }
 
 fn toggle_auto_accept(s: &mut dyn SettingsHost) {
@@ -39,6 +67,15 @@ fn toggle_show_agent(s: &mut dyn SettingsHost) {
 
 fn pick_follow_up(s: &mut dyn SettingsHost, id: &str, _tx: &mut Tx) {
     change_settings(s, |x| x.follow_up = FollowUp::parse(Some(id)));
+}
+
+fn pick_question_submit(s: &mut dyn SettingsHost, id: &str, _tx: &mut Tx) {
+    change_settings(s, |x| x.question_submit = QuestionSubmitKey::parse(Some(id)));
+}
+
+/// A chord as Desktop's `formatKeybind` writes it in a sentence ("Enter", "Ctrl+Enter").
+fn key_words(chord: &str) -> String {
+    rune::Keybind::new(chord).chords().first().map_or_else(String::new, |c| opencode_ui::keymap::base::sentence(*c))
 }
 
 fn toggle_pinch_zoom(s: &mut dyn SettingsHost, tx: &mut Tx) {
@@ -90,6 +127,9 @@ fn interface_rows<H: SettingsHost + PopupHost + 'static>(s: &H, p: &Pal) -> Vec<
         let title = t!("settings.general.row.tabPosition.title");
         let control = select(s, p, "settings-tab-position", title, crate::navigation_mode::positions(), st.tab_position().name(), crate::navigation_mode::pick_position);
         rows.push(("settings-tab-position", setting(p, "settings-tab-position", title, "", control)));
+        let title = t!("settings.general.row.tabGrouping.title");
+        let control = select(s, p, "settings-tab-grouping", title, crate::navigation_mode::groupings(), st.tab_grouping().name(), crate::navigation_mode::pick_grouping);
+        rows.push(("settings-tab-grouping", setting(p, "settings-tab-grouping", title, "", control)));
     }
     rows
 }
@@ -97,6 +137,7 @@ fn interface_rows<H: SettingsHost + PopupHost + 'static>(s: &H, p: &Pal) -> Vec<
 pub fn view<H: SettingsHost + PopupHost + 'static>(s: &H, p: &Pal) -> El {
     let st = s.settings();
     let alternate = Bind::SubmitAlternate.chord().map_or_else(String::new, opencode_ui::keymap::base::sentence);
+    let other_enter = key_words(st.question_submit.other());
     let mut rows = interface_rows(s, p);
     rows.extend([
         (
@@ -127,16 +168,9 @@ pub fn view<H: SettingsHost + PopupHost + 'static>(s: &H, p: &Pal) -> El {
                 ),
             ),
         ),
-        (
-            "settings-workspace-destination",
-            setting(
-                p,
-                "settings-workspace-destination",
-                t!("settings.workspaces.default.title"),
-                t!("settings.workspaces.default.description"),
-                choice(s, p, "settings-workspace-destination-select", t!("settings.workspaces.default.title"), st.default_destination, pick_destination),
-            ),
-        ),
+    ]);
+    rows.extend(start_rows(s, p));
+    rows.extend([
         (
             "settings-auto-accept-permissions",
             setting(
@@ -165,6 +199,26 @@ pub fn view<H: SettingsHost + PopupHost + 'static>(s: &H, p: &Pal) -> El {
                 t!("settings.general.row.followUpBehavior.title"),
                 &t!("settings.general.row.followUpBehavior.description", keybind = alternate),
                 choice(s, p, "settings-follow-up-behavior-select", t!("settings.general.row.followUpBehavior.title"), st.follow_up, pick_follow_up),
+            ),
+        ),
+        // `QuestionSubmitKeySetting` (`settings/general/general.tsx:140-168`): each choice is
+        // named by its key, and the description names the Enter that does the other thing.
+        (
+            "settings-question-submit-key",
+            setting(
+                p,
+                "settings-question-submit-key",
+                t!("settings.general.row.questionSubmitKey.title"),
+                &t!("settings.general.row.questionSubmitKey.description", keybind = other_enter),
+                select(
+                    s,
+                    p,
+                    "settings-question-submit-key-select",
+                    t!("settings.general.row.questionSubmitKey.title"),
+                    QuestionSubmitKey::ALL.into_iter().map(|k| (k.name().to_owned(), key_words(k.name()))).collect(),
+                    st.question_submit.name(),
+                    pick_question_submit,
+                ),
             ),
         ),
         (
@@ -239,7 +293,45 @@ pub fn view<H: SettingsHost + PopupHost + 'static>(s: &H, p: &Pal) -> El {
         .child(general)
         .child(super::timeline::section(s, p))
         .children(s.plugin_sections_for_page(p, "general"));
-    page_with(p, "settings-general-page", header(p, t!("settings.tab.preferences"), t!("settings.preferences.description")), body, true)
+    page_with(
+        p,
+        "settings-general-page",
+        header_with(p, t!("settings.tab.preferences"), t!("settings.preferences.description"), Some(help_feedback_link::<H>(p))),
+        body,
+        true,
+    )
+}
+
+/// Official Preferences header link (`general.tsx:335-343`, `external-link.tsx:13`):
+/// `ExternalLink` adds `underline` which wins over `no-underline` in Tailwind v4 cascade, so the
+/// link rests underlined in `text-muted` and shifts to `text-base` on hover/focus.
+fn help_feedback_link<H: SettingsHost + 'static>(p: &Pal) -> El {
+    const URL: &str = "https://opencode.ai/desktop-feedback";
+    let words = t!("settings.helpFeedback");
+    row()
+        .key("settings-help-feedback")
+        .role("link")
+        .label(words)
+        .gap(6.0)
+        .center_y()
+        .radius(4.0)
+        .focus_default(p)
+        .hover_group_focus()
+        .on_press_tx(|s: &mut H, tx: &mut Tx| crate::open_external(s, URL, tx))
+        .child(
+            col()
+                .key("help-label")
+                .child(text(words).font(super::NAME_REGULAR).color(p.muted).group_color(p.text))
+                .child(
+                    rune::el()
+                        .key("help-underline")
+                        .pin(Some(0.0), None, Some(0.0), Some(1.0))
+                        .h(1.0)
+                        .fill(p.muted)
+                        .child(rune::el().pin(Some(0.0), Some(0.0), Some(0.0), Some(0.0)).fill(p.text).group_opacity(0.0, 1.0)),
+                ),
+        )
+        .child(rune::icon(&super::console_link::ARROW_UP_RIGHT, 14.0).color(p.muted).group_color(p.text))
 }
 
 /// Side or Bottom: where the terminal opens.
@@ -263,6 +355,7 @@ fn placement<H: SettingsHost + 'static>(s: &H, p: &Pal) -> El {
                 .key(format!("placement-{}", pl.name()))
                 .role("radio")
                 .focus_selected(on)
+                .focus_default(p)
                 .h(24.0)
                 .px(10.0)
                 .center()

@@ -33,7 +33,7 @@ pub fn prepare(host: &dyn FilesHost) {
             return;
         }
         let bare = ws.map(|w| w.known_files.iter().filter(|f| is_bare_word(f)).cloned().collect());
-        *sc = Scope { dir, home: home.to_owned(), known_len, bare };
+        *sc = Scope { dir, home: home.into_owned(), known_len, bare };
     });
 }
 
@@ -61,6 +61,9 @@ pub fn label(href: &str, base: &str, dir: &str, home: &str, bare: Option<&[Strin
         }
         Link::Outside { path } if path != home => opencode_kit::path::tilde(&path, home),
         Link::Outside { path } => path,
+        Link::Skill { path, lines: Some((a, b)) } if a == b => format!("{path}:{a}"),
+        Link::Skill { path, lines: Some((a, b)) } => format!("{path}:{a}-{b}"),
+        Link::Skill { path, lines: None } => path,
     };
     (!out.is_empty()).then_some(out)
 }

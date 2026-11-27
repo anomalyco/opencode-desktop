@@ -64,5 +64,6 @@
   "zoom.reset": "Đặt lại thu phóng",
   "zoom.percent": "{{percent}}%",
   "link.copy": "Sao chép liên kết",
-  "history.clear": "Xóa lịch sử"
+  "history.clear": "Xóa lịch sử",
+  "extensions.compat.feature.management": "Quản lý các tiện ích mở rộng khác"
 }

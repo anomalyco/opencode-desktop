@@ -2,7 +2,7 @@
 //! `session-review-v2.css`, `file-tree.css`): the tree toggle pinned at the panel's top left, the
 //! 48 px sidebar header and toolbar, the borderless filter field, and 28 px tree rows.
 
-use rune::{Anim, Color, Cursor, El, Icon, KeyEvent, TextEdit, TextStyle, Tx, col, el, icon, row, text};
+use rune::{Anim, Color, El, Icon, KeyEvent, TextEdit, TextStyle, Tx, col, el, icon, row, text};
 use rune_kit::diff::FileStatus;
 use rune_theme_opencode::icons as ic;
 use rune_theme_opencode::tree_icons::TreeIcon;
@@ -15,8 +15,10 @@ const INSTANT: Anim = Anim::INSTANT;
 pub const BAR_H: f32 = 48.0;
 pub const TOGGLE_INSET: f32 = 54.0;
 pub const ROW_H: f32 = 28.0;
-/// Each tree level's indent in Desktop's Pierre tree.
-pub const INDENT: f32 = 22.0;
+/// Each tree level's indent in Desktop's Pierre tree (`@pierre/trees@1.0.0-beta.6` `dist/style.js` +
+/// `packages/gui-plugins/src/file/pierre-tree.tsx:54-67`):
+/// `--trees-item-row-gap (6px) + (--trees-icon-width (16px) / 2 - 0.5px) + border (1px) + (--trees-level-gap (8px) - 1px) = 21.5px`.
+pub const INDENT: f32 = 21.5;
 
 pub static FILETREE: Icon = Icon {
     name: "panel-filetree",
@@ -39,10 +41,12 @@ static CHEVRON_RIGHT: Icon = Icon {
     body: r#"<path d="M6.5 5L9.5 8L6.5 11" stroke="currentColor" fill="none"/>"#,
 };
 
-fn sidebar_toggle_shell(p: &Pal, key: &'static str, open: bool, disabled: bool) -> El {
-    let b = el()
+fn sidebar_toggle_shell(p: &Pal, key: &'static str, open: bool, disabled: bool, end: bool) -> El {
+    // `session-review-v2-sidebar-toggle`: 8 from the inline start, or from the inline end with
+    // the sidebar on the end edge (`data-sidebar-side="end"`).
+    let b = if end { el().pin(None, Some(9.5), Some(8.0), None) } else { el().absolute(8.0, 9.5) };
+    let b = b
         .key(key)
-        .absolute(8.0, 9.5)
         .size(36.0, 28.0)
         .radius(6.0)
         .center()
@@ -56,22 +60,23 @@ fn sidebar_toggle_shell(p: &Pal, key: &'static str, open: bool, disabled: bool) 
     if disabled {
         return b.opacity(0.5).inert();
     }
-    b.cursor(Cursor::Pointer)
+    b
         .hover(if open { p.layer2 } else { p.hover })
         .press(p.pressed)
         .hover_motion(INSTANT, INSTANT)
 }
 
-/// The tree toggle (`SessionReviewV2SidebarToggle`): 36 × 28 at 8, 9.5 from the panel's corner,
-/// on `layer-02` while the tree shows.
+/// The tree toggle (`SessionReviewV2SidebarToggle`): 36 × 28 at 8, 9.5 from the panel's corner
+/// at its start, or at its `end` with the sidebar there, on `layer-02` while the tree shows.
 pub fn sidebar_toggle<S: 'static>(
     p: &Pal,
     key: &'static str,
     open: bool,
     disabled: bool,
+    end: bool,
     press: impl Fn(&mut S, &mut Tx) + 'static,
 ) -> El {
-    let b = sidebar_toggle_shell(p, key, open, disabled);
+    let b = sidebar_toggle_shell(p, key, open, disabled, end);
     if disabled {
         return b;
     }
@@ -111,12 +116,11 @@ fn filter_clear_shell(p: &Pal) -> El {
         .size(20.0, 20.0)
         .radius(4.0)
         .center()
-        .cursor(Cursor::Pointer)
         .hover(p.hover)
         .hover_motion(INSTANT, INSTANT)
         .role("button")
         .label_static(opencode_i18n::t!("ui.list.clearFilter"))
-        .child(icon(&ic::XMARK_SMALL, 16.0).color(p.icon_muted))
+        .child(icon(&ic::CLOSE, 16.0).color(p.icon_muted))
 }
 
 fn filter_field_frame(p: &Pal, hovered_key: &str, focused: bool, input: El, clear: Option<El>) -> El {
@@ -198,7 +202,6 @@ pub fn tree_row_in(p: &Pal, name: &str, depth: u32, expanded: Option<bool>, file
         .fill(if selected { p.pressed } else { Color::TRANSPARENT })
         .hover(if selected { p.pressed } else { p.hover })
         .hover_motion(INSTANT, INSTANT)
-        .cursor(Cursor::Pointer)
         .role("treeitem")
         .label(name.to_owned())
         .level(depth + 1)

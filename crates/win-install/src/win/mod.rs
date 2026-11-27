@@ -6,12 +6,16 @@ use std::time::Duration;
 
 use crate::{EXE, Product};
 
-mod folders;
+pub(crate) mod folders;
 mod process;
+mod receipt;
 mod registry;
+mod scheme;
 mod shortcut;
 
 pub use process::{close_running, running_under};
+pub use receipt::{RECEIPT, has_receipt, installed_by_setup, write_receipt};
+use scheme::{SchemeWrite, may_write_scheme, same_path};
 
 /// Where the setup installs `p` by default: `%LOCALAPPDATA%\Programs\<folder>`.
 pub fn default_root(p: &Product) -> Option<PathBuf> {
@@ -30,7 +34,8 @@ pub fn installed_root(p: &Product) -> Option<PathBuf> {
 
 /// Registers the install at `root`: the Start menu shortcut (and, when asked, the desktop
 /// shortcut), the uninstall entry, the app's URL scheme and its notification identity. Only the
-/// setup and the updater write registration; the app never does at launch. Returns what it
+/// setup and the updater write registration; at launch the registered install only puts its own
+/// scheme back when it went missing (`repair_scheme`). Returns what it
 /// changed besides, for the log: `opencode://` handed back when an earlier build had taken it.
 pub fn register(p: &Product, root: &Path, desktop_shortcut: bool) -> Result<Vec<String>, String> {
     let exe = root.join(EXE);
@@ -77,6 +82,34 @@ pub fn settle_identity(p: &Product, root: &Path) -> Identity {
         return Identity::Installed;
     }
     Identity::Copy
+}
+
+/// The registered install's URL scheme, put back when it went missing or now starts another
+/// program, as OpenCode Desktop registers its scheme at every launch
+/// (`app.setAsDefaultProtocolClient`) besides its installer. Only the install the uninstall entry
+/// names writes it, under its own name and outside a scratch `RUNE_DIRS_ROOT` run: another copy
+/// (a zip, a build folder, a harness run, the exe renamed) never touches the user's registration
+/// (`scheme::may_write_scheme`). Returns what it changed, for the log. Call it off the UI thread.
+pub fn repair_scheme(p: &Product, root: &Path) -> Option<String> {
+    let exe = root.join(EXE);
+    let running = std::env::current_exe().ok();
+    let dirs_root = std::env::var_os("RUNE_DIRS_ROOT");
+    let entry_root = registry::entry_root(p);
+    let command = registry::scheme_command(p.scheme());
+    let write = SchemeWrite {
+        exe_name: running.as_deref().and_then(Path::file_name),
+        dirs_root: dirs_root.as_deref(),
+        entry_root: entry_root.as_deref(),
+        root,
+        exe_present: exe.is_file(),
+        command: command.as_deref(),
+    };
+    if !may_write_scheme(&write) {
+        return None;
+    }
+    registry::write_scheme(p.scheme(), p.name(), &exe).ok()?;
+    folders::associations_changed();
+    Some(format!("pointed {}:// at {}", p.scheme(), exe.display()))
 }
 
 /// What `settle_identity` found.
@@ -134,11 +167,6 @@ pub fn remove_dir(dir: &Path) -> bool {
 
 fn link_name(p: &Product) -> String {
     format!("{}.lnk", p.name())
-}
-
-fn same_path(a: &Path, b: &Path) -> bool {
-    let norm = |p: &Path| p.to_string_lossy().trim_end_matches('\\').to_lowercase();
-    norm(a) == norm(b)
 }
 
 /// What the install takes on disk, for Apps & features.

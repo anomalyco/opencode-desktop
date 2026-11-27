@@ -1,4 +1,4 @@
--- OpenCode plugin contract 1.6: global types for luau-lsp.
+-- OpenCode plugin contract 1.11: global types for luau-lsp.
 -- Generated from crates/opencode-plugin-spec/contract.json by `cargo run -p opencode-plugin-spec -- --write`. Do not edit.
 -- Load it with `luau-lsp analyze --definitions=@opencode=plugins/opencode.d.luau`.
 
@@ -123,8 +123,11 @@ export type UiJustify = "start" | "center" | "end" | "between"
 --- How a `ui.frame` container arranges its children.
 export type UiDirection = "col" | "row" | "box"
 
+--- The edge of a panel its file sidebar sits on.
+export type PanelSidebarSide = "start" | "end"
+
 --- Which picker overlay the composer currently has open.
-export type ComposerPicker = "agent" | "model" | "effort" | "project"
+export type ComposerPicker = "agent" | "model" | "effort" | "speed" | "project"
 
 --- A text weight.
 export type FontWeight = "regular" | "medium" | "semibold" | "bold"
@@ -207,8 +210,8 @@ export type UiEventKind = "press" | "middle-press" | "hover" | "submit" | "chang
 --- A kind of menu entry.
 export type MenuEntryKind = "item" | "group" | "separator"
 
---- A dialog's size: one of Desktop's three presets, each clamped to the window.
-export type DialogSize = "normal" | "large" | "x-large" | "small" | "medium"
+--- A dialog's size: one of Desktop's four presets, each clamped to the window.
+export type DialogSize = "normal" | "tall" | "large" | "x-large" | "small" | "medium"
 
 --- Which modal overlay layer a plugin dialog sits in.
 export type DialogLayer = "standard" | "elevated"
@@ -445,8 +448,12 @@ export type UiLayoutProps = {
     help: string?,
     --- Where the tooltip shows. Defaults to below.
     helpSide: Side?,
+    --- Keeps the tooltip showing while true, whatever the pointer does, as Desktop's `Tooltip forceOpen`: a Copy button's "Copied" for a moment after the press.
+    helpOpen: boolean?,
     --- Which way the subtree reads, as HTML's `dir` does: `ltr` or `rtl` keeps a figure or a path in that order inside a window running the other way, `auto` takes a text's first strong direction (a name). On `ui.field` it is the value's direction, as on an `input`: `auto` starts an Arabic name at the right, `ltr` keeps an address or a host left to right. Defaults to the window's.
     dir: ("ltr" | "rtl" | "auto")?,
+    --- The pointer's shape over the node and over what is inside it that sets none, by its CSS `cursor` name. Desktop shows the arrow on controls; set this only where its style sheet names another cursor, as the browser's address field does (`text`).
+    cursor: ("default" | "pointer" | "text" | "grab" | "grabbing" | "not-allowed" | "move" | "col-resize" | "row-resize" | "ew-resize" | "ns-resize" | "nwse-resize" | "nesw-resize" | "crosshair" | "cell" | "zoom-in" | "zoom-out")?,
 }
 
 --- Offsets from the parent's edges for an out-of-flow node. Give one or two per axis.
@@ -521,8 +528,12 @@ export type UiBoxProps = {
     help: string?,
     --- Where the tooltip shows. Defaults to below.
     helpSide: Side?,
+    --- Keeps the tooltip showing while true, whatever the pointer does, as Desktop's `Tooltip forceOpen`: a Copy button's "Copied" for a moment after the press.
+    helpOpen: boolean?,
     --- Which way the subtree reads, as HTML's `dir` does: `ltr` or `rtl` keeps a figure or a path in that order inside a window running the other way, `auto` takes a text's first strong direction (a name). On `ui.field` it is the value's direction, as on an `input`: `auto` starts an Arabic name at the right, `ltr` keeps an address or a host left to right. Defaults to the window's.
     dir: ("ltr" | "rtl" | "auto")?,
+    --- The pointer's shape over the node and over what is inside it that sets none, by its CSS `cursor` name. Desktop shows the arrow on controls; set this only where its style sheet names another cursor, as the browser's address field does (`text`).
+    cursor: ("default" | "pointer" | "text" | "grab" | "grabbing" | "not-allowed" | "move" | "col-resize" | "row-resize" | "ew-resize" | "ns-resize" | "nwse-resize" | "nesw-resize" | "crosshair" | "cell" | "zoom-in" | "zoom-out")?,
     --- Space between children.
     gap: number?,
     --- How children sit across the axis.
@@ -557,6 +568,8 @@ export type UiBoxProps = {
     scrollY: boolean?,
     --- Scrolls horizontal overflow.
     scrollX: boolean?,
+    --- With `scrollY`: stays scrolled to the bottom as content grows, as a log or a chat does, until the reader scrolls up.
+    stickBottom: boolean?,
     --- Takes keyboard focus.
     focusable: boolean?,
     --- Takes no presses.
@@ -641,8 +654,12 @@ export type UiFrameProps = {
     help: string?,
     --- Where the tooltip shows. Defaults to below.
     helpSide: Side?,
+    --- Keeps the tooltip showing while true, whatever the pointer does, as Desktop's `Tooltip forceOpen`: a Copy button's "Copied" for a moment after the press.
+    helpOpen: boolean?,
     --- Which way the subtree reads, as HTML's `dir` does: `ltr` or `rtl` keeps a figure or a path in that order inside a window running the other way, `auto` takes a text's first strong direction (a name). On `ui.field` it is the value's direction, as on an `input`: `auto` starts an Arabic name at the right, `ltr` keeps an address or a host left to right. Defaults to the window's.
     dir: ("ltr" | "rtl" | "auto")?,
+    --- The pointer's shape over the node and over what is inside it that sets none, by its CSS `cursor` name. Desktop shows the arrow on controls; set this only where its style sheet names another cursor, as the browser's address field does (`text`).
+    cursor: ("default" | "pointer" | "text" | "grab" | "grabbing" | "not-allowed" | "move" | "col-resize" | "row-resize" | "ew-resize" | "ns-resize" | "nwse-resize" | "nesw-resize" | "crosshair" | "cell" | "zoom-in" | "zoom-out")?,
     --- Space between children.
     gap: number?,
     --- How children sit across the axis.
@@ -677,6 +694,8 @@ export type UiFrameProps = {
     scrollY: boolean?,
     --- Scrolls horizontal overflow.
     scrollX: boolean?,
+    --- With `scrollY`: stays scrolled to the bottom as content grows, as a log or a chat does, until the reader scrolls up.
+    stickBottom: boolean?,
     --- Takes keyboard focus.
     focusable: boolean?,
     --- Takes no presses.
@@ -703,6 +722,14 @@ export type UiFrameProps = {
     direction: UiDirection?,
     --- Per-side border widths in points: `{ top, right, bottom, left }`. Overrides `borderWidth`.
     borderSides: { number }?,
+    --- The key of the element that takes focus when this frame leaves while focus is on it or inside it: one view of a popover handing focus to the control that leads back to it. That element, or its first focusable child; nothing happens when none shows.
+    focusReturn: string?,
+    --- One Tab stop for the focusable controls inside, which the arrow keys move between, as a roving `tabindex` does: Up and Down with `role` `list`, `listbox`, `menu` or `tree`, Left and Right as well otherwise. Home and End go to the ends; a `list` or `tree` stops at its ends, the others wrap. In a `list`, `listbox`, `menu`, `tree` or `tablist`, typing moves to the first control whose label starts with it. Space presses the focused control, and in a list Return does too.
+    focusGroup: boolean?,
+    --- Keys `onKey` takes while focus is on the frame or inside it, outside a text field, pressed with no modifier: any of `Enter`, `Escape`, `ArrowUp`, `ArrowDown`, `ArrowLeft`, `ArrowRight`, `Home`, `End`, `PageUp`, `PageDown`, `Delete` and `Backspace`. A key it takes does nothing else there: Return in a `focusGroup` list then no longer presses the focused control.
+    keys: { string }?,
+    --- Runs as a key `keys` names is pressed, with its name in `event.keyName`.
+    onKey: UiHandler?,
 }
 
 --- Text styling: `ui.text` and `ui.shimmer`.
@@ -765,8 +792,12 @@ export type UiTextProps = {
     help: string?,
     --- Where the tooltip shows. Defaults to below.
     helpSide: Side?,
+    --- Keeps the tooltip showing while true, whatever the pointer does, as Desktop's `Tooltip forceOpen`: a Copy button's "Copied" for a moment after the press.
+    helpOpen: boolean?,
     --- Which way the subtree reads, as HTML's `dir` does: `ltr` or `rtl` keeps a figure or a path in that order inside a window running the other way, `auto` takes a text's first strong direction (a name). On `ui.field` it is the value's direction, as on an `input`: `auto` starts an Arabic name at the right, `ltr` keeps an address or a host left to right. Defaults to the window's.
     dir: ("ltr" | "rtl" | "auto")?,
+    --- The pointer's shape over the node and over what is inside it that sets none, by its CSS `cursor` name. Desktop shows the arrow on controls; set this only where its style sheet names another cursor, as the browser's address field does (`text`).
+    cursor: ("default" | "pointer" | "text" | "grab" | "grabbing" | "not-allowed" | "move" | "col-resize" | "row-resize" | "ew-resize" | "ns-resize" | "nwse-resize" | "nesw-resize" | "crosshair" | "cell" | "zoom-in" | "zoom-out")?,
     --- Font size in points. Defaults to 13.
     size: number?,
     --- Weight.
@@ -859,8 +890,12 @@ export type UiSpacerProps = {
     help: string?,
     --- Where the tooltip shows. Defaults to below.
     helpSide: Side?,
+    --- Keeps the tooltip showing while true, whatever the pointer does, as Desktop's `Tooltip forceOpen`: a Copy button's "Copied" for a moment after the press.
+    helpOpen: boolean?,
     --- Which way the subtree reads, as HTML's `dir` does: `ltr` or `rtl` keeps a figure or a path in that order inside a window running the other way, `auto` takes a text's first strong direction (a name). On `ui.field` it is the value's direction, as on an `input`: `auto` starts an Arabic name at the right, `ltr` keeps an address or a host left to right. Defaults to the window's.
     dir: ("ltr" | "rtl" | "auto")?,
+    --- The pointer's shape over the node and over what is inside it that sets none, by its CSS `cursor` name. Desktop shows the arrow on controls; set this only where its style sheet names another cursor, as the browser's address field does (`text`).
+    cursor: ("default" | "pointer" | "text" | "grab" | "grabbing" | "not-allowed" | "move" | "col-resize" | "row-resize" | "ew-resize" | "ns-resize" | "nwse-resize" | "nesw-resize" | "crosshair" | "cell" | "zoom-in" | "zoom-out")?,
 }
 
 --- `ui.divider` props.
@@ -923,8 +958,12 @@ export type UiDividerProps = {
     help: string?,
     --- Where the tooltip shows. Defaults to below.
     helpSide: Side?,
+    --- Keeps the tooltip showing while true, whatever the pointer does, as Desktop's `Tooltip forceOpen`: a Copy button's "Copied" for a moment after the press.
+    helpOpen: boolean?,
     --- Which way the subtree reads, as HTML's `dir` does: `ltr` or `rtl` keeps a figure or a path in that order inside a window running the other way, `auto` takes a text's first strong direction (a name). On `ui.field` it is the value's direction, as on an `input`: `auto` starts an Arabic name at the right, `ltr` keeps an address or a host left to right. Defaults to the window's.
     dir: ("ltr" | "rtl" | "auto")?,
+    --- The pointer's shape over the node and over what is inside it that sets none, by its CSS `cursor` name. Desktop shows the arrow on controls; set this only where its style sheet names another cursor, as the browser's address field does (`text`).
+    cursor: ("default" | "pointer" | "text" | "grab" | "grabbing" | "not-allowed" | "move" | "col-resize" | "row-resize" | "ew-resize" | "ns-resize" | "nwse-resize" | "nesw-resize" | "crosshair" | "cell" | "zoom-in" | "zoom-out")?,
     --- A vertical rule. Defaults to horizontal.
     vertical: boolean?,
     --- Defaults to `border-weak`.
@@ -991,8 +1030,12 @@ export type UiIconProps = {
     help: string?,
     --- Where the tooltip shows. Defaults to below.
     helpSide: Side?,
+    --- Keeps the tooltip showing while true, whatever the pointer does, as Desktop's `Tooltip forceOpen`: a Copy button's "Copied" for a moment after the press.
+    helpOpen: boolean?,
     --- Which way the subtree reads, as HTML's `dir` does: `ltr` or `rtl` keeps a figure or a path in that order inside a window running the other way, `auto` takes a text's first strong direction (a name). On `ui.field` it is the value's direction, as on an `input`: `auto` starts an Arabic name at the right, `ltr` keeps an address or a host left to right. Defaults to the window's.
     dir: ("ltr" | "rtl" | "auto")?,
+    --- The pointer's shape over the node and over what is inside it that sets none, by its CSS `cursor` name. Desktop shows the arrow on controls; set this only where its style sheet names another cursor, as the browser's address field does (`text`).
+    cursor: ("default" | "pointer" | "text" | "grab" | "grabbing" | "not-allowed" | "move" | "col-resize" | "row-resize" | "ew-resize" | "ns-resize" | "nwse-resize" | "nesw-resize" | "crosshair" | "cell" | "zoom-in" | "zoom-out")?,
     --- Width and height in points. Defaults to 16.
     size: number?,
     --- Defaults to `icon-base`.
@@ -1065,8 +1108,12 @@ export type UiImageProps = {
     help: string?,
     --- Where the tooltip shows. Defaults to below.
     helpSide: Side?,
+    --- Keeps the tooltip showing while true, whatever the pointer does, as Desktop's `Tooltip forceOpen`: a Copy button's "Copied" for a moment after the press.
+    helpOpen: boolean?,
     --- Which way the subtree reads, as HTML's `dir` does: `ltr` or `rtl` keeps a figure or a path in that order inside a window running the other way, `auto` takes a text's first strong direction (a name). On `ui.field` it is the value's direction, as on an `input`: `auto` starts an Arabic name at the right, `ltr` keeps an address or a host left to right. Defaults to the window's.
     dir: ("ltr" | "rtl" | "auto")?,
+    --- The pointer's shape over the node and over what is inside it that sets none, by its CSS `cursor` name. Desktop shows the arrow on controls; set this only where its style sheet names another cursor, as the browser's address field does (`text`).
+    cursor: ("default" | "pointer" | "text" | "grab" | "grabbing" | "not-allowed" | "move" | "col-resize" | "row-resize" | "ew-resize" | "ns-resize" | "nwse-resize" | "nesw-resize" | "crosshair" | "cell" | "zoom-in" | "zoom-out")?,
     --- The image, from the `Images` service or an `Async` render.
     image: ImageId?,
     --- Instead of `image`: the source `Images:Load` takes (a URL, a server path, a data URL or a file of the plugin's folder).
@@ -1143,8 +1190,12 @@ export type UiVideoProps = {
     help: string?,
     --- Where the tooltip shows. Defaults to below.
     helpSide: Side?,
+    --- Keeps the tooltip showing while true, whatever the pointer does, as Desktop's `Tooltip forceOpen`: a Copy button's "Copied" for a moment after the press.
+    helpOpen: boolean?,
     --- Which way the subtree reads, as HTML's `dir` does: `ltr` or `rtl` keeps a figure or a path in that order inside a window running the other way, `auto` takes a text's first strong direction (a name). On `ui.field` it is the value's direction, as on an `input`: `auto` starts an Arabic name at the right, `ltr` keeps an address or a host left to right. Defaults to the window's.
     dir: ("ltr" | "rtl" | "auto")?,
+    --- The pointer's shape over the node and over what is inside it that sets none, by its CSS `cursor` name. Desktop shows the arrow on controls; set this only where its style sheet names another cursor, as the browser's address field does (`text`).
+    cursor: ("default" | "pointer" | "text" | "grab" | "grabbing" | "not-allowed" | "move" | "col-resize" | "row-resize" | "ew-resize" | "ns-resize" | "nwse-resize" | "nesw-resize" | "crosshair" | "cell" | "zoom-in" | "zoom-out")?,
     --- An `https:` or `http:` URL of the video.
     src: string,
     --- How it fills its box: `contain` letterboxes it, `cover` crops it.
@@ -1213,8 +1264,12 @@ export type UiMetricProps = {
     help: string?,
     --- Where the tooltip shows. Defaults to below.
     helpSide: Side?,
+    --- Keeps the tooltip showing while true, whatever the pointer does, as Desktop's `Tooltip forceOpen`: a Copy button's "Copied" for a moment after the press.
+    helpOpen: boolean?,
     --- Which way the subtree reads, as HTML's `dir` does: `ltr` or `rtl` keeps a figure or a path in that order inside a window running the other way, `auto` takes a text's first strong direction (a name). On `ui.field` it is the value's direction, as on an `input`: `auto` starts an Arabic name at the right, `ltr` keeps an address or a host left to right. Defaults to the window's.
     dir: ("ltr" | "rtl" | "auto")?,
+    --- The pointer's shape over the node and over what is inside it that sets none, by its CSS `cursor` name. Desktop shows the arrow on controls; set this only where its style sheet names another cursor, as the browser's address field does (`text`).
+    cursor: ("default" | "pointer" | "text" | "grab" | "grabbing" | "not-allowed" | "move" | "col-resize" | "row-resize" | "ew-resize" | "ns-resize" | "nwse-resize" | "nesw-resize" | "crosshair" | "cell" | "zoom-in" | "zoom-out")?,
     --- The number the text stands for. Hosts that animate compare it with the last value.
     value: number,
     --- What it reads, such as `"12.4K"`.
@@ -1295,8 +1350,12 @@ export type UiButtonProps = {
     help: string?,
     --- Where the tooltip shows. Defaults to below.
     helpSide: Side?,
+    --- Keeps the tooltip showing while true, whatever the pointer does, as Desktop's `Tooltip forceOpen`: a Copy button's "Copied" for a moment after the press.
+    helpOpen: boolean?,
     --- Which way the subtree reads, as HTML's `dir` does: `ltr` or `rtl` keeps a figure or a path in that order inside a window running the other way, `auto` takes a text's first strong direction (a name). On `ui.field` it is the value's direction, as on an `input`: `auto` starts an Arabic name at the right, `ltr` keeps an address or a host left to right. Defaults to the window's.
     dir: ("ltr" | "rtl" | "auto")?,
+    --- The pointer's shape over the node and over what is inside it that sets none, by its CSS `cursor` name. Desktop shows the arrow on controls; set this only where its style sheet names another cursor, as the browser's address field does (`text`).
+    cursor: ("default" | "pointer" | "text" | "grab" | "grabbing" | "not-allowed" | "move" | "col-resize" | "row-resize" | "ew-resize" | "ns-resize" | "nwse-resize" | "nesw-resize" | "crosshair" | "cell" | "zoom-in" | "zoom-out")?,
     --- The visible label. Also the accessible name unless `label` is set.
     text: string?,
     --- A leading icon.
@@ -1315,6 +1374,10 @@ export type UiButtonProps = {
     onPress: UiHandler?,
     --- Its `onPress` opens a menu, as Kobalte's `Menu.Trigger` does: a mouse runs it as the button goes down. A key, a screen reader's Invoke or a tap run it on the click. Contract 1.1.
     menuTrigger: boolean?,
+    --- Takes focus as the dialog it is in opens, as HTML's `autofocus` in a dialog: a confirmation's Cancel, say. Without one the dialog focuses its first text field or Tab stop.
+    autofocus: boolean?,
+    --- The key of the element that takes focus when this one leaves while it has focus, as a page's `element.focus()` after a view changes: a drill-in's Back hands focus to the row that opened it. That element, or its first focusable child; nothing happens when none shows.
+    focusReturn: string?,
 }
 
 --- `ui.iconButton` props: a square button with an icon. Give it a `label`.
@@ -1377,8 +1440,12 @@ export type UiIconButtonProps = {
     help: string?,
     --- Where the tooltip shows. Defaults to below.
     helpSide: Side?,
+    --- Keeps the tooltip showing while true, whatever the pointer does, as Desktop's `Tooltip forceOpen`: a Copy button's "Copied" for a moment after the press.
+    helpOpen: boolean?,
     --- Which way the subtree reads, as HTML's `dir` does: `ltr` or `rtl` keeps a figure or a path in that order inside a window running the other way, `auto` takes a text's first strong direction (a name). On `ui.field` it is the value's direction, as on an `input`: `auto` starts an Arabic name at the right, `ltr` keeps an address or a host left to right. Defaults to the window's.
     dir: ("ltr" | "rtl" | "auto")?,
+    --- The pointer's shape over the node and over what is inside it that sets none, by its CSS `cursor` name. Desktop shows the arrow on controls; set this only where its style sheet names another cursor, as the browser's address field does (`text`).
+    cursor: ("default" | "pointer" | "text" | "grab" | "grabbing" | "not-allowed" | "move" | "col-resize" | "row-resize" | "ew-resize" | "ns-resize" | "nwse-resize" | "nesw-resize" | "crosshair" | "cell" | "zoom-in" | "zoom-out")?,
     --- The icon.
     icon: IconName,
     --- The look. Defaults to `ghost`.
@@ -1397,6 +1464,10 @@ export type UiIconButtonProps = {
     onPress: UiHandler?,
     --- Its `onPress` opens a menu, as Kobalte's `Menu.Trigger` does: a mouse runs it as the button goes down. A key, a screen reader's Invoke or a tap run it on the click. Contract 1.1.
     menuTrigger: boolean?,
+    --- Takes focus as the dialog it is in opens, as HTML's `autofocus` in a dialog: a confirmation's Cancel, say. Without one the dialog focuses its first text field or Tab stop.
+    autofocus: boolean?,
+    --- The key of the element that takes focus when this one leaves while it has focus, as a page's `element.focus()` after a view changes: a drill-in's Back hands focus to the row that opened it. That element, or its first focusable child; nothing happens when none shows.
+    focusReturn: string?,
 }
 
 --- `ui.switch` props: the app's own switch.
@@ -1459,11 +1530,97 @@ export type UiSwitchProps = {
     help: string?,
     --- Where the tooltip shows. Defaults to below.
     helpSide: Side?,
+    --- Keeps the tooltip showing while true, whatever the pointer does, as Desktop's `Tooltip forceOpen`: a Copy button's "Copied" for a moment after the press.
+    helpOpen: boolean?,
     --- Which way the subtree reads, as HTML's `dir` does: `ltr` or `rtl` keeps a figure or a path in that order inside a window running the other way, `auto` takes a text's first strong direction (a name). On `ui.field` it is the value's direction, as on an `input`: `auto` starts an Arabic name at the right, `ltr` keeps an address or a host left to right. Defaults to the window's.
     dir: ("ltr" | "rtl" | "auto")?,
+    --- The pointer's shape over the node and over what is inside it that sets none, by its CSS `cursor` name. Desktop shows the arrow on controls; set this only where its style sheet names another cursor, as the browser's address field does (`text`).
+    cursor: ("default" | "pointer" | "text" | "grab" | "grabbing" | "not-allowed" | "move" | "col-resize" | "row-resize" | "ew-resize" | "ns-resize" | "nwse-resize" | "nesw-resize" | "crosshair" | "cell" | "zoom-in" | "zoom-out")?,
     --- On.
     checked: boolean,
     --- Cannot change.
+    disabled: boolean?,
+    --- Runs with the new state in `event.checked`.
+    onChange: UiHandler?,
+}
+
+--- `ui.checkbox` props: Desktop's compact checkbox (`Checkbox appearance="compact"`) with its label.
+export type UiCheckboxProps = {
+    --- Identity among siblings across renders, and the anchor key for popovers and menus.
+    key: string?,
+    --- Width.
+    w: UiSize?,
+    --- Height.
+    h: UiSize?,
+    --- Minimum width.
+    minW: number?,
+    --- Minimum height.
+    minH: number?,
+    --- Maximum width.
+    maxW: number?,
+    --- Maximum height.
+    maxH: number?,
+    --- Share of a stack's free space.
+    grow: number?,
+    --- May shrink below its content size.
+    shrink: boolean?,
+    --- Padding on every side.
+    pad: number?,
+    --- Left and right padding.
+    px: number?,
+    --- Top and bottom padding.
+    py: number?,
+    --- Top padding.
+    pt: number?,
+    --- Right padding.
+    pr: number?,
+    --- Bottom padding.
+    pb: number?,
+    --- Left padding.
+    pl: number?,
+    --- Margin on every side.
+    m: number?,
+    --- Left and right margin.
+    mx: number?,
+    --- Top and bottom margin.
+    my: number?,
+    --- Top margin.
+    mt: number?,
+    --- Right margin.
+    mr: number?,
+    --- Bottom margin.
+    mb: number?,
+    --- Left margin.
+    ml: number?,
+    --- Takes the node out of flow, at these offsets from its parent's edges.
+    pin: UiPin?,
+    --- 0 to 1.
+    opacity: number?,
+    --- The accessibility role.
+    role: Role?,
+    --- The accessible name.
+    label: string?,
+    --- A tooltip.
+    help: string?,
+    --- Where the tooltip shows. Defaults to below.
+    helpSide: Side?,
+    --- Keeps the tooltip showing while true, whatever the pointer does, as Desktop's `Tooltip forceOpen`: a Copy button's "Copied" for a moment after the press.
+    helpOpen: boolean?,
+    --- Which way the subtree reads, as HTML's `dir` does: `ltr` or `rtl` keeps a figure or a path in that order inside a window running the other way, `auto` takes a text's first strong direction (a name). On `ui.field` it is the value's direction, as on an `input`: `auto` starts an Arabic name at the right, `ltr` keeps an address or a host left to right. Defaults to the window's.
+    dir: ("ltr" | "rtl" | "auto")?,
+    --- The pointer's shape over the node and over what is inside it that sets none, by its CSS `cursor` name. Desktop shows the arrow on controls; set this only where its style sheet names another cursor, as the browser's address field does (`text`).
+    cursor: ("default" | "pointer" | "text" | "grab" | "grabbing" | "not-allowed" | "move" | "col-resize" | "row-resize" | "ew-resize" | "ns-resize" | "nwse-resize" | "nesw-resize" | "crosshair" | "cell" | "zoom-in" | "zoom-out")?,
+    --- The label, beside the box.
+    text: string,
+    --- A line under the label.
+    description: string?,
+    --- Ticked.
+    checked: boolean,
+    --- Some of what it stands for is ticked: the box shows a dash, as Desktop's `indeterminate`. A press still reports the opposite of `checked`.
+    indeterminate: boolean?,
+    --- The background the box sits on: `base` (the default) or `layer-1`, as Desktop's `surface`; an unticked box takes its fill.
+    surface: ("base" | "layer-1")?,
+    --- Cannot change; drawn at half opacity.
     disabled: boolean?,
     --- Runs with the new state in `event.checked`.
     onChange: UiHandler?,
@@ -1529,8 +1686,12 @@ export type UiRadioProps = {
     help: string?,
     --- Where the tooltip shows. Defaults to below.
     helpSide: Side?,
+    --- Keeps the tooltip showing while true, whatever the pointer does, as Desktop's `Tooltip forceOpen`: a Copy button's "Copied" for a moment after the press.
+    helpOpen: boolean?,
     --- Which way the subtree reads, as HTML's `dir` does: `ltr` or `rtl` keeps a figure or a path in that order inside a window running the other way, `auto` takes a text's first strong direction (a name). On `ui.field` it is the value's direction, as on an `input`: `auto` starts an Arabic name at the right, `ltr` keeps an address or a host left to right. Defaults to the window's.
     dir: ("ltr" | "rtl" | "auto")?,
+    --- The pointer's shape over the node and over what is inside it that sets none, by its CSS `cursor` name. Desktop shows the arrow on controls; set this only where its style sheet names another cursor, as the browser's address field does (`text`).
+    cursor: ("default" | "pointer" | "text" | "grab" | "grabbing" | "not-allowed" | "move" | "col-resize" | "row-resize" | "ew-resize" | "ns-resize" | "nwse-resize" | "nesw-resize" | "crosshair" | "cell" | "zoom-in" | "zoom-out")?,
     --- The row's label.
     text: string,
     --- A line under the label.
@@ -1607,8 +1768,12 @@ export type UiFieldProps = {
     help: string?,
     --- Where the tooltip shows. Defaults to below.
     helpSide: Side?,
+    --- Keeps the tooltip showing while true, whatever the pointer does, as Desktop's `Tooltip forceOpen`: a Copy button's "Copied" for a moment after the press.
+    helpOpen: boolean?,
     --- Which way the subtree reads, as HTML's `dir` does: `ltr` or `rtl` keeps a figure or a path in that order inside a window running the other way, `auto` takes a text's first strong direction (a name). On `ui.field` it is the value's direction, as on an `input`: `auto` starts an Arabic name at the right, `ltr` keeps an address or a host left to right. Defaults to the window's.
     dir: ("ltr" | "rtl" | "auto")?,
+    --- The pointer's shape over the node and over what is inside it that sets none, by its CSS `cursor` name. Desktop shows the arrow on controls; set this only where its style sheet names another cursor, as the browser's address field does (`text`).
+    cursor: ("default" | "pointer" | "text" | "grab" | "grabbing" | "not-allowed" | "move" | "col-resize" | "row-resize" | "ew-resize" | "ns-resize" | "nwse-resize" | "nesw-resize" | "crosshair" | "cell" | "zoom-in" | "zoom-out")?,
     --- The field's content, from `ctx:CreateEditor`.
     editor: Editor,
     --- Shows while the field is empty.
@@ -1627,6 +1792,12 @@ export type UiFieldProps = {
     multiline: boolean?,
     --- The look. Defaults to `default`.
     variant: FieldVariant?,
+    --- An icon in the box before the text, as Desktop's `TextInput` `leadingIcon`: a search field's magnifying glass. The `default` variant only.
+    icon: IconName?,
+    --- A Clear button at the box's end that empties the field, as Desktop's `TextInput` `showClearButton`: set it while the field has text. The `default` variant only.
+    clearable: boolean?,
+    --- The key of the element Down moves the keyboard to from this field, or that element's first focusable control: a list under its search field, as official's site chooser does. The `default` variant only.
+    focusDown: string?,
     --- Keys the field hands to its editor's `KeyPressed` instead of handling them: any of `ArrowUp`, `ArrowDown` and `Escape`.
     keys: { string }?,
     --- Runs on Enter with the text in `event.text`.
@@ -1705,8 +1876,12 @@ export type UiSegmentedProps = {
     help: string?,
     --- Where the tooltip shows. Defaults to below.
     helpSide: Side?,
+    --- Keeps the tooltip showing while true, whatever the pointer does, as Desktop's `Tooltip forceOpen`: a Copy button's "Copied" for a moment after the press.
+    helpOpen: boolean?,
     --- Which way the subtree reads, as HTML's `dir` does: `ltr` or `rtl` keeps a figure or a path in that order inside a window running the other way, `auto` takes a text's first strong direction (a name). On `ui.field` it is the value's direction, as on an `input`: `auto` starts an Arabic name at the right, `ltr` keeps an address or a host left to right. Defaults to the window's.
     dir: ("ltr" | "rtl" | "auto")?,
+    --- The pointer's shape over the node and over what is inside it that sets none, by its CSS `cursor` name. Desktop shows the arrow on controls; set this only where its style sheet names another cursor, as the browser's address field does (`text`).
+    cursor: ("default" | "pointer" | "text" | "grab" | "grabbing" | "not-allowed" | "move" | "col-resize" | "row-resize" | "ew-resize" | "ns-resize" | "nwse-resize" | "nesw-resize" | "crosshair" | "cell" | "zoom-in" | "zoom-out")?,
     --- Its items, in order.
     items: { UiSegmentedItem },
     --- The picked item's id.
@@ -1775,8 +1950,12 @@ export type UiLoaderProps = {
     help: string?,
     --- Where the tooltip shows. Defaults to below.
     helpSide: Side?,
+    --- Keeps the tooltip showing while true, whatever the pointer does, as Desktop's `Tooltip forceOpen`: a Copy button's "Copied" for a moment after the press.
+    helpOpen: boolean?,
     --- Which way the subtree reads, as HTML's `dir` does: `ltr` or `rtl` keeps a figure or a path in that order inside a window running the other way, `auto` takes a text's first strong direction (a name). On `ui.field` it is the value's direction, as on an `input`: `auto` starts an Arabic name at the right, `ltr` keeps an address or a host left to right. Defaults to the window's.
     dir: ("ltr" | "rtl" | "auto")?,
+    --- The pointer's shape over the node and over what is inside it that sets none, by its CSS `cursor` name. Desktop shows the arrow on controls; set this only where its style sheet names another cursor, as the browser's address field does (`text`).
+    cursor: ("default" | "pointer" | "text" | "grab" | "grabbing" | "not-allowed" | "move" | "col-resize" | "row-resize" | "ew-resize" | "ns-resize" | "nwse-resize" | "nesw-resize" | "crosshair" | "cell" | "zoom-in" | "zoom-out")?,
     --- Width and height in points. Defaults to 16.
     size: number?,
 }
@@ -1841,8 +2020,12 @@ export type UiServerIndicatorProps = {
     help: string?,
     --- Where the tooltip shows. Defaults to below.
     helpSide: Side?,
+    --- Keeps the tooltip showing while true, whatever the pointer does, as Desktop's `Tooltip forceOpen`: a Copy button's "Copied" for a moment after the press.
+    helpOpen: boolean?,
     --- Which way the subtree reads, as HTML's `dir` does: `ltr` or `rtl` keeps a figure or a path in that order inside a window running the other way, `auto` takes a text's first strong direction (a name). On `ui.field` it is the value's direction, as on an `input`: `auto` starts an Arabic name at the right, `ltr` keeps an address or a host left to right. Defaults to the window's.
     dir: ("ltr" | "rtl" | "auto")?,
+    --- The pointer's shape over the node and over what is inside it that sets none, by its CSS `cursor` name. Desktop shows the arrow on controls; set this only where its style sheet names another cursor, as the browser's address field does (`text`).
+    cursor: ("default" | "pointer" | "text" | "grab" | "grabbing" | "not-allowed" | "move" | "col-resize" | "row-resize" | "ew-resize" | "ns-resize" | "nwse-resize" | "nesw-resize" | "crosshair" | "cell" | "zoom-in" | "zoom-out")?,
     --- Its latest health check: a green dot once it answered, red when it didn't, a faint one when unknown.
     health: ServerHealth?,
     --- It waits for the user to sign in: a lock.
@@ -1911,8 +2094,12 @@ export type UiPillProps = {
     help: string?,
     --- Where the tooltip shows. Defaults to below.
     helpSide: Side?,
+    --- Keeps the tooltip showing while true, whatever the pointer does, as Desktop's `Tooltip forceOpen`: a Copy button's "Copied" for a moment after the press.
+    helpOpen: boolean?,
     --- Which way the subtree reads, as HTML's `dir` does: `ltr` or `rtl` keeps a figure or a path in that order inside a window running the other way, `auto` takes a text's first strong direction (a name). On `ui.field` it is the value's direction, as on an `input`: `auto` starts an Arabic name at the right, `ltr` keeps an address or a host left to right. Defaults to the window's.
     dir: ("ltr" | "rtl" | "auto")?,
+    --- The pointer's shape over the node and over what is inside it that sets none, by its CSS `cursor` name. Desktop shows the arrow on controls; set this only where its style sheet names another cursor, as the browser's address field does (`text`).
+    cursor: ("default" | "pointer" | "text" | "grab" | "grabbing" | "not-allowed" | "move" | "col-resize" | "row-resize" | "ew-resize" | "ns-resize" | "nwse-resize" | "nesw-resize" | "crosshair" | "cell" | "zoom-in" | "zoom-out")?,
     --- The capsule's label.
     text: string,
     --- A leading icon.
@@ -1985,8 +2172,12 @@ export type UiKeybindProps = {
     help: string?,
     --- Where the tooltip shows. Defaults to below.
     helpSide: Side?,
+    --- Keeps the tooltip showing while true, whatever the pointer does, as Desktop's `Tooltip forceOpen`: a Copy button's "Copied" for a moment after the press.
+    helpOpen: boolean?,
     --- Which way the subtree reads, as HTML's `dir` does: `ltr` or `rtl` keeps a figure or a path in that order inside a window running the other way, `auto` takes a text's first strong direction (a name). On `ui.field` it is the value's direction, as on an `input`: `auto` starts an Arabic name at the right, `ltr` keeps an address or a host left to right. Defaults to the window's.
     dir: ("ltr" | "rtl" | "auto")?,
+    --- The pointer's shape over the node and over what is inside it that sets none, by its CSS `cursor` name. Desktop shows the arrow on controls; set this only where its style sheet names another cursor, as the browser's address field does (`text`).
+    cursor: ("default" | "pointer" | "text" | "grab" | "grabbing" | "not-allowed" | "move" | "col-resize" | "row-resize" | "ew-resize" | "ns-resize" | "nwse-resize" | "nesw-resize" | "crosshair" | "cell" | "zoom-in" | "zoom-out")?,
     --- A published command id. The chip shows the user's current binding.
     command: string?,
     --- A literal binding, such as `"mod+shift+t"`, when there is no command.
@@ -2053,8 +2244,12 @@ export type UiSettingsRowProps = {
     help: string?,
     --- Where the tooltip shows. Defaults to below.
     helpSide: Side?,
+    --- Keeps the tooltip showing while true, whatever the pointer does, as Desktop's `Tooltip forceOpen`: a Copy button's "Copied" for a moment after the press.
+    helpOpen: boolean?,
     --- Which way the subtree reads, as HTML's `dir` does: `ltr` or `rtl` keeps a figure or a path in that order inside a window running the other way, `auto` takes a text's first strong direction (a name). On `ui.field` it is the value's direction, as on an `input`: `auto` starts an Arabic name at the right, `ltr` keeps an address or a host left to right. Defaults to the window's.
     dir: ("ltr" | "rtl" | "auto")?,
+    --- The pointer's shape over the node and over what is inside it that sets none, by its CSS `cursor` name. Desktop shows the arrow on controls; set this only where its style sheet names another cursor, as the browser's address field does (`text`).
+    cursor: ("default" | "pointer" | "text" | "grab" | "grabbing" | "not-allowed" | "move" | "col-resize" | "row-resize" | "ew-resize" | "ns-resize" | "nwse-resize" | "nesw-resize" | "crosshair" | "cell" | "zoom-in" | "zoom-out")?,
     --- The row's search id: settings search scrolls to it.
     id: string,
     --- The row's title.
@@ -2123,8 +2318,12 @@ export type UiSettingsListProps = {
     help: string?,
     --- Where the tooltip shows. Defaults to below.
     helpSide: Side?,
+    --- Keeps the tooltip showing while true, whatever the pointer does, as Desktop's `Tooltip forceOpen`: a Copy button's "Copied" for a moment after the press.
+    helpOpen: boolean?,
     --- Which way the subtree reads, as HTML's `dir` does: `ltr` or `rtl` keeps a figure or a path in that order inside a window running the other way, `auto` takes a text's first strong direction (a name). On `ui.field` it is the value's direction, as on an `input`: `auto` starts an Arabic name at the right, `ltr` keeps an address or a host left to right. Defaults to the window's.
     dir: ("ltr" | "rtl" | "auto")?,
+    --- The pointer's shape over the node and over what is inside it that sets none, by its CSS `cursor` name. Desktop shows the arrow on controls; set this only where its style sheet names another cursor, as the browser's address field does (`text`).
+    cursor: ("default" | "pointer" | "text" | "grab" | "grabbing" | "not-allowed" | "move" | "col-resize" | "row-resize" | "ew-resize" | "ns-resize" | "nwse-resize" | "nesw-resize" | "crosshair" | "cell" | "zoom-in" | "zoom-out")?,
     --- A section title above the card.
     title: string?,
     --- Desktop's catalog list (`data-variant="catalog"`): rows 16 in from the card's sides, for lists of entries rather than controls.
@@ -2191,8 +2390,12 @@ export type UiFlyoutRowProps = {
     help: string?,
     --- Where the tooltip shows. Defaults to below.
     helpSide: Side?,
+    --- Keeps the tooltip showing while true, whatever the pointer does, as Desktop's `Tooltip forceOpen`: a Copy button's "Copied" for a moment after the press.
+    helpOpen: boolean?,
     --- Which way the subtree reads, as HTML's `dir` does: `ltr` or `rtl` keeps a figure or a path in that order inside a window running the other way, `auto` takes a text's first strong direction (a name). On `ui.field` it is the value's direction, as on an `input`: `auto` starts an Arabic name at the right, `ltr` keeps an address or a host left to right. Defaults to the window's.
     dir: ("ltr" | "rtl" | "auto")?,
+    --- The pointer's shape over the node and over what is inside it that sets none, by its CSS `cursor` name. Desktop shows the arrow on controls; set this only where its style sheet names another cursor, as the browser's address field does (`text`).
+    cursor: ("default" | "pointer" | "text" | "grab" | "grabbing" | "not-allowed" | "move" | "col-resize" | "row-resize" | "ew-resize" | "ns-resize" | "nwse-resize" | "nesw-resize" | "crosshair" | "cell" | "zoom-in" | "zoom-out")?,
     --- The row's label.
     text: string,
     --- A leading icon.
@@ -2207,6 +2410,78 @@ export type UiFlyoutRowProps = {
     alert: boolean?,
     --- The side of the row the nested popover opens on. Defaults to `right`; a popover at the window's right edge opens its rows' lists on the `left`.
     side: Side?,
+    --- Corner radius of the row's hover and open fill. Defaults to 4.
+    radius: number?,
+}
+
+--- `ui.badge` props: Desktop's compact badge, a short muted label in a 16-point tag. Desktop's plugin API calls it `Badge`.
+export type UiBadgeProps = {
+    --- Identity among siblings across renders, and the anchor key for popovers and menus.
+    key: string?,
+    --- Width.
+    w: UiSize?,
+    --- Height.
+    h: UiSize?,
+    --- Minimum width.
+    minW: number?,
+    --- Minimum height.
+    minH: number?,
+    --- Maximum width.
+    maxW: number?,
+    --- Maximum height.
+    maxH: number?,
+    --- Share of a stack's free space.
+    grow: number?,
+    --- May shrink below its content size.
+    shrink: boolean?,
+    --- Padding on every side.
+    pad: number?,
+    --- Left and right padding.
+    px: number?,
+    --- Top and bottom padding.
+    py: number?,
+    --- Top padding.
+    pt: number?,
+    --- Right padding.
+    pr: number?,
+    --- Bottom padding.
+    pb: number?,
+    --- Left padding.
+    pl: number?,
+    --- Margin on every side.
+    m: number?,
+    --- Left and right margin.
+    mx: number?,
+    --- Top and bottom margin.
+    my: number?,
+    --- Top margin.
+    mt: number?,
+    --- Right margin.
+    mr: number?,
+    --- Bottom margin.
+    mb: number?,
+    --- Left margin.
+    ml: number?,
+    --- Takes the node out of flow, at these offsets from its parent's edges.
+    pin: UiPin?,
+    --- 0 to 1.
+    opacity: number?,
+    --- The accessibility role.
+    role: Role?,
+    --- The accessible name.
+    label: string?,
+    --- A tooltip.
+    help: string?,
+    --- Where the tooltip shows. Defaults to below.
+    helpSide: Side?,
+    --- Keeps the tooltip showing while true, whatever the pointer does, as Desktop's `Tooltip forceOpen`: a Copy button's "Copied" for a moment after the press.
+    helpOpen: boolean?,
+    --- Which way the subtree reads, as HTML's `dir` does: `ltr` or `rtl` keeps a figure or a path in that order inside a window running the other way, `auto` takes a text's first strong direction (a name). On `ui.field` it is the value's direction, as on an `input`: `auto` starts an Arabic name at the right, `ltr` keeps an address or a host left to right. Defaults to the window's.
+    dir: ("ltr" | "rtl" | "auto")?,
+    --- The pointer's shape over the node and over what is inside it that sets none, by its CSS `cursor` name. Desktop shows the arrow on controls; set this only where its style sheet names another cursor, as the browser's address field does (`text`).
+    cursor: ("default" | "pointer" | "text" | "grab" | "grabbing" | "not-allowed" | "move" | "col-resize" | "row-resize" | "ew-resize" | "ns-resize" | "nwse-resize" | "nesw-resize" | "crosshair" | "cell" | "zoom-in" | "zoom-out")?,
+    --- Its label, on one line; cut short where it has no room.
+    text: string,
 }
 
 --- `ui.dialogHeader` props: the app's dialog header (`DialogHeader` with a `DialogTitleGroup`), 16 in from the frame, with its close button. Desktop's plugin API calls it `DialogHeader`.
@@ -2269,12 +2544,18 @@ export type UiDialogHeaderProps = {
     help: string?,
     --- Where the tooltip shows. Defaults to below.
     helpSide: Side?,
+    --- Keeps the tooltip showing while true, whatever the pointer does, as Desktop's `Tooltip forceOpen`: a Copy button's "Copied" for a moment after the press.
+    helpOpen: boolean?,
     --- Which way the subtree reads, as HTML's `dir` does: `ltr` or `rtl` keeps a figure or a path in that order inside a window running the other way, `auto` takes a text's first strong direction (a name). On `ui.field` it is the value's direction, as on an `input`: `auto` starts an Arabic name at the right, `ltr` keeps an address or a host left to right. Defaults to the window's.
     dir: ("ltr" | "rtl" | "auto")?,
+    --- The pointer's shape over the node and over what is inside it that sets none, by its CSS `cursor` name. Desktop shows the arrow on controls; set this only where its style sheet names another cursor, as the browser's address field does (`text`).
+    cursor: ("default" | "pointer" | "text" | "grab" | "grabbing" | "not-allowed" | "move" | "col-resize" | "row-resize" | "ew-resize" | "ns-resize" | "nwse-resize" | "nesw-resize" | "crosshair" | "cell" | "zoom-in" | "zoom-out")?,
     --- The dialog's title: 15 pt, wrapping anywhere unless `wrapTitle` is false.
     title: string,
     --- A muted line under the title.
     description: string?,
+    --- A badge after the title on its line, such as a profile's name. The title then stays on one line, and each is cut short where the line has no room for both.
+    badge: string?,
     --- Leaves out the close button.
     hideClose: boolean?,
     --- The close button's accessible name. Defaults to Close.
@@ -2343,8 +2624,12 @@ export type UiMarkdownProps = {
     help: string?,
     --- Where the tooltip shows. Defaults to below.
     helpSide: Side?,
+    --- Keeps the tooltip showing while true, whatever the pointer does, as Desktop's `Tooltip forceOpen`: a Copy button's "Copied" for a moment after the press.
+    helpOpen: boolean?,
     --- Which way the subtree reads, as HTML's `dir` does: `ltr` or `rtl` keeps a figure or a path in that order inside a window running the other way, `auto` takes a text's first strong direction (a name). On `ui.field` it is the value's direction, as on an `input`: `auto` starts an Arabic name at the right, `ltr` keeps an address or a host left to right. Defaults to the window's.
     dir: ("ltr" | "rtl" | "auto")?,
+    --- The pointer's shape over the node and over what is inside it that sets none, by its CSS `cursor` name. Desktop shows the arrow on controls; set this only where its style sheet names another cursor, as the browser's address field does (`text`).
+    cursor: ("default" | "pointer" | "text" | "grab" | "grabbing" | "not-allowed" | "move" | "col-resize" | "row-resize" | "ew-resize" | "ns-resize" | "nwse-resize" | "nesw-resize" | "crosshair" | "cell" | "zoom-in" | "zoom-out")?,
     --- The Markdown.
     source: string,
     --- Body font size in points. Defaults to 14.
@@ -2419,8 +2704,12 @@ export type UiVirtualListProps = {
     help: string?,
     --- Where the tooltip shows. Defaults to below.
     helpSide: Side?,
+    --- Keeps the tooltip showing while true, whatever the pointer does, as Desktop's `Tooltip forceOpen`: a Copy button's "Copied" for a moment after the press.
+    helpOpen: boolean?,
     --- Which way the subtree reads, as HTML's `dir` does: `ltr` or `rtl` keeps a figure or a path in that order inside a window running the other way, `auto` takes a text's first strong direction (a name). On `ui.field` it is the value's direction, as on an `input`: `auto` starts an Arabic name at the right, `ltr` keeps an address or a host left to right. Defaults to the window's.
     dir: ("ltr" | "rtl" | "auto")?,
+    --- The pointer's shape over the node and over what is inside it that sets none, by its CSS `cursor` name. Desktop shows the arrow on controls; set this only where its style sheet names another cursor, as the browser's address field does (`text`).
+    cursor: ("default" | "pointer" | "text" | "grab" | "grabbing" | "not-allowed" | "move" | "col-resize" | "row-resize" | "ew-resize" | "ns-resize" | "nwse-resize" | "nesw-resize" | "crosshair" | "cell" | "zoom-in" | "zoom-out")?,
     --- How many rows.
     count: number,
     --- A row's height before it is measured.
@@ -2501,8 +2790,12 @@ export type UiTerminalSurfaceProps = {
     help: string?,
     --- Where the tooltip shows. Defaults to below.
     helpSide: Side?,
+    --- Keeps the tooltip showing while true, whatever the pointer does, as Desktop's `Tooltip forceOpen`: a Copy button's "Copied" for a moment after the press.
+    helpOpen: boolean?,
     --- Which way the subtree reads, as HTML's `dir` does: `ltr` or `rtl` keeps a figure or a path in that order inside a window running the other way, `auto` takes a text's first strong direction (a name). On `ui.field` it is the value's direction, as on an `input`: `auto` starts an Arabic name at the right, `ltr` keeps an address or a host left to right. Defaults to the window's.
     dir: ("ltr" | "rtl" | "auto")?,
+    --- The pointer's shape over the node and over what is inside it that sets none, by its CSS `cursor` name. Desktop shows the arrow on controls; set this only where its style sheet names another cursor, as the browser's address field does (`text`).
+    cursor: ("default" | "pointer" | "text" | "grab" | "grabbing" | "not-allowed" | "move" | "col-resize" | "row-resize" | "ew-resize" | "ns-resize" | "nwse-resize" | "nesw-resize" | "crosshair" | "cell" | "zoom-in" | "zoom-out")?,
     --- The terminal session, from the `Terminal` service.
     session: PtySession?,
     --- A font family. Defaults to the user's code font.
@@ -2581,8 +2874,12 @@ export type UiTerminalTabLabelProps = {
     help: string?,
     --- Where the tooltip shows. Defaults to below.
     helpSide: Side?,
+    --- Keeps the tooltip showing while true, whatever the pointer does, as Desktop's `Tooltip forceOpen`: a Copy button's "Copied" for a moment after the press.
+    helpOpen: boolean?,
     --- Which way the subtree reads, as HTML's `dir` does: `ltr` or `rtl` keeps a figure or a path in that order inside a window running the other way, `auto` takes a text's first strong direction (a name). On `ui.field` it is the value's direction, as on an `input`: `auto` starts an Arabic name at the right, `ltr` keeps an address or a host left to right. Defaults to the window's.
     dir: ("ltr" | "rtl" | "auto")?,
+    --- The pointer's shape over the node and over what is inside it that sets none, by its CSS `cursor` name. Desktop shows the arrow on controls; set this only where its style sheet names another cursor, as the browser's address field does (`text`).
+    cursor: ("default" | "pointer" | "text" | "grab" | "grabbing" | "not-allowed" | "move" | "col-resize" | "row-resize" | "ew-resize" | "ns-resize" | "nwse-resize" | "nesw-resize" | "crosshair" | "cell" | "zoom-in" | "zoom-out")?,
     --- The terminal the tab shows.
     session: PtySession,
     --- Its label.
@@ -2651,8 +2948,12 @@ export type UiBrowserSurfaceProps = {
     help: string?,
     --- Where the tooltip shows. Defaults to below.
     helpSide: Side?,
+    --- Keeps the tooltip showing while true, whatever the pointer does, as Desktop's `Tooltip forceOpen`: a Copy button's "Copied" for a moment after the press.
+    helpOpen: boolean?,
     --- Which way the subtree reads, as HTML's `dir` does: `ltr` or `rtl` keeps a figure or a path in that order inside a window running the other way, `auto` takes a text's first strong direction (a name). On `ui.field` it is the value's direction, as on an `input`: `auto` starts an Arabic name at the right, `ltr` keeps an address or a host left to right. Defaults to the window's.
     dir: ("ltr" | "rtl" | "auto")?,
+    --- The pointer's shape over the node and over what is inside it that sets none, by its CSS `cursor` name. Desktop shows the arrow on controls; set this only where its style sheet names another cursor, as the browser's address field does (`text`).
+    cursor: ("default" | "pointer" | "text" | "grab" | "grabbing" | "not-allowed" | "move" | "col-resize" | "row-resize" | "ew-resize" | "ns-resize" | "nwse-resize" | "nesw-resize" | "crosshair" | "cell" | "zoom-in" | "zoom-out")?,
     --- Available width of the device preview area.
     areaWidth: number?,
     --- Available height of the device preview area.
@@ -2737,8 +3038,12 @@ export type UiCodeViewProps = {
     help: string?,
     --- Where the tooltip shows. Defaults to below.
     helpSide: Side?,
+    --- Keeps the tooltip showing while true, whatever the pointer does, as Desktop's `Tooltip forceOpen`: a Copy button's "Copied" for a moment after the press.
+    helpOpen: boolean?,
     --- Which way the subtree reads, as HTML's `dir` does: `ltr` or `rtl` keeps a figure or a path in that order inside a window running the other way, `auto` takes a text's first strong direction (a name). On `ui.field` it is the value's direction, as on an `input`: `auto` starts an Arabic name at the right, `ltr` keeps an address or a host left to right. Defaults to the window's.
     dir: ("ltr" | "rtl" | "auto")?,
+    --- The pointer's shape over the node and over what is inside it that sets none, by its CSS `cursor` name. Desktop shows the arrow on controls; set this only where its style sheet names another cursor, as the browser's address field does (`text`).
+    cursor: ("default" | "pointer" | "text" | "grab" | "grabbing" | "not-allowed" | "move" | "col-resize" | "row-resize" | "ew-resize" | "ns-resize" | "nwse-resize" | "nesw-resize" | "crosshair" | "cell" | "zoom-in" | "zoom-out")?,
     --- The file, from `Workspace:OpenDocument`.
     doc: CodeDocument,
     --- Wraps long lines.
@@ -2809,8 +3114,12 @@ export type UiDiffViewProps = {
     help: string?,
     --- Where the tooltip shows. Defaults to below.
     helpSide: Side?,
+    --- Keeps the tooltip showing while true, whatever the pointer does, as Desktop's `Tooltip forceOpen`: a Copy button's "Copied" for a moment after the press.
+    helpOpen: boolean?,
     --- Which way the subtree reads, as HTML's `dir` does: `ltr` or `rtl` keeps a figure or a path in that order inside a window running the other way, `auto` takes a text's first strong direction (a name). On `ui.field` it is the value's direction, as on an `input`: `auto` starts an Arabic name at the right, `ltr` keeps an address or a host left to right. Defaults to the window's.
     dir: ("ltr" | "rtl" | "auto")?,
+    --- The pointer's shape over the node and over what is inside it that sets none, by its CSS `cursor` name. Desktop shows the arrow on controls; set this only where its style sheet names another cursor, as the browser's address field does (`text`).
+    cursor: ("default" | "pointer" | "text" | "grab" | "grabbing" | "not-allowed" | "move" | "col-resize" | "row-resize" | "ew-resize" | "ns-resize" | "nwse-resize" | "nesw-resize" | "crosshair" | "cell" | "zoom-in" | "zoom-out")?,
     --- The changes, from `Diff:Open`.
     diff: DiffDocument,
     --- Split or unified.
@@ -2885,8 +3194,12 @@ export type UiFileTreeProps = {
     help: string?,
     --- Where the tooltip shows. Defaults to below.
     helpSide: Side?,
+    --- Keeps the tooltip showing while true, whatever the pointer does, as Desktop's `Tooltip forceOpen`: a Copy button's "Copied" for a moment after the press.
+    helpOpen: boolean?,
     --- Which way the subtree reads, as HTML's `dir` does: `ltr` or `rtl` keeps a figure or a path in that order inside a window running the other way, `auto` takes a text's first strong direction (a name). On `ui.field` it is the value's direction, as on an `input`: `auto` starts an Arabic name at the right, `ltr` keeps an address or a host left to right. Defaults to the window's.
     dir: ("ltr" | "rtl" | "auto")?,
+    --- The pointer's shape over the node and over what is inside it that sets none, by its CSS `cursor` name. Desktop shows the arrow on controls; set this only where its style sheet names another cursor, as the browser's address field does (`text`).
+    cursor: ("default" | "pointer" | "text" | "grab" | "grabbing" | "not-allowed" | "move" | "col-resize" | "row-resize" | "ew-resize" | "ns-resize" | "nwse-resize" | "nesw-resize" | "crosshair" | "cell" | "zoom-in" | "zoom-out")?,
     --- The tree, from `Workspace:OpenTree`.
     tree: FileTreeModel,
     --- Shows only these workspace paths and the folders above them, all known at once: a change list rather than the folder's listing.
@@ -2909,7 +3222,7 @@ export type UiFileTreeProps = {
     width: number?,
 }
 
---- `ui.panelSidebar(props, { sidebar, main })` props: a panel's frame with the file sidebar at its start, resized by its end edge (a double click resets it), and the sidebar toggle pinned at the panel's top left. Whether the sidebar shows and its width are one preference every panel shares (`Layout:PanelSidebar`); the toggle and Mod+\ flip it.
+--- `ui.panelSidebar(props, { sidebar, main })` props: a panel's frame with the file sidebar at its start or end, resized by its inner edge (a double click resets it), and the sidebar toggle pinned at the panel's top corner on the sidebar's side. Whether the sidebar shows, its width and the edge it sits on are one preference every panel shares (`Layout:PanelSidebar`); the toggle and Mod+\ flip it, and a right-click on the sidebar or the toggle offers Sidebar position.
 export type UiPanelSidebarProps = {
     --- Identity among siblings across renders, and the anchor key for popovers and menus.
     key: string?,
@@ -2969,8 +3282,12 @@ export type UiPanelSidebarProps = {
     help: string?,
     --- Where the tooltip shows. Defaults to below.
     helpSide: Side?,
+    --- Keeps the tooltip showing while true, whatever the pointer does, as Desktop's `Tooltip forceOpen`: a Copy button's "Copied" for a moment after the press.
+    helpOpen: boolean?,
     --- Which way the subtree reads, as HTML's `dir` does: `ltr` or `rtl` keeps a figure or a path in that order inside a window running the other way, `auto` takes a text's first strong direction (a name). On `ui.field` it is the value's direction, as on an `input`: `auto` starts an Arabic name at the right, `ltr` keeps an address or a host left to right. Defaults to the window's.
     dir: ("ltr" | "rtl" | "auto")?,
+    --- The pointer's shape over the node and over what is inside it that sets none, by its CSS `cursor` name. Desktop shows the arrow on controls; set this only where its style sheet names another cursor, as the browser's address field does (`text`).
+    cursor: ("default" | "pointer" | "text" | "grab" | "grabbing" | "not-allowed" | "move" | "col-resize" | "row-resize" | "ew-resize" | "ns-resize" | "nwse-resize" | "nesw-resize" | "crosshair" | "cell" | "zoom-in" | "zoom-out")?,
     --- Prefixes its parts' keys: `<id>-sidebar`, `<id>-sidebar-resize`, `<id>-tree-toggle`.
     id: string,
     --- Its width until the user drags it. Defaults to 240.
@@ -2989,6 +3306,8 @@ export type PanelSidebarInfo = {
     opened: boolean,
     --- Its width in points.
     width: number,
+    --- The edge of the panel it sits on. With `end`, the toggle is at the panel's top end corner: leave it room at the end of a header or toolbar under it, not at the start.
+    side: PanelSidebarSide,
 }
 
 --- `ui.openInButton` props: the app's Open in split button. Its mark opens the path in the app the user chose last; its chevron lists the installed apps and Copy path. Nothing where the server's files aren't on this machine.
@@ -3051,8 +3370,12 @@ export type UiOpenInButtonProps = {
     help: string?,
     --- Where the tooltip shows. Defaults to below.
     helpSide: Side?,
+    --- Keeps the tooltip showing while true, whatever the pointer does, as Desktop's `Tooltip forceOpen`: a Copy button's "Copied" for a moment after the press.
+    helpOpen: boolean?,
     --- Which way the subtree reads, as HTML's `dir` does: `ltr` or `rtl` keeps a figure or a path in that order inside a window running the other way, `auto` takes a text's first strong direction (a name). On `ui.field` it is the value's direction, as on an `input`: `auto` starts an Arabic name at the right, `ltr` keeps an address or a host left to right. Defaults to the window's.
     dir: ("ltr" | "rtl" | "auto")?,
+    --- The pointer's shape over the node and over what is inside it that sets none, by its CSS `cursor` name. Desktop shows the arrow on controls; set this only where its style sheet names another cursor, as the browser's address field does (`text`).
+    cursor: ("default" | "pointer" | "text" | "grab" | "grabbing" | "not-allowed" | "move" | "col-resize" | "row-resize" | "ew-resize" | "ns-resize" | "nwse-resize" | "nesw-resize" | "crosshair" | "cell" | "zoom-in" | "zoom-out")?,
     --- A workspace path, or empty for the workspace folder.
     path: string,
 }
@@ -3117,8 +3440,12 @@ export type UiOfficePagesProps = {
     help: string?,
     --- Where the tooltip shows. Defaults to below.
     helpSide: Side?,
+    --- Keeps the tooltip showing while true, whatever the pointer does, as Desktop's `Tooltip forceOpen`: a Copy button's "Copied" for a moment after the press.
+    helpOpen: boolean?,
     --- Which way the subtree reads, as HTML's `dir` does: `ltr` or `rtl` keeps a figure or a path in that order inside a window running the other way, `auto` takes a text's first strong direction (a name). On `ui.field` it is the value's direction, as on an `input`: `auto` starts an Arabic name at the right, `ltr` keeps an address or a host left to right. Defaults to the window's.
     dir: ("ltr" | "rtl" | "auto")?,
+    --- The pointer's shape over the node and over what is inside it that sets none, by its CSS `cursor` name. Desktop shows the arrow on controls; set this only where its style sheet names another cursor, as the browser's address field does (`text`).
+    cursor: ("default" | "pointer" | "text" | "grab" | "grabbing" | "not-allowed" | "move" | "col-resize" | "row-resize" | "ew-resize" | "ns-resize" | "nwse-resize" | "nesw-resize" | "crosshair" | "cell" | "zoom-in" | "zoom-out")?,
     --- A Word document or a deck, from `Office:OpenAsync`.
     document: OfficeDocument,
     --- The words it shows.
@@ -3185,8 +3512,12 @@ export type UiOfficeSheetProps = {
     help: string?,
     --- Where the tooltip shows. Defaults to below.
     helpSide: Side?,
+    --- Keeps the tooltip showing while true, whatever the pointer does, as Desktop's `Tooltip forceOpen`: a Copy button's "Copied" for a moment after the press.
+    helpOpen: boolean?,
     --- Which way the subtree reads, as HTML's `dir` does: `ltr` or `rtl` keeps a figure or a path in that order inside a window running the other way, `auto` takes a text's first strong direction (a name). On `ui.field` it is the value's direction, as on an `input`: `auto` starts an Arabic name at the right, `ltr` keeps an address or a host left to right. Defaults to the window's.
     dir: ("ltr" | "rtl" | "auto")?,
+    --- The pointer's shape over the node and over what is inside it that sets none, by its CSS `cursor` name. Desktop shows the arrow on controls; set this only where its style sheet names another cursor, as the browser's address field does (`text`).
+    cursor: ("default" | "pointer" | "text" | "grab" | "grabbing" | "not-allowed" | "move" | "col-resize" | "row-resize" | "ew-resize" | "ns-resize" | "nwse-resize" | "nesw-resize" | "crosshair" | "cell" | "zoom-in" | "zoom-out")?,
     --- A workbook, from `Office:OpenAsync`; it shows the sheet `Office:SetSheet` chose.
     document: OfficeDocument,
     --- The words the grid says, in the plugin's language.
@@ -3253,8 +3584,12 @@ export type UiGenUiProps = {
     help: string?,
     --- Where the tooltip shows. Defaults to below.
     helpSide: Side?,
+    --- Keeps the tooltip showing while true, whatever the pointer does, as Desktop's `Tooltip forceOpen`: a Copy button's "Copied" for a moment after the press.
+    helpOpen: boolean?,
     --- Which way the subtree reads, as HTML's `dir` does: `ltr` or `rtl` keeps a figure or a path in that order inside a window running the other way, `auto` takes a text's first strong direction (a name). On `ui.field` it is the value's direction, as on an `input`: `auto` starts an Arabic name at the right, `ltr` keeps an address or a host left to right. Defaults to the window's.
     dir: ("ltr" | "rtl" | "auto")?,
+    --- The pointer's shape over the node and over what is inside it that sets none, by its CSS `cursor` name. Desktop shows the arrow on controls; set this only where its style sheet names another cursor, as the browser's address field does (`text`).
+    cursor: ("default" | "pointer" | "text" | "grab" | "grabbing" | "not-allowed" | "move" | "col-resize" | "row-resize" | "ew-resize" | "ns-resize" | "nwse-resize" | "nesw-resize" | "crosshair" | "cell" | "zoom-in" | "zoom-out")?,
     --- The ```` ```ui ```` outline source.
     source: string,
     --- The source is still growing.
@@ -3321,8 +3656,12 @@ export type UiProgressCircleProps = {
     help: string?,
     --- Where the tooltip shows. Defaults to below.
     helpSide: Side?,
+    --- Keeps the tooltip showing while true, whatever the pointer does, as Desktop's `Tooltip forceOpen`: a Copy button's "Copied" for a moment after the press.
+    helpOpen: boolean?,
     --- Which way the subtree reads, as HTML's `dir` does: `ltr` or `rtl` keeps a figure or a path in that order inside a window running the other way, `auto` takes a text's first strong direction (a name). On `ui.field` it is the value's direction, as on an `input`: `auto` starts an Arabic name at the right, `ltr` keeps an address or a host left to right. Defaults to the window's.
     dir: ("ltr" | "rtl" | "auto")?,
+    --- The pointer's shape over the node and over what is inside it that sets none, by its CSS `cursor` name. Desktop shows the arrow on controls; set this only where its style sheet names another cursor, as the browser's address field does (`text`).
+    cursor: ("default" | "pointer" | "text" | "grab" | "grabbing" | "not-allowed" | "move" | "col-resize" | "row-resize" | "ew-resize" | "ns-resize" | "nwse-resize" | "nesw-resize" | "crosshair" | "cell" | "zoom-in" | "zoom-out")?,
     --- How full, 0 to 100. The arc runs clockwise from twelve o'clock.
     percentage: number,
     --- Its look. Defaults to `compact`.
@@ -4957,11 +5296,11 @@ export type DialogSpec = {
     size: DialogSize?,
     --- Which modal overlay layer the dialog draws in (`"standard"` beneath elevated recovery/server dialogs, or `"elevated"` above them). Defaults to `"elevated"`.
     layer: DialogLayer?,
-    --- Corner radius in points. Defaults to 6 for `normal` dialogs and 12 for `large` and `x-large`.
+    --- Corner radius in points. Defaults to 6 for `normal` dialogs and 12 for `tall`, `large` and `x-large`.
     radius: number?,
     --- Hides the scroll bar when a `normal` dialog's content overflows, as Desktop's `dialog-content` does. Defaults to false.
     hideScrollbar: boolean?,
-    --- Draws its body inside the host's dialog frame: Desktop's dialog with the overlay elevation. A normal one is as tall as its content on layer-01 with 6-point corners; a large or x-large one is its size's height on bg-base with 12-point corners, so its body can fill it (`h = "full"`).
+    --- Draws its body inside the host's dialog frame: Desktop's dialog with the overlay elevation. A normal one is as tall as its content on layer-01 with 6-point corners; a tall one is as tall as its content up to its size's height on bg-base with 12-point corners, and what in it may shrink (`shrink = true`, `minH = 0`) gives way once it is that tall; a large or x-large one is its size's height on bg-base with 12-point corners, so its body can fill it (`h = "full"`).
     render: (view: View, props: DialogProps) -> UiNode?,
     --- Runs when Esc or a click outside closes it.
     onDismiss: (() -> ())?,
@@ -5193,12 +5532,16 @@ export type LayoutService = {
     PanelSidebar: (self: LayoutService) -> PanelSidebarInfo,
     --- Shows or hides it.
     TogglePanelSidebar: (self: LayoutService) -> (),
+    --- Puts it on an edge of the panel, for every side panel.
+    MovePanelSidebar: (self: LayoutService, side: PanelSidebarSide) -> (),
     --- From a `drawer` kind panel's view in a narrow window's More drawer: shows a nested view in the drawer in its place (Desktop's `useDrawer().open`), with a back button named after the panel's view. The panel's render draws it, with `props.drawer` set to `data`. Does nothing elsewhere.
     OpenDrawerView: (self: LayoutService, title: string, data: { [string]: any }?) -> (),
     --- A session's side region is open. Defaults to the routed session.
     RegionOpen: (self: LayoutService, sessionId: string?) -> boolean,
     --- The side region has the keyboard: the last focus, click or key was in it, as Desktop's side focus reads (`#review-panel[data-focused]`). Read it when a command runs: Desktop's Open browser shortcut focuses the new tab's address only from inside the region.
     RegionFocused: (self: LayoutService) -> boolean,
+    --- Moves the keyboard to the element with `key`, or to its first focusable control, and draws its focus ring: where a shortcut leaves the keyboard. Official's Toggle browser toolbar shortcut leaves it on the Options button.
+    Focus: (self: LayoutService, key: string) -> (),
 }
 
 --- Routes local links to the plugins that handle them. The window half only: `ctx:GetService("Links")`.
@@ -5707,6 +6050,8 @@ export type UiLibrary = {
     iconButton: (props: UiIconButtonProps) -> UiNode,
     --- The app's own switch.
     switch: (props: UiSwitchProps) -> UiNode,
+    --- Desktop's compact checkbox with its label.
+    checkbox: (props: UiCheckboxProps) -> UiNode,
     --- A radio row.
     radio: (props: UiRadioProps) -> UiNode,
     --- The app's own text field.
@@ -5721,6 +6066,8 @@ export type UiLibrary = {
     serverIndicator: (props: UiServerIndicatorProps) -> UiNode,
     --- A status capsule.
     pill: (props: UiPillProps) -> UiNode,
+    --- Desktop's compact badge.
+    badge: (props: UiBadgeProps) -> UiNode,
     --- A settings row: title and description beside a control.
     settingsRow: (props: UiSettingsRowProps, control: UiNode?) -> UiNode,
     --- A card of settings rows.
@@ -5745,7 +6092,7 @@ export type UiLibrary = {
     diffView: (props: UiDiffViewProps) -> UiNode,
     --- A folder's file tree. Native: the host renders it.
     fileTree: (props: UiFileTreeProps) -> UiNode,
-    --- A resizable sidebar at a panel's start, its children stacked in it. Native: the host renders it.
+    --- A resizable sidebar at a panel's start or end, its children stacked in it. Native: the host renders it.
     panelSidebar: (props: UiPanelSidebarProps, children: { UiNode }?) -> UiNode,
     --- The app's Open in split button for a path. Native: the host renders it.
     openInButton: (props: UiOpenInButtonProps) -> UiNode,

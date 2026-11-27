@@ -65,5 +65,6 @@
   "zoom.reset": "Vrati zadano zumiranje",
   "zoom.percent": "{{percent}}%",
   "link.copy": "Kopiraj poveznicu",
-  "history.clear": "Očisti povijest"
+  "history.clear": "Očisti povijest",
+  "extensions.compat.feature.management": "Upravljanje drugim proširenjima"
 }

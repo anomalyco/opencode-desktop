@@ -7,7 +7,8 @@ use rune::{ClipboardContent, El, Live, ScrollPos, SurfaceFit, Tx, col, el, icon,
 use rune_theme_opencode::icons as ic;
 
 use super::ComposerHost;
-use crate::images::{Fetched, identity, opens};
+use crate::focus::FocusExt;
+use crate::images::{Fetched, Strip, identity, opens};
 use crate::palette::Pal;
 use crate::user_parts::{CARD_SUBTITLE, CARD_TITLE};
 
@@ -22,6 +23,16 @@ pub fn native_mime(path: &Path) -> Option<&'static str> {
         Some("gif") => Some("image/gif"),
         Some("webp") => Some("image/webp"),
         Some("pdf") => Some("application/pdf"),
+        _ => None,
+    }
+}
+
+/// Like [`native_mime`], filtered to modalities the selected model reads natively
+/// (`attachments.ts:224-231`).
+pub fn native_mime_for(path: &Path, input: crate::pickers::AttachmentInput) -> Option<&'static str> {
+    match native_mime(path)? {
+        "application/pdf" if input.pdf => Some("application/pdf"),
+        m if m.starts_with("image/") && input.image => Some(m),
         _ => None,
     }
 }
@@ -81,11 +92,13 @@ pub fn paste<S: ComposerHost>(s: &mut S, content: &ClipboardContent, _: &mut Tx)
     })
 }
 
-/// Deduplicating push helper for a host's `Vec<Attachment>`.
-pub fn push_unique(list: &mut Vec<Attachment>, a: Attachment) {
-    if !list.iter().any(|f| f.bytes == a.bytes && f.media == a.media) {
-        list.push(a);
+/// Deduplicating push helper for a host's `Vec<Attachment>`; returns `true` if inserted.
+pub fn push_unique(list: &mut Vec<Attachment>, a: Attachment) -> bool {
+    if list.iter().any(|f| f.bytes == a.bytes && f.media == a.media) {
+        return false;
     }
+    list.push(a);
+    true
 }
 
 /// Settles local prompt echoes against freshly fetched server messages.
@@ -125,7 +138,7 @@ pub fn chips<S: ComposerHost>(s: &S, p: &Pal) -> Option<El> {
     for f in files {
         let id = identity(f);
         let store = s.media_store();
-        let (w, body) = match store.image(f).filter(|img| img.error().is_none()) {
+        let (w, body) = match store.image_sized(f, 160.0).filter(|img| img.error().is_none()) {
             Some(img) => {
                 let thumb = el()
                     .key("attachment-thumb")
@@ -142,14 +155,14 @@ pub fn chips<S: ComposerHost>(s: &S, p: &Pal) -> Option<El> {
                             .box_shadow(Pal::ring_in(p.border)),
                     );
                 let held = el().key("held").size(THUMB.0, THUMB.1);
-                (THUMB.0, opens(s, thumb, held, format!("composer:{id}"), f, img, None))
+                (THUMB.0, opens(s, thumb, held, Strip::new(format!("composer:{id}"), std::sync::Arc::from([f.clone()]), 0), img, None))
             }
             None if f.is_image() && store.fetched(f) == Some(Fetched::Loading) => (THUMB.0, el().size(THUMB.0, THUMB.1)),
-            None => (160.0, card(p, &f.name, type_label(&f.name))),
+            None => (160.0, card(p, &f.name, type_label(&f.name)).help(f.name.clone()).help_above()),
         };
         let gone = id.clone();
         let remove = remove_button(p, &f.name, w, move |s: &mut S| s.composer_remove_attachment(&gone));
-        r = r.child(el().key(format!("chip-{id}")).self_start().hover_group().child(body).child(remove));
+        r = r.child(el().key(format!("chip-{id}")).self_start().hover_group_focus().hover_motion(crate::style::INSTANT, crate::style::INSTANT).child(body).child(remove));
     }
     for f in paths {
         let gone = f.path.clone();
@@ -157,8 +170,10 @@ pub fn chips<S: ComposerHost>(s: &S, p: &Pal) -> Option<El> {
         r = r.child(
             el()
                 .key(format!("path-{}", f.path))
-                .hover_group()
-                .child(card(p, &f.name, type_label(&f.name)))
+                .hover_group_focus()
+                .hover_motion(crate::style::INSTANT, crate::style::INSTANT)
+                // Official wraps composer file cards in `<Tooltip value={file.path} placement="top">` (`editor.tsx:848`).
+                .child(card(p, &f.name, type_label(&f.name)).help(f.path.clone()).help_above())
                 .child(remove),
         );
     }
@@ -166,7 +181,7 @@ pub fn chips<S: ComposerHost>(s: &S, p: &Pal) -> Option<El> {
     for (id, name, percent) in uploading {
         let gone = id.clone();
         let cancel = remove_button(p, &name, 160.0, move |s: &mut S| s.composer_cancel_upload(&gone)).label_static(opencode_i18n::t!("ui.promptInput.cancelUpload"));
-        r = r.child(el().key(format!("uploading-{id}")).hover_group().child(upload_card(p, &name, percent)).child(cancel));
+        r = r.child(el().key(format!("uploading-{id}")).hover_group_focus().hover_motion(crate::style::INSTANT, crate::style::INSTANT).child(upload_card(p, &name, percent)).child(cancel));
     }
     // One row that scrolls sideways with no bar (`editor.tsx:758-910`), and a 24 pt bg-base
     // fade on each side that shows while chips hide under it (`attachments.css`).
@@ -222,6 +237,7 @@ pub fn remove_button<S: 'static>(
         .size(16.0, 16.0)
         .radius(8.0)
         .center()
+        .focus_default(p)
         .fill(p.icon_muted)
         .outline(1.0, 0.0, p.icon_contrast)
         .group_opacity(if crate::style::hover_none() { 1.0 } else { 0.0 }, 1.0)

@@ -13,6 +13,8 @@ use super::search::PageIndex;
 
 const FILE_NAME: &str = "history.sqlite";
 const PRUNE_ROOM: usize = 500;
+/// Cap stored pages per host so a single page cannot flood `pushState` URLs and evict real history.
+const MAX_PER_HOST: usize = 500;
 
 fn now_ms() -> i64 {
     SystemTime::now()
@@ -149,12 +151,54 @@ impl HistoryStore {
                 row_to_visit,
             )
             .ok();
-        if let Some((id, visit)) = row
-            && let Some(idx) = self.index.as_mut()
-        {
-            idx.set(id, &visit);
-            if idx.size() > MAX_PAGES {
-                self.prune(PRUNE_ROOM);
+        if let Some((id, visit)) = row {
+            self.cap_host(&key);
+            if let Some(idx) = self.index.as_mut() {
+                idx.set(id, &visit);
+                if idx.size() > MAX_PAGES {
+                    self.prune(PRUNE_ROOM);
+                }
+            }
+        }
+    }
+
+    /// Keeps at most [`MAX_PER_HOST`] distinct pages for the host of `key`, pruning the oldest
+    /// entries for that host first so one page cannot evict the user's browsing history.
+    fn cap_host(&mut self, key: &str) {
+        let host = key.split('/').next().unwrap_or("");
+        if host.is_empty() {
+            return;
+        }
+        let prefix = format!("{host}/");
+        let count: i64 = self
+            .conn
+            .query_row(
+                "SELECT count(*) FROM pages WHERE key = ?1 OR (key >= ?2 AND key < ?3)",
+                params![host, &prefix, format!("{host}0")],
+                |r| r.get(0),
+            )
+            .unwrap_or(0);
+        let over = (count as usize).saturating_sub(MAX_PER_HOST);
+        if over == 0 {
+            return;
+        }
+        let mut stale: Vec<i64> = Vec::with_capacity(over);
+        if let Ok(mut stmt) = self.conn.prepare(
+            "SELECT id FROM pages WHERE key = ?1 OR (key >= ?2 AND key < ?3)
+             ORDER BY visited ASC, id ASC LIMIT ?4",
+        ) && let Ok(rows) = stmt.query_map(
+            params![host, &prefix, format!("{host}0"), over as i64],
+            |r| r.get::<_, i64>(0),
+        ) {
+            for id in rows.flatten() {
+                stale.push(id);
+            }
+        }
+        for id in stale {
+            if self.conn.execute("DELETE FROM pages WHERE id = ?1", [id]).is_ok()
+                && let Some(idx) = self.index.as_mut()
+            {
+                idx.remove(id);
             }
         }
     }

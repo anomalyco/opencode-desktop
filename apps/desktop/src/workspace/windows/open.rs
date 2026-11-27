@@ -127,31 +127,50 @@ fn display_scale(frame: Option<&Frame>) -> Option<f32> {
     by_frame.or_else(|| displays.iter().find(|d| d.primary)).or_else(|| displays.first()).map(|d| d.scale as f32)
 }
 
-/// Opens every window saved at the last quit, or one for a new profile, each where it was. The
-/// list and the frames come from the boot packet, taken once the event loop is up (so the
-/// storage's read runs under it); a list that didn't change isn't written again. Returns when
-/// the app quits, unless it ends at once (`rune::fast_exit`).
+/// The windows saved at the last quit after the first, with where each opens: [`open_rest`]
+/// opens them once the first one takes input.
+#[cfg(not(target_arch = "wasm32"))]
+static REST: std::sync::Mutex<Vec<(String, Option<Frame>)>> = std::sync::Mutex::new(Vec::new());
+
+/// Opens the launch's next saved window after the first, once the loop has waited for input
+/// (`input.ready`): one per turn. Rune builds every window it is given at launch, and draws each
+/// one's first frame, before the first of them takes a key (two saved windows: input 65-76 ms
+/// after `main`, against 42-50 with one; strobe `rec_74d5a1`, `rec_4b5e43`, `rec_b46005`), so the launch gives
+/// it the first window alone. Answers when to look again while one is left to open: a moment
+/// later while the loop hasn't waited yet (a wake at once would keep it from waiting), else at
+/// the next turn.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn open_rest(s: &App) -> Option<std::time::Duration> {
+    let next = {
+        let mut rest = REST.lock().unwrap_or_else(|e| e.into_inner());
+        if rest.is_empty() {
+            return None;
+        }
+        if !rune::marks::marks().iter().any(|(name, _)| *name == "input.ready") {
+            return Some(std::time::Duration::from_millis(2));
+        }
+        rest.remove(0)
+    };
+    rune::marks::mark("window.rest.open");
+    let _ = rune::open_window(window(Window::new(next.0, false), next.1, &s.diag.diagnostics));
+    (!REST.lock().unwrap_or_else(|e| e.into_inner()).is_empty()).then_some(std::time::Duration::ZERO)
+}
+
+/// Opens the first window saved at the last quit, or one for a new profile, where it was, and
+/// leaves the other saved windows to [`open_rest`]. The list and the frames come from the boot
+/// packet, taken once the event loop is up (so the storage's read runs under it); a list that
+/// didn't change isn't written again (`store::launch_ids`). Returns when the app quits, unless
+/// it ends at once (`rune::fast_exit`).
 #[cfg(not(target_arch = "wasm32"))]
 pub fn launch(diagnostics: crate::diagnostics::Diagnostics) {
     rune::run_windows(move |displays: &[Display]| {
         *DISPLAYS.lock().unwrap_or_else(|e| e.into_inner()) = displays.to_vec();
-        let saved = store::saved_ids();
-        let mut ids = saved.clone().unwrap_or_default();
-        if ids.is_empty() {
-            ids.push(store::new_id());
-        }
-        if saved.as_ref() != Some(&ids) {
-            store::save_ids(&ids);
-        }
+        let (ids, fresh) = store::launch_ids();
         OPENED.store(ids.len(), std::sync::atomic::Ordering::Relaxed);
-        let fresh = saved.is_none();
-        ids.iter()
-            .enumerate()
-            .map(|(i, id)| {
-                let frame = store::load_frame(id).and_then(|f| super::placement::fit(f, displays));
-                window(Window::new(id.clone(), i == 0 && fresh), frame, &diagnostics).boxed()
-            })
-            .collect::<Vec<_>>()
+        // Nothing saved (a new profile): where Desktop's first window opens.
+        let frame = |id: &str| store::load_frame(id).and_then(|f| super::placement::fit(f, displays)).or_else(|| super::placement::first(displays));
+        *REST.lock().unwrap_or_else(|e| e.into_inner()) = ids.iter().skip(1).map(|id| (id.clone(), frame(id))).collect();
+        vec![window(Window::new(ids[0].clone(), fresh), frame(&ids[0]), &diagnostics).boxed()]
     });
 }
 
@@ -182,6 +201,9 @@ fn window(mut w: Window, frame: Option<Frame>, diagnostics: &crate::diagnostics:
     w.placement = super::placement::Placement::opening(frame.as_ref());
     w.scale = display_scale(frame.as_ref()).unwrap_or(0.0);
     let (id, life) = (w.id.clone(), w.life);
+    // What this window's view read from layout when it last rested or closed: its first view
+    // is given the same rects, and runs once when the layout agrees with them.
+    let layout = life.saved().then(|| (store::load_layout(&id), id.clone()));
     let diagnostics = diagnostics.clone();
     let app_diagnostics = diagnostics.clone();
     let app = crate::rune_app(AppSpec { families: crate::appearance::launch_families(), ..crate::spec(App::new) }).init(move || {
@@ -189,27 +211,46 @@ fn window(mut w: Window, frame: Option<Frame>, diagnostics: &crate::diagnostics:
         *app.diag.diagnostics = app_diagnostics;
         app
     });
+    // The saved layout's titlebar before the window exists: the first frame is drawn once.
+    #[cfg(target_os = "macos")]
+    let app = app.titlebar(crate::view::saved_mac_titlebar());
     let handle = app.handle();
     let ready = handle.clone();
     let mut motion_log = crate::motion_log::Log::default();
     let (encoded, drawn) = (diagnostics.clone(), diagnostics);
+    let display_hz = std::rc::Rc::new(std::cell::Cell::new(None::<f64>));
+    let display_hz_enc = display_hz.clone();
+    // The first frame draws with the appearance the last run saw; the portal's answer follows.
+    #[cfg(target_os = "linux")]
+    rune::last_appearance(store::load_appearance(), store::save_appearance);
+    let app = match layout {
+        Some((seed, id)) => app.layout_seed(seed, move |seed| store::save_layout(&id, &seed)),
+        None => app,
+    };
     let app = app
         .on_ready(move |_| {
             // The first frame is up: the storage's second stage is taken off the UI thread.
             crate::storage::presented();
             // Stream batches wake the window for a quiet poll, which draws only what they change.
             let wake = crate::launch::inbox_waker(ready.clone());
+            // The web has no browser engine: nothing for its messages to wake.
+            #[cfg(not(target_arch = "wasm32"))]
+            let browser = crate::launch::browser_waker(ready.clone());
             ready.update_if(move |s, tx| {
                 s.launch.inbox_wake = Some(wake);
+                #[cfg(not(target_arch = "wasm32"))]
+                s.workspace_panes.browser.host.set_message_waker(browser);
                 crate::launch::ready(s, tx)
             })
         })
         .on_frame_encoded(move |f| {
+            if let Some(hz) = f.refresh_hz() { display_hz_enc.set(Some(hz)); }
             encoded.encoded(f);
             crate::telemetry::encoded(f);
             crate::files::trace::frame(f);
         })
         .on_frame_drawn(move |rt| {
+            if let Some(hz) = display_hz.get() { rt.state.workspace_panes.browser.host.set_display_hz(hz); }
             drawn.drawn(rt);
             if let Some((sid, msgs)) = rt.state.painted_session()
                 && msgs > 0
@@ -229,6 +270,7 @@ fn window(mut w: Window, frame: Option<Frame>, diagnostics: &crate::diagnostics:
         // Back on screen (the Dock icon, the Window menu): no longer the hidden last window.
         .on_focus(|s, focused, _| {
             s.window.hidden &= !focused;
+            s.window.focused = focused;
             if focused {
                 super::focused(&s.window.id);
                 s.taskbar_focused();
@@ -237,11 +279,16 @@ fn window(mut w: Window, frame: Option<Frame>, diagnostics: &crate::diagnostics:
         // Quitting (File > Quit, the Quit command) installs a ready update on the way out too, as
         // closing the last window does; the second call of the two does nothing.
         .on_quit(|s, _| {
+            // Before the state is saved: the engine's download has that long to leave its write.
+            #[cfg(not(target_arch = "wasm32"))]
+            browser_pane::installer::quit();
+            s.plugins.restarts.cancel_all();
             let scheduler = s.kernel.scheduler.clone();
             scheduler.run_close(s);
             s.save_on_quit();
         })
         .on_close(|s, _| {
+            s.plugins.restarts.cancel_all();
             let scheduler = s.kernel.scheduler.clone();
             scheduler.run_close(s);
             s.save_on_close();

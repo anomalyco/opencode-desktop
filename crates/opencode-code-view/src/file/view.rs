@@ -4,7 +4,7 @@ use std::ops::Range;
 use std::rc::Rc;
 
 use rune::{
-    Anim, Color, Cursor, Drag, El, GrowthSpec, Phase, ScrollSpec, Tx, col, memo, rich, row, text,
+    Anim, Color, Drag, El, GrowthSpec, Phase, ScrollSpec, Tx, col, memo, rich, row, text,
 };
 use rune_kit::ScrollBar;
 use rune_kit::diff::Side;
@@ -212,7 +212,6 @@ fn gutter_base(l: &CodeLook, st: &CodeDocState, n: u32, fill: Color, num_color: 
         .pr(l.adv)
         .justify_end()
         .items_start()
-        .cursor(Cursor::Pointer)
         .child(text(n.to_string()).font(l.mono).color(num_color));
     // Unwrapped, the numbers hold to the left edge over the code scrolling under them.
     if !st.wrap() {
@@ -252,6 +251,8 @@ impl<S: 'static> Inner<S> {
     /// Line `n` as the keyboard and a screen reader meet it: the view's one Tab stop is the
     /// cursor's line, Up and Down move it (`CodeDocState::line_key`), each line says its number
     /// and its code, and Return or C opens a comment on it, as the `+` does under the pointer.
+    /// No ring in the viewer (`packages/session-ui/src/components/file.css`): the keyboard's line
+    /// shows as the pointer's does, by its fill.
     fn line_stop(&self, st: &CodeDocState, n: u32, cursor: bool, el: El) -> El {
         let label = opencode_i18n::t!("rune.a11y.diff.line", line = n, code = st.line(n).unwrap_or("").trim());
         let get_mut = self.v.get_mut.clone();
@@ -259,6 +260,8 @@ impl<S: 'static> Inner<S> {
         let path = st.path().to_owned();
         el.focusable(true)
             .tab_index(if cursor { 0 } else { -1 })
+            .focus_fill(self.look.hover)
+            .no_focus_ring()
             .role("listitem")
             .label(label)
             .on_key(move |s: &mut S, ev: &rune::KeyEvent, tx: &mut Tx| {
@@ -269,6 +272,14 @@ impl<S: 'static> Inner<S> {
                     return true;
                 }
                 let st = get_mut(s);
+                // A line focused by a press is not the cursor's line yet, so it is not the viewer's
+                // Tab stop: Tab would leave from the old cursor line's place (Shift+Tab from a
+                // pressed line 2 landed on line 1). The cursor comes here first, then the key again.
+                if ev.key == rune::Key::Tab && st.cursor != n {
+                    st.cursor = n;
+                    tx.send_key(ev.clone());
+                    return true;
+                }
                 st.cursor = n;
                 st.line_key(ev, tx)
             })

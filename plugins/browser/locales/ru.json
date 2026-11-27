@@ -66,5 +66,6 @@
   "zoom.reset": "Сбросить масштаб",
   "zoom.percent": "{{percent}}%",
   "link.copy": "Копировать ссылку",
-  "history.clear": "Очистить историю"
+  "history.clear": "Очистить историю",
+  "extensions.compat.feature.management": "Управление другими расширениями"
 }

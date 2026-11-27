@@ -18,6 +18,17 @@ use opencode_ui::palette::Pal;
 
 use crate::Menus;
 
+/// What became of a write offered quietly (`SessionMenuHost::write_server_quiet`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Offered {
+    /// Handed to the server's writer.
+    Sent,
+    /// The window has no writer for it: no server, or one whose writer isn't attached yet.
+    NoWriter,
+    /// The build may not send.
+    ReadOnly,
+}
+
 /// A session's activity and unread status across its family (`useSessionTabAvatarState`).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct SessionMarks {
@@ -82,6 +93,12 @@ pub trait SessionMenuHost: opencode_kernel::AppEnv + opencode_kernel::AppOverlay
     fn tabs(&self) -> Vec<TabSummary> {
         Vec::new()
     }
+    /// The tabs the strip shows, in its order: what Close other tabs and Close tabs below act on
+    /// (official's `visibleTabs`, `shell/titlebar/tab-strip.tsx:946-954`). Every open tab by
+    /// default.
+    fn strip_tabs(&self) -> Vec<TabSummary> {
+        self.tabs()
+    }
     /// Whether the active tab layout renders tabs down a sidebar (affects "Close tabs below" wording).
     fn layout_has_sidebar(&self) -> bool {
         false
@@ -125,6 +142,14 @@ pub trait SessionMenuHost: opencode_kernel::AppEnv + opencode_kernel::AppOverlay
         let _ = (server, id);
         None
     }
+    /// Returns `(title, project_id)` for session `id` on `server` when known, for the Copy submenu
+    /// (`packages/app/src/session/session-copy-menu.tsx`, `opencode#66576`).
+    fn session_copy_info(&self, server: &ServerKey, id: &str) -> Option<(String, String)> {
+        if *server == self.active_server() {
+            return self.session(id).map(|i| (i.title.clone(), i.project.clone()));
+        }
+        None
+    }
     /// Runs `f` checked out on a parked `server`, restoring the previous checkout afterwards.
     /// Returns `false` if this window has no half of `server`. (Active-server calls run directly
     /// via `on_server` without needing this hook.)
@@ -132,10 +157,25 @@ pub trait SessionMenuHost: opencode_kernel::AppEnv + opencode_kernel::AppOverlay
         let _ = (server, f);
         false
     }
+    /// [`Self::write_server`] without the host's own word when the write can't go: the caller's
+    /// machine says so itself, from what this hands back.
+    fn write_server_quiet(&mut self, write: Write) -> Offered {
+        if self.write_server(write) { Offered::Sent } else { Offered::NoWriter }
+    }
     /// Sends a session write (`Rename`, `Delete`, `View`, ...) to the currently checked-out server.
     fn write_server(&mut self, write: Write) -> bool {
         let _ = write;
         false
+    }
+
+    /// Reports root session `root` viewed up to its latest idle mark when it's unread
+    /// (`notification.session.markViewed`).
+    fn mark_viewed(&mut self, root: &str) {
+        let Some(idle) = self.session(root).filter(|info| info.unread()).and_then(|info| info.idle) else { return };
+        if let Some(info) = self.sessions_mut().and_then(|sessions| sessions.iter_mut().find(|i| i.id == root)) {
+            info.viewed = Some(idle);
+        }
+        self.write_server(Write::View { session: root.to_owned(), idle });
     }
 
     /// Display label for `server` (used in error formatting and labels).
@@ -170,6 +210,11 @@ pub trait SessionMenuHost: opencode_kernel::AppEnv + opencode_kernel::AppOverlay
     fn toast_wire_error(&mut self, error: WireError) {
         let _ = error;
     }
+    /// The same toast under `title`, for a write its call doesn't name: a session's PATCH
+    /// renames, archives and restores.
+    fn toast_wire_error_titled(&mut self, title: &str, error: WireError) {
+        let _ = (title, error);
+    }
     /// Offers an undoable delete toast; when the toast expires or the app quits, the host calls
     /// [`crate::send_delete`], or [`crate::undelete`] if the user presses Undo.
     fn offer_delete_undo(&mut self, title: &str, server: ServerKey, session: String, hidden: Vec<SessionInfo>) {
@@ -196,6 +241,10 @@ pub trait SessionMenuHost: opencode_kernel::AppEnv + opencode_kernel::AppOverlay
     fn on_rename_focus_taken(&mut self) {}
     /// Persists updated tab metadata (titles, removed tabs).
     fn save_tabs(&mut self) {}
+    /// Reads session `id` from the server again.
+    fn refresh_session(&mut self, id: &str) {
+        let _ = id;
+    }
     /// Opens session `id` on `server`.
     fn open_session(&mut self, server: &ServerKey, id: &str, tx: &mut Tx) {
         let _ = (server, id, tx);
@@ -220,6 +269,14 @@ pub trait SessionMenuHost: opencode_kernel::AppEnv + opencode_kernel::AppOverlay
     fn close_tab(&mut self, uid: &str, tx: &mut Tx) {
         let _ = (uid, tx);
     }
+    /// The window tab the open page belongs to (its `uid`), if any.
+    fn shown_tab(&self) -> Option<String> {
+        None
+    }
+    /// Shows window tab `uid`.
+    fn show_tab(&mut self, uid: &str, tx: &mut Tx) {
+        let _ = (uid, tx);
+    }
     /// Whether `(server, id)` is currently pinned in the Recent sidebar.
     fn is_session_pinned(&self, server: &ServerKey, id: &str) -> bool {
         let _ = (server, id);
@@ -227,6 +284,11 @@ pub trait SessionMenuHost: opencode_kernel::AppEnv + opencode_kernel::AppOverlay
     }
     /// Toggles pin state for `(server, id)` in the Recent sidebar.
     fn toggle_session_pin(&mut self, server: &ServerKey, id: &str) {
+        let _ = (server, id);
+    }
+    /// Opens session `id` on `server` as a tab behind the page that shows (Home row menu's
+    /// "Open in background", upstream #65209/#65212).
+    fn open_session_in_background(&mut self, server: &ServerKey, id: &str) {
         let _ = (server, id);
     }
     /// Archives session `id` on `server`.
@@ -245,6 +307,10 @@ pub trait SessionMenuHost: opencode_kernel::AppEnv + opencode_kernel::AppOverlay
     /// sessions `gone` were deleted (the session list itself has already been pruned).
     fn on_sessions_removed(&mut self, server: &ServerKey, gone: &[String]) {
         let _ = (server, gone);
+    }
+    /// Handles a server reply to an `archive` session write: a refusal puts the session back.
+    fn on_archive_replied(&mut self, session: String, ok: bool, tx: &mut Tx) {
+        let _ = (session, ok, tx);
     }
     /// Handles a server reply to an `unarchive` session write (e.g. switcher restore toast).
     fn on_unarchive_replied(&mut self, session: String, ok: bool, why: &str, tx: &mut Tx) {

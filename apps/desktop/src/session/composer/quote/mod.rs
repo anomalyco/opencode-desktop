@@ -51,6 +51,10 @@ impl QuoteHost for App {
         App::send_quote(self, key, tx)
     }
 
+    fn send_comment(&mut self, key: u64, tx: &mut Tx) -> Option<Option<String>> {
+        App::send_comment(self, key, false, tx)
+    }
+
     fn quote_send_result(&self, id: &str) -> Option<SendResult> {
         self.send_result(id)
     }
@@ -100,5 +104,13 @@ impl QuoteHost for App {
 
     fn remove_line_comment_card(&mut self, key: u64) {
         App::remove_line_comment_card(self, key);
+    }
+
+    fn open_note_card(&mut self, origin: &str, href: &str, tx: &mut Tx) {
+        #[cfg(not(target_arch = "wasm32"))]
+        if origin == "browser" {
+            self.reveal_browser_note_href(href, tx);
+        }
+        let _ = (origin, href, tx);
     }
 }

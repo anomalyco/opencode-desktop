@@ -10,6 +10,13 @@ impl App {
     /// leaves Settings, as any page the sidebar opens does.
     pub fn open(&mut self, id: &str, tx: &mut Tx) {
         self.close_settings();
+        if self.can_reveal_outside()
+            && let Some(dir) = self.session(id).map(|s| s.directory.clone())
+        {
+            // Lazily pin ONLY this routed session's workspace root once process-wide before its
+            // messages render or any tool runs (zero boot syscalls for inactive listed projects).
+            let _ = self.pinned_local_root(&dir);
+        }
         if self.opening.as_ref().is_some_and(|o| o.id == id) { return; }
         let held = self.pages.has_pool() && self.route != Route::here(id.to_owned());
         if self.route != Route::here(id.to_owned()) { crate::telemetry::open_begin(id, held); }
@@ -53,13 +60,15 @@ impl App {
             // Read scrolled up, it comes back where it was read; otherwise on its end.
             self.timeline_fx.ends.reopen(id);
         }
+        if *self.route != Route::here(id.to_owned()) {
+            crate::shell::memory_reclaim::on_tab_switched(self);
+        }
         *self.route = Route::here(id.to_owned());
         crate::narrow::follow_route(self, tx);
         crate::session_state::opened(self, id, tx);
         // Its own draft is in the composer on the first frame.
         let _ = self.show_draft();
         let root = self.root_of(id).to_owned();
-        crate::session_menu::unread::set(self, &crate::servers::runtime::current(), &root, false);
         // As in Desktop, you can type straight away, handing focus on from whatever control held it
         // when the session opened (including a titlebar button or side panel via a tab shortcut,
         // `session/composer/focus.tsx` #64418/#64504). A subagent's page waits for a click into its
@@ -75,10 +84,7 @@ impl App {
             self.composer.focused = true;
             tx.focus("prompt", tx.focus_visible());
         }
-        // Viewing it reads it, and its tab, locally.
-        for s in self.sessions.iter_mut().filter(|s| s.id == root || s.id == id) {
-            s.viewed = s.idle.max(s.viewed);
-        }
+        // Reading it, and reporting it read, waits for a focused window (`session_viewed::poll`).
         crate::notifications::seen(self, &root);
         crate::windows::peer::touch(self);
         if !self.tabs.iter().any(|t| t.id == root) {
@@ -102,6 +108,7 @@ impl App {
                 self.read_open_requests(id);
                 if let Some(dir) = self.session(id).map(|i| i.directory.clone()) {
                     crate::subagents::shells::list(self, &dir);
+                    self.prefetch_review_vcs(&dir);
                 }
                 crate::subagents::jobs::list(self, id);
             }
@@ -115,14 +122,20 @@ impl App {
     /// once for all its windows (`App::apply_shared`).
     pub(crate) fn resync_shared(&mut self) {
         self.refresh_recent();
+        crate::reconnect::request_active(self, true);
         let Source::Live { requests: Some(r), .. } = &*self.source else { return };
-        r.send(Request::Active).ok();
         r.send(Request::Sessions).ok();
         r.send(Request::Projects).ok();
+        r.send(Request::DefaultDirectory).ok();
         // Requests asked while the stream was down never arrive as events: read again what shows
         // them, as Desktop's store invalidates its syncs on a disconnect.
         self.forget_request_reads();
-        let mut asked: Vec<String> = self.pending.iter().map(|p| p.session().to_owned()).collect();
+        let mut asked: Vec<String> = self
+            .pending
+            .iter()
+            .map(|p| p.session().to_owned())
+            .chain(self.requests.iter().map(|(s, _)| s.clone()))
+            .collect();
         asked.sort();
         asked.dedup();
         for id in asked {

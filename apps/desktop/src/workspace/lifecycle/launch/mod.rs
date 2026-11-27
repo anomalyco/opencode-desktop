@@ -6,19 +6,35 @@
 
 mod boot;
 #[cfg(target_os = "windows")]
+pub mod compat_layer;
+#[cfg(target_os = "windows")]
+pub mod image_pages;
+#[cfg(target_os = "linux")]
+#[path = "image_pages_linux.rs"]
+pub mod image_pages;
+#[cfg(target_os = "windows")]
 pub mod io_trace;
 pub mod last_exit;
 mod network;
+mod onboarding;
+pub mod saved;
+mod shifts;
 pub mod trace;
 
 #[cfg(target_arch = "wasm32")]
 pub use boot::start_first_reads;
+pub use saved::{catalog as saved_catalog, gutters as saved_gutters, list as saved_list};
+#[cfg(windows)]
+#[cfg(windows)]
+pub use boot::leave_install_folder;
+#[cfg(windows)]
+pub use boot::warm_gpu_if_asked;
 pub use boot::{
     Accepted, FIRST_PATIENCE, First, GRACE, Ready, defer, deferred, initial_server, window_title,
 };
 #[cfg(not(target_arch = "wasm32"))]
 pub use boot::{
-    apply_app_icon, attach_console, instance_id, print_version_if_asked, product, write_profile,
+    apply_app_icon, attach_console, head_start, instance_id, print_version_if_asked, product, unwind_check_if_asked, write_profile,
 };
 
 use std::sync::mpsc::{Receiver, TryRecvError};
@@ -185,24 +201,91 @@ impl Phase {
     }
 }
 
+/// The browser's work that waits for the launch to be over (`engine_fetch`: the sweep of left
+/// working copies and the engine's background fetch): owed from `on_ready`, then asked for once.
+#[cfg(not(target_arch = "wasm32"))]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+enum EngineFetch {
+    #[default]
+    NotYet,
+    /// `on_ready` ran at `since` (the app's clock, seconds).
+    Owed { since: f64 },
+    Asked,
+}
+
+/// The engine's fetch starts when the window shows its content, or this long after `on_ready`
+/// when no server has answered by then.
+#[cfg(not(target_arch = "wasm32"))]
+const ENGINE_FETCH_LATEST: Duration = Duration::from_secs(2);
+
+/// The saved first screen's write (`saved`): owed from `connect`, written once the window has
+/// shown the server's answer for [`SAVED_WRITE_AFTER`]. Building it in `connect` put it in the
+/// frame that draws that answer (1.2 ms of that frame's 21.8 on the main thread with 120
+/// sessions listed). A window that hides, closes or quits before then writes it at once.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+enum SavedWrite {
+    #[default]
+    Idle,
+    /// Due at `at` (the app's clock, seconds).
+    Owed { at: f64 },
+}
+
+/// How long after the server's answer the saved first screen is written.
+const SAVED_WRITE_AFTER: Duration = Duration::from_secs(2);
+
 #[derive(Default)]
 pub struct Launch {
     network_change: Option<std::sync::Arc<network::Change>>,
+    saved_write: SavedWrite,
+    #[cfg(not(target_arch = "wasm32"))]
+    engine_fetch: EngineFetch,
     /// A quiet poll for network deliveries; unlike an image completion, the inbox
     /// often contains nothing that changes this window.
     pub inbox_wake: Option<rune::Waker>,
     /// Each server's launch, many at once: every server the window has a half of (`servers::runtime`).
     phases: std::collections::HashMap<ServerId, Phase>,
-    /// Restored session id whose cached boot-preview messages painted on frame 0 and settle on the
+    /// The restored session whose cached boot-preview messages painted on frame 0 and settle on the
     /// first live message page (`session::pages` or `session::events::incoming`). Independent of
     /// per-server `Phase`: set in `Waiting`, preserved across `Probing` and `Offline`, and still
     /// live in `Connected` until the async first message page lands.
-    pub cold_transcript: Option<String>,
+    pub cold_transcript: Option<crate::restore::ColdTranscript>,
+    /// The session this window last began reading because its page showed it with nothing reading
+    /// its messages (`App::read_shown_session`): asked once while it stays shown, so a failure isn't
+    /// retried in a loop (the loading row's Retry asks again). Cleared when the route leaves it or
+    /// its messages land.
+    pub shown_read: Option<String>,
     /// How long a launch keeps probing the local default address before Home shows the setup
     /// card ([`GRACE`] unless a test sets it): a server that is just starting comes up in this time.
     pub grace: Option<Duration>,
     /// The address the setup card names, in its story.
     pub story_addr: Option<String>,
+    /// The restored session's newest page, read beside the first reads, until `connect` hands it
+    /// to the session's reader.
+    pub early_page: Option<crate::session_pages::Early>,
+    /// The session list the first frame drew from the saved state, until the server's lands.
+    pub saved_list: Option<saved_list::SavedList>,
+    /// What the saved state says of the tab the restored page was in, held until the page's
+    /// family is loaded up to its root or the route leaves it (`saved::page_tab`).
+    pub page_tab: saved::page_tab::PageTab,
+    /// The first reads' thread `setup` started before the first frame, for `on_ready`'s Start.
+    #[cfg(not(target_arch = "wasm32"))]
+    early: Option<Early>,
+}
+
+/// The probe and first reads started in `setup`, beside the window's creation and its first
+/// frame, with what they were started for. Started in `on_ready` they began after the first
+/// frame and took 12,300 µs of a warm launch (`input.ready` to `server.answered`, a loopback
+/// server); `on_ready` takes this thread up instead, with whatever it has already read.
+#[cfg(not(target_arch = "wasm32"))]
+struct Early {
+    rx: Receiver<Ready>,
+    accepted: Accepted,
+    beta_tabs: bool,
+    fallback_fixture: bool,
+    grace: Duration,
+    /// The window's quiet poll, once `on_ready` has it: the thread wakes nothing before that, so
+    /// nothing is polled or drawn ahead of the first frame.
+    wake: std::sync::Arc<std::sync::OnceLock<rune::Waker>>,
 }
 
 impl Launch {
@@ -263,6 +346,9 @@ pub(crate) fn network_available(s: &mut App, tx: &mut Tx) {
         return;
     }
     Server::wake_reconnects();
+    // The engine's background download, when it waits for the network, tries again now.
+    #[cfg(not(target_arch = "wasm32"))]
+    s.workspace_panes.browser.host.network_changed();
     if let Some(server) = window_server(s) {
         crate::reconnect::step_link(s, &server, opencode_kit::servers::link::Event::NetworkChanged, tx);
     }
@@ -284,6 +370,48 @@ pub fn setup(s: &mut App) {
     if matches!(window_phase(s), Some(Phase::Waiting { .. })) {
         start(s, &mut Tx::default());
     }
+    // A window: the reads' thread starts now and `on_ready` takes it up (`Early`). The launch
+    // itself still starts there, so the first frame is drawn from what it was before.
+    #[cfg(not(target_arch = "wasm32"))]
+    if let (Some(&Phase::Waiting { beta_tabs, fallback_fixture }), Some(server)) = (window_phase(s), window_server(s)) {
+        let grace = probe_grace(s, &server);
+        let wake = std::sync::Arc::new(std::sync::OnceLock::<rune::Waker>::new());
+        let late = wake.clone();
+        let (rx, accepted) = boot::spawn_probe_waking(
+            s,
+            beta_tabs,
+            fallback_fixture,
+            grace,
+            false,
+            Some(std::sync::Arc::new(move || {
+                if let Some(wake) = late.get() {
+                    wake();
+                }
+            })),
+        );
+        s.launch.early = Some(Early { rx, accepted, beta_tabs, fallback_fixture, grace, wake });
+    }
+}
+
+/// How long `server`'s probe keeps trying: only the local default address may be a server still
+/// starting (see `GRACE`).
+fn probe_grace(s: &App, server: &str) -> Duration {
+    if server == opencode_kit::client::DEFAULT_SERVER || s.launch.grace.is_some() { s.launch.grace.unwrap_or(GRACE) } else { Duration::ZERO }
+}
+
+/// The thread `setup` started, when it was started for this probe: its wake is the window's from
+/// here on, and one poll takes what it has already sent.
+#[cfg(not(target_arch = "wasm32"))]
+fn take_early(s: &mut App, beta_tabs: bool, fallback_fixture: bool, grace: Duration, tx: &mut Tx) -> Option<(Receiver<Ready>, Accepted)> {
+    let early = s.launch.early.take()?;
+    if (early.beta_tabs, early.fallback_fixture, early.grace) != (beta_tabs, fallback_fixture, grace) {
+        return None;
+    }
+    if let Some(wake) = s.launch.inbox_wake.clone().or_else(|| (*s.waker).clone()) {
+        early.wake.set(wake).ok();
+    }
+    tx.wake_after(Duration::ZERO);
+    Some((early.rx, early.accepted))
 }
 
 /// The server the window works against now (`servers::runtime`'s checkout), keyed as
@@ -332,21 +460,70 @@ pub fn inbox_waker(handle: rune::AppHandle<App>) -> rune::Waker {
     })
 }
 
+/// What the browser engine's messages wake: a quiet poll that reads them and steps the agent's
+/// browser commands waiting on them, in the turn they arrive. Woken like any other thread, a
+/// shown window would poll only in its next frame, so each DevTools round trip of a command
+/// waited a frame (17-45 ms as measured); a frame now follows only when the pane changed. The
+/// server's announcements of an agent's commands wake it too (`rpc::express`).
+#[cfg(not(target_arch = "wasm32"))]
+pub fn browser_waker(handle: rune::AppHandle<App>) -> rune::Waker {
+    use std::sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    };
+    let pending = Arc::new(AtomicBool::new(false));
+    Arc::new(move || {
+        if pending.swap(true, Ordering::AcqRel) {
+            return;
+        }
+        let pending = pending.clone();
+        handle.update_if(move |s, tx| {
+            pending.store(false, Ordering::Release);
+            crate::surfaces::browser::rpc::express::poll(s);
+            let changed = s.poll_browser();
+            let rpc_changed = crate::surfaces::browser::rpc::poll(s, tx);
+            if !changed
+                && !rpc_changed
+                && let Some(at) = s.workspace_panes.browser.host.scroll_cursor_wake_at()
+            {
+                tx.wake_after(at.saturating_duration_since(rune::time::Instant::now()));
+            }
+            changed | rpc_changed
+        });
+    })
+}
+
 /// `on_ready`, after the first frame: starts the probe, Beta tab read and first server reads once.
 pub fn ready(s: &mut App, tx: &mut Tx) -> bool {
     if s.live() {
         s.launch.network_change = (*s.waker).clone().and_then(network::subscribe);
+        #[cfg(not(target_arch = "wasm32"))]
+        if let Some(wake) = s.launch.inbox_wake.clone().or_else(|| (*s.waker).clone()) {
+            crate::servers::sidecar::register_wake(wake);
+        }
     }
     // The dormant built-ins' app menu rows and keys, before the menu bar lists them.
     crate::plugin_host::doze_owed(s);
     // The menu bar was built before the saved shortcuts loaded.
     crate::menubar::refresh();
     crate::updater::start_if_packaged(s);
+    // The browser engine, when this build's isn't installed, downloads in the background, and
+    // the working copies an import's read left behind are swept: not from here, but once the
+    // launch is over (`engine_fetch`).
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        s.launch.engine_fetch = EngineFetch::Owed { since: *s.clock };
+        tx.wake_after(ENGINE_FETCH_LATEST);
+    }
     // Which install this is, for the toasts' clicks; it reads the registry, so after the first frame and off the UI thread.
     crate::notifications::settle_identity();
     last_exit::presented();
     if s.persists() {
         crate::windows::reopen::expire(*s.now_ms);
+        // Windows an earlier build lost (rows, and no place in the saved list) leave the boot
+        // record for Reopen closed window: the first frame is up, and the storage thread does it.
+        #[cfg(not(target_arch = "wasm32"))]
+        crate::windows::reopen::sweep_lost(*s.now_ms);
     }
     // The window's other servers start from its next poll (`servers::runtime::poll`).
     s.checkout.boot = crate::servers::runtime::Boot::Ready;
@@ -370,6 +547,7 @@ pub fn ready(s: &mut App, tx: &mut Tx) -> bool {
     started
 }
 
+
 /// Re-probes the local OpenCode server (including any fresh `service.json` written since launch).
 pub fn retry(s: &mut App, tx: &mut Tx) {
     step(s, LaunchEvent::Retry { quiet: false }, tx);
@@ -387,12 +565,7 @@ pub(crate) fn start(s: &mut App, tx: &mut Tx) {
 /// Steps the window's server's launch and carries out what it asks for.
 fn step(s: &mut App, event: LaunchEvent, tx: &mut Tx) -> bool {
     let Some(server) = window_server(s) else { return false };
-    // Only the local default address may be a server still starting (see `GRACE`).
-    let grace = if server == opencode_kit::client::DEFAULT_SERVER || s.launch.grace.is_some() {
-        s.launch.grace.unwrap_or(GRACE)
-    } else {
-        Duration::ZERO
-    };
+    let grace = probe_grace(s, &server);
     let Some(mut phase) = s.launch.phases.remove(&server) else { return false };
     let effects = phase.step(event, grace);
     s.launch.set_phase(&server, phase);
@@ -400,7 +573,11 @@ fn step(s: &mut App, event: LaunchEvent, tx: &mut Tx) -> bool {
     for effect in effects {
         match effect {
             LaunchEffect::Probe { beta_tabs, fallback_fixture, again, grace } => {
-                let (rx, accepted) = boot::spawn_probe(s, beta_tabs, fallback_fixture, grace);
+                #[cfg(not(target_arch = "wasm32"))]
+                let early = if again.is_none() { take_early(s, beta_tabs, fallback_fixture, grace, tx) } else { None };
+                #[cfg(target_arch = "wasm32")]
+                let early = None;
+                let (rx, accepted) = early.unwrap_or_else(|| boot::spawn_probe(s, beta_tabs, fallback_fixture, grace, again.is_some()));
                 s.launch.set_phase(&server, Phase::Probing { rx, again, accepted, defer_plugins: false });
             }
             LaunchEffect::Connect => boot::connect(s, tx),
@@ -464,8 +641,66 @@ fn first_reads_slow(s: &mut App, tx: &mut Tx) -> bool {
     crate::reconnect::step_link(s, &server, Event::FirstReadsSlow { now }, tx)
 }
 
-/// `poll`: the first reads land at once (nothing animates in on the first load), then connect.
+/// Starts the browser's work that waits for the launch to be over, once: the loop has waited for
+/// input (`input.ready`) and the window shows its content, or `ENGINE_FETCH_LATEST` has passed
+/// since `on_ready` with no server answering. Before that nothing of the engine or of an import
+/// is touched: no file, no request, no thread.
+///
+/// - The sweep of the working copies an import's read left behind when the app ended during it
+///   (`cookie_import::sweep_left_copies`), on its own thread, whether or not the browser is on:
+///   a copy may be older than the choice to turn it off.
+/// - The engine's background fetch, the browser's (`browser-pane`): it looks for the installed
+///   engine on its own background-priority thread and downloads only when this build's isn't
+///   there. A browser turned off (its plugin disabled) fetches nothing, and a run on the mock
+///   browser has no engine to fetch.
+#[cfg(not(target_arch = "wasm32"))]
+fn engine_fetch(s: &mut App) {
+    let EngineFetch::Owed { since } = s.launch.engine_fetch else { return };
+    // The timer's wake may come a moment early.
+    let late = *s.clock - since + 0.05 >= ENGINE_FETCH_LATEST.as_secs_f64();
+    // A headless run (a harness's realtime probe of the engine) has no loop that waits for input.
+    let input_ready = crate::headless() || rune::marks::marks().iter().any(|(name, _)| *name == "input.ready");
+    if (waiting(s) && !late) || !input_ready {
+        return;
+    }
+    s.launch.engine_fetch = EngineFetch::Asked;
+    crate::surfaces::browser::cookie_import::sweep_left_copies();
+    if !s.use_mock_browser() && s.plugins.plugin_available(crate::surfaces::browser::PLUGIN) {
+        s.workspace_panes.browser.host.fetch_in_background();
+    }
+}
+
+/// `poll`: the launch's first reads (`first_reads`), then the browser engine's background fetch
+/// once the launch is over.
 pub fn poll(s: &mut App, tx: &mut Tx) -> bool {
+    let changed = first_reads(s, tx);
+    #[cfg(not(target_arch = "wasm32"))]
+    engine_fetch(s);
+    // The launch's other saved windows, one per turn once this one takes input.
+    #[cfg(not(target_arch = "wasm32"))]
+    if let Some(after) = crate::windows::open_rest(s) {
+        tx.wake_after(after);
+    }
+    saved_write(s);
+    changed
+}
+
+/// Writes the saved first screen once it's due (`SavedWrite`): what the server lists now, for
+/// the next launch's first frame.
+fn saved_write(s: &mut App) {
+    let SavedWrite::Owed { at } = s.launch.saved_write else { return };
+    // The timer's wake may come a moment early.
+    if *s.clock + 0.05 < at {
+        return;
+    }
+    s.launch.saved_write = SavedWrite::Idle;
+    saved_list::save(s);
+    saved_catalog::save(s);
+    saved_gutters::save(s);
+}
+
+/// The first reads land at once (nothing animates in on the first load), then connect.
+fn first_reads(s: &mut App, tx: &mut Tx) -> bool {
     if s.launch.network_change.as_ref().is_some_and(|n| n.take()) {
         network_available(s, tx);
     }
@@ -486,6 +721,12 @@ pub fn poll(s: &mut App, tx: &mut Tx) -> bool {
         }
     }
     let slow = first_reads_slow(s, tx);
+    // A server that took the connection after the state was read: the saved list stands in from here.
+    let stood_in = matches!(window_phase(s), Some(Phase::Probing { .. })) && saved_list::restore(s);
+    if stood_in {
+        tx.instant();
+    }
+    let slow = slow || stood_in;
     // Every poll comes here: the window's key is borrowed, not copied.
     let Some(Phase::Probing { rx, .. }) = window_phase(s) else { return slow };
     let ready = match rx.try_recv() {
@@ -496,11 +737,16 @@ pub fn poll(s: &mut App, tx: &mut Tx) -> bool {
             beta_tabs: None,
             first: Some(Err("The first server reads stopped".into())),
             refused: false,
+            page: None,
         },
     };
     let reached = ready.first.as_ref().map(Result::is_ok);
     let refused = ready.refused;
-    rune::marks::mark("server.answered");
+    s.launch.early_page = ready.page;
+    // A launch that reached nobody must not read as one whose server answered: the reads that
+    // failed (no connection, a refused or failed TLS handshake, a bad answer) or found no server
+    // are their own mark.
+    rune::marks::mark(if reached == Some(true) { "server.answered" } else { "server.failed" });
     tx.instant();
     let Some(result) = ready.first else {
         step(s, LaunchEvent::Landed { reached, refused, now }, tx);

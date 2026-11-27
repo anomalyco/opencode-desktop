@@ -2,6 +2,7 @@ pub(crate) mod agent;
 pub(crate) mod agent_start;
 pub(crate) mod compaction;
 pub(crate) mod find;
+pub(crate) mod gallery;
 pub(crate) mod fold;
 pub(crate) mod odometer;
 pub(crate) mod question;

@@ -1,6 +1,7 @@
 //! Side region per-session state, resolved strip projection, and query helpers.
 
 mod actions;
+pub mod flight;
 mod resolve;
 
 use std::cell::{Cell, RefCell};
@@ -16,9 +17,9 @@ use crate::tabs::{ClosedSideTab, SessionTabState, SessionTabs, session_pane_tab,
 use crate::{Launch, PanelLauncherDesc, PanelRegistration, PanelTabDesc, SessionPane};
 
 pub use actions::{
-    begin_keeping_keyboard, close_side_tab, dismiss_side_new_tab, end_keeping_keyboard, finish_show_pane_tab,
+    adopt_child_strip, begin_keeping_keyboard, close_side_tab, dismiss_side_new_tab, end_keeping_keyboard, finish_show_pane_tab,
     hide_side_tab, keeping_keyboard, move_side_tab, open_side_new_tab, open_side_tab, open_side_tab_for_session,
-    promote_preview_tab, reopen_closed_side_tab, select_side_tab, show_pane_tab, show_side_tab, sync_empty_side,
+    promote_preview_tab, reopen_closed_side_tab, routed_unlisted, select_side_tab, show_pane_tab, show_side_tab, sync_empty_side,
     toggle_bottom_region, toggle_side_region,
 };
 pub use resolve::resolve_side_region;
@@ -512,6 +513,8 @@ pub struct SideState {
     /// Whether the left sidebar's flight is moving the side region's edge, so its contents glide
     /// with the edge rather than land at once.
     pub edge_flight: EdgeFlight,
+    /// Whether a pane opened during this frame's poll, which flies past the poll's later systems.
+    pub pane_flight: Cell<flight::PaneFlight>,
     /// A tab dragged between panes.
     pub pane_drag: PaneDrag,
     /// Side/bottom region keyboard focus and composer-shortcut quiet state machine.
@@ -556,6 +559,7 @@ impl Default for SideState {
             empty_span: EmptySpan::Outside,
             laid_w: Cell::new(1280.0),
             edge_flight: EdgeFlight::Idle,
+            pane_flight: Cell::new(flight::PaneFlight::Idle),
             pane_drag: Default::default(),
             focus: SideFocus::default(),
             active_pane_focus: SessionPane::Side,
@@ -596,7 +600,10 @@ pub struct ResolvedEntry {
 }
 
 pub struct ResolvedRegion {
+    /// The session the strip is kept under (`PanelsHost::panel_session_id`).
     pub session_id: String,
+    /// The routed session, which the panels list and draw for: a subagent on its root's strip.
+    pub view_session: String,
     pub directory: String,
     pub project_id: String,
     pub entries: Vec<ResolvedEntry>,
@@ -665,16 +672,16 @@ pub fn session_side_open(host: &dyn PanelsHost, session: &str) -> bool {
     if host.shared_side_panel() {
         return host.side().shared_open.unwrap_or(false);
     }
-    host.side().sessions.get(session).is_some_and(|st| st.visibility.open())
+    host.side().sessions.get(host.panel_root(session)).is_some_and(|st| st.visibility.open())
 }
 
 /// The routed session's side region is open, shown or folded away by a narrow window.
 pub fn side_stored_open(host: &dyn PanelsHost) -> bool {
-    host.active_session_id().is_some_and(|id| session_side_open(host, id))
+    host.panel_session_id().is_some_and(|id| session_side_open(host, id))
 }
 
 pub fn side_mounted(host: &dyn PanelsHost) -> bool {
-    host.active_session_id().is_some_and(|id| {
+    host.panel_session_id().is_some_and(|id| {
         if host.shared_side_panel() {
             let side = host.side();
             side.shared_open.unwrap_or(false) || side.shared_mounted.contains(id)
@@ -690,7 +697,7 @@ pub fn bottom_open(host: &dyn PanelsHost) -> bool {
 }
 
 pub fn bottom_stored_open(host: &dyn PanelsHost) -> bool {
-    host.active_session_id()
+    host.panel_session_id()
         .and_then(|id| host.side().sessions.get(id))
         .is_some_and(|st| st.bottom_open)
 }
@@ -703,12 +710,14 @@ pub fn panes_shown(host: &dyn PanelsHost) -> (bool, bool) {
     (side_stored_open(host), bottom)
 }
 
+/// A session's side state: a child session's is its root's (`PanelsHost::panel_root`).
 pub fn session_side<'a>(host: &'a dyn PanelsHost, session_id: &str) -> Option<&'a SessionSideState> {
-    host.side().sessions.get(session_id)
+    host.side().sessions.get(host.panel_root(session_id))
 }
 
 pub fn session_side_mut<'a>(host: &'a mut dyn PanelsHost, session_id: &str) -> &'a mut SessionSideState {
-    host.side_mut().sessions.entry(session_id.to_owned()).or_default()
+    let session_id = host.panel_root(session_id).to_owned();
+    host.side_mut().sessions.entry(session_id).or_default()
 }
 
 pub fn shown_new_tab<'a>(
@@ -747,7 +756,7 @@ pub fn live_new_tabs<'a>(
 /// Where tab `key` is in `session`: 0 not in the strip, 1 listed, 2 its pane's shown tab
 /// with the pane hidden, 3 on screen (Desktop's `layout.state`).
 pub fn tab_state(host: &dyn PanelsHost, session: &str, key: &str) -> u64 {
-    let Some(st) = host.side().sessions.get(session) else { return 0 };
+    let Some(st) = host.side().sessions.get(host.panel_root(session)) else { return 0 };
     let tabs = &st.tab_state.tabs;
     if !tabs.all.iter().any(|k| k == key) {
         return 0;
@@ -773,7 +782,7 @@ pub fn pane_shown_tab(host: &dyn PanelsHost, pane: SessionPane) -> Option<String
 
 /// Whether `key` is its pane's shown tab and that pane is on screen (Desktop's `"visible"`).
 pub fn side_tab_visible(host: &dyn PanelsHost, key: &str) -> bool {
-    let Some(sid) = host.active_session_id() else { return false };
+    let Some(sid) = host.panel_session_id() else { return false };
     let Some(st) = host.side().sessions.get(sid) else { return false };
     let pane = session_tab_pane(&st.tab_state.tabs, key);
     let open = if pane == SessionPane::Bottom { st.bottom_open } else { session_side_open(host, sid) };

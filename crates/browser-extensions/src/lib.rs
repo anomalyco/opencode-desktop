@@ -81,6 +81,7 @@ pub enum ExtensionFeature {
     Signin,
     Network,
     BrowserData,
+    Management,
     Settings,
     AddressBar,
     NewTab,
@@ -107,7 +108,8 @@ pub enum UnsupportedCause {
     /// Manifest V2 extension refused by Chromium 156.
     ManifestV2,
     /// Required permission invokes a dangerous native Chromium capability not policed by our host
-    /// (`debugger`, `nativeMessaging`, `downloads`, `proxy`, `management`).
+    /// (`debugger`, `proxy`). (`nativeMessaging`, `downloads`, and `management` are stripped from
+    /// Chromium's C++ `PermissionsData` at load time and answered by inert stubs.)
     DisallowedPermission,
 }
 

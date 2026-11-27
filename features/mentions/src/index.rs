@@ -97,14 +97,20 @@ pub fn merged_roots<'a>(sessions: &'a [SessionInfo], extra: &'a [SessionInfo]) -
     all
 }
 
-/// Sessions a mention can name: loaded roots and what the server found, newest first, not
-/// the open one.
+/// Sessions a mention can name: loaded roots and what the server found, newest first by
+/// clamped recency (`MentionsHost::session_active_ms`), not the open one.
 pub fn mention_sessions(host: &dyn MentionsHost) -> Vec<&SessionInfo> {
     let current = host.active_session_id();
-    merged_roots(host.sessions(), &host.mentions().found)
+    let mut all: Vec<&SessionInfo> = merged_roots(host.sessions(), &host.mentions().found)
         .into_iter()
         .filter(|s| Some(s.id.as_str()) != current && session_id_ok(&s.id))
-        .collect()
+        .collect();
+    all.sort_by(|a, b| {
+        host.session_active_ms(b)
+            .cmp(&host.session_active_ms(a))
+            .then_with(|| a.id.encode_utf16().cmp(b.id.encode_utf16()))
+    });
+    all
 }
 
 /// Extracts open file paths from side-region tab keys, deduplicated in strip order with the
@@ -143,7 +149,7 @@ fn build_sessions(host: &dyn MentionsHost, key: SessionsKey) -> Sessions {
             description: labels.entry((s.project.as_str(), s.directory.as_str())).or_insert_with(|| host.project_label(s)).clone(),
             local: project.as_ref().is_none_or(|id| *id == s.project) || s.directory == key.directory,
             open: host.is_session_tab_open(&s.id),
-            updated: s.updated,
+            updated: host.session_active_ms(s),
             title: title_of(s),
         })
         .collect();

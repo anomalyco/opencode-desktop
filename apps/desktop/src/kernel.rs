@@ -53,6 +53,10 @@ impl AppEnv for App {
             _ => None,
         }
     }
+
+    fn panel_root<'a>(&'a self, sid: &'a str) -> &'a str {
+        App::panel_root(self, sid)
+    }
 }
 
 impl AppFeedback for App {
@@ -130,6 +134,7 @@ pub fn build() -> Kernel<App> {
     b.with_feature(&crate::tips::TipsFeature);
     b.with_feature(&crate::new_worktree::WorkspaceToolsFeature);
     b.with_feature(&crate::tabs::groups::TabGroupsFeature);
+    b.with_feature(&crate::tabs::sections::SidebarSectionsFeature);
     b.with_feature(&crate::session::widgets::WidgetsFeature);
     b.with_feature(&crate::plugin_host::PluginHostFeature);
     b.register_overlay(
@@ -181,6 +186,15 @@ pub fn build() -> Kernel<App> {
                 let p = crate::palette::pal(s.dark(cx));
                 crate::status_toast::view(s, p).into_iter().collect()
             }),
+    );
+    // `KeySequenceHint` (`key-sequence.tsx`): the chord in progress, at the window's foot.
+    b.register_overlay(
+        OverlayRegistration::<App>::new("overlay.key_sequence")
+            .with_render(crate::overlays::layer::TOAST, |s, cx| {
+                let p = crate::palette::pal(s.dark(cx));
+                crate::key_sequence::view(s, p).into_iter().collect()
+            })
+            .above("overlay.status_toast"),
     );
     b.register_overlay(
         OverlayRegistration::<App>::new(crate::view::move_recovery::OVERLAY_ID)
@@ -241,12 +255,17 @@ pub fn build() -> Kernel<App> {
     crate::commands::register_shell_commands(&mut b);
     b.register_slot(&crate::app::VIEW_RUNS)
         .register_slot(&crate::app::OUTPUT_ERRORS)
+        .register_slot(&crate::app::CODE_WRAP)
+        .register_slot(&crate::app::MATH)
         .register_slot(&crate::session_catalog::CATALOG)
+        .register_slot(&crate::session::meta::flags::FLAGS)
         .register_slot(&crate::events::TAIL_CHANGE)
         .register_slot(&crate::events::STREAM_GAPS)
         .register_slot(&crate::speech::SPEECH)
         .register_slot(&crate::crash_notice::CRASH_NOTICE)
-        .register_slot(&crate::servers::dialog::DIALOG);
+        .register_slot(&crate::key_sequence::SEQUENCE)
+        .register_slot(&crate::servers::dialog::DIALOG)
+        .register_slot(&crate::shell::memory_reclaim::SWEEP);
     let kernel = b.build();
     crate::shortcuts::validate(&kernel.commands);
     kernel
@@ -260,6 +279,8 @@ fn register_core_systems(b: &mut KernelBuilder<App>) {
 
     b.register_slot(&crate::tab_hints::TAB_HINTS);
     b.register_slot(&crate::tabs::pins::PINS);
+    b.register_slot(&crate::tabs::auto_groups::AUTO_GROUPS);
+    b.register_slot(&crate::session_viewed::VIEWING);
     b.register_slot(&crate::tabs::navigation_switch::NAV_SWITCH);
     b.register_slot(&crate::view::sidebar::recent_view::RECENT_VIEW);
     b.register_slot(&crate::view::home::tip::PROVIDER_TIP);
@@ -351,6 +372,16 @@ fn register_core_systems(b: &mut KernelBuilder<App>) {
     let _ = speech_poll;
     // Known: requires `launch.poll` (`INGEST_SERVERS`) for `Source::Live { writes: Some(_) }`;
     // precaution: mutates `settings_open`, `route`, `tabs`, `projects`, and `composer.focused`.
+    b.register_overlay(
+        OverlayRegistration::<App>::new(crate::deep_links::DEEP_LINK_OVERLAY_ID)
+            .with_render(crate::overlays::layer::ACTION_DIALOG, |s, cx| {
+                let p = crate::palette::pal(s.dark(cx));
+                crate::deep_links::dialog(s, p, cx)
+            })
+            .above(crate::session_menu::RENAME_OVERLAY_ID)
+            .with_key(|s, ev, tx| crate::deep_links::key(s, ev, tx))
+            .with_dismiss(|s, tx| crate::deep_links::decline_current(s, tx)),
+    );
     b.schedule(stage::INGEST_DISPATCH, "deep_links.drain", |s, _, tx| {
         crate::deep_links::drain(s, tx)
     })
@@ -358,6 +389,9 @@ fn register_core_systems(b: &mut KernelBuilder<App>) {
 
     b.schedule(stage::INGEST_SESSION_PRE, "turn_errors.poll", |s, _, tx| {
         crate::turn_errors::poll(s, tx)
+    });
+    b.schedule(stage::INGEST_SESSION_PRE, "flags.poll", |s, _, _| {
+        crate::session::meta::flags::poll(s)
     });
 
     b.schedule(stage::INGEST_PAGES, "session_pages.poll", |s, _, tx| {
@@ -413,6 +447,15 @@ fn register_core_systems(b: &mut KernelBuilder<App>) {
         crate::tick::poll_submit(s, tx)
     })
     .after("history.jump");
+    // Known: reads the idle marks `tick.stream` brings and the `route` `tick.submit` may change.
+    b.schedule(stage::INGEST_STREAM, "session_viewed.poll", |s, _, tx| {
+        crate::session_viewed::poll(s, tx)
+    })
+    .after_all(&["tick.stream", "tick.submit"])
+    .per_server(|s, _, tx| {
+        crate::session_viewed::poll_retries(s, tx);
+        false
+    });
 
     // ── Phase 2: Derive ──────────────────────────────────────────────────────────────────────────
     b.schedule(stage::DERIVE_TIMELINE, "working.sync", |s, _, _| {
@@ -441,6 +484,8 @@ fn register_core_systems(b: &mut KernelBuilder<App>) {
     b.schedule(stage::DERIVE_TIMELINE, "timeline.images", |s, now, tx| {
         session_view::images::poll(s, now, tx)
     });
+    // An equation finished rendering: this window's rows that drew it build again.
+    b.schedule(stage::DERIVE_TIMELINE, "timeline.math", |s, _, _| session_view::poll_math(s));
     b.schedule(stage::DERIVE_TIMELINE, "model_picker.hover", |s, now, tx| {
         crate::model_picker::hover::poll(s, now, tx)
     });
@@ -507,8 +552,11 @@ fn register_core_systems(b: &mut KernelBuilder<App>) {
     b.schedule(stage::REACT_SHELL, "tab_hints.poll", |s, now, tx| {
         crate::tab_hints::poll(s, now, tx)
     });
-    b.schedule(stage::REACT_SHELL, "pins.poll", |s, _, tx| {
-        crate::tabs::pins::poll(s, tx)
+    b.schedule(stage::REACT_SHELL, "auto_tab_groups.poll", |s, _, _| {
+        crate::tabs::auto_groups::poll(s)
+    });
+    b.schedule(stage::REACT_SHELL, "pin_sync.poll", |s, _, _| {
+        crate::tabs::pin_sync::poll(s)
     });
     // Known: reads `tab_layout()` and `settings_open()` settled by `layout_state.poll` -> `narrow.poll`.
     b.schedule(stage::REACT_SHELL, "session_status.poll", |s, now, tx| {

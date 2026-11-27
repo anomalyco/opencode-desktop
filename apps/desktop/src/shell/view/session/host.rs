@@ -1,7 +1,7 @@
 //! The Desktop window as a host for the shared session timeline.
 
 use opencode_kit::client::Request;
-use opencode_kit::model::{Inbox, Message, Transcript};
+use opencode_kit::model::{Inbox, Transcript};
 use rune::Tx;
 
 use crate::pickers::PickerHost as _;
@@ -10,6 +10,7 @@ use crate::{
     narrow, palette, pickers, plugin_host, popup, queue, quote, rewind, send_failed, settings,
     speech, subagents, tool_open, working,
 };
+use crate::app::CODE_WRAP;
 
 impl session_view::TimelineHost for App {
     fn knobs(&self) -> &rune_knobs::Knobs {
@@ -57,6 +58,21 @@ impl session_view::TimelineHost for App {
     fn turn_diffs(&self) -> bool {
         self.settings.turn_diffs
     }
+    fn full_codemode(&self, session: &str) -> bool {
+        crate::session::meta::flags::full_codemode(self, session)
+    }
+    fn wrap_code_blocks(&self) -> bool {
+        self.settings.wrap_code_blocks
+    }
+    fn code_wrap_overrides(&self) -> Option<&std::collections::HashMap<String, bool>> {
+        Some(self.kernel.slots.get(&CODE_WRAP))
+    }
+    fn set_code_wrap_override(&mut self, key: String, value: Option<bool>) {
+        match value {
+            Some(v) => { self.kernel.slots.get_mut(&CODE_WRAP).insert(key, v); }
+            None => { self.kernel.slots.get_mut(&CODE_WRAP).remove(&key); }
+        }
+    }
     fn turn_diff(&self, session: &str, from: &str) -> session_view::turn_diff::State<'_> {
         self.turn_diffs.view(session, from)
     }
@@ -98,13 +114,15 @@ impl session_view::TimelineHost for App {
         self.mention_title(session)
     }
     fn is_session_live(&self, session: &str) -> bool {
-        self.running.contains(session)
-            || (rune::Tracked::untracked(&self.transcripts).get(session).is_some_and(|t| self.timeline_busy(t)) && !self.stops.has(session))
+        self.subtree_busy(session)
     }
-    fn timeline_busy(&self,t:&Transcript)->bool {
-        // The idle marker ends the turn, also one that failed before any step (`Transcript::busy`).
-        let last=t.messages.iter().rev().find(|m| !matches!(m,Message::Notice(n) if !n.is_idle()) && !matches!(self.unsent.state(m.id()),Some(send_failed::State::Waiting|send_failed::State::Unconfirmed|send_failed::State::Failed)));
-        matches!(last,Some(Message::User{..})) || matches!(last,Some(Message::Assistant(a)) if a.completed.is_none() && a.error.is_none())
+    fn timeline_busy(&self, t: &Transcript) -> bool {
+        // Unified busy definition (`App::subtree_busy` / `App::session_busy`): covers server
+        // running set (with `/api/session/active` retry and SSE overlay), queued/steered/compaction
+        // inbox work (`project-avatar-state.ts:98-114`), running or approval-waiting sub-agents,
+        // and unsettled-turn fallback before `/api/session/active` syncs, while keeping settled
+        // idle sessions idle (`message-timeline.tsx:468-483,549`, `turn-phase-machine.ts:57`).
+        self.subtree_busy(&t.session)
     }
     fn working_label_for(&self, session: &str) -> Option<&'static str> {
         self.queue.starts.status(session)
@@ -113,10 +131,14 @@ impl session_view::TimelineHost for App {
         self.stops.has(session)
     }
     fn session_waiting(&self, session: &str) -> Option<session_view::working::Waiting> {
-        self.pending.iter().find(|p| p.session() == session).map(|p| match p {
-            opencode_kit::model::Pending::Permission { .. } => session_view::working::Waiting::Approval,
-            opencode_kit::model::Pending::Form { .. } => session_view::working::Waiting::Answer,
-        })
+        let family = self.pending_for(session);
+        if family.iter().any(|p| matches!(p, opencode_kit::model::Pending::Permission { .. })) {
+            return Some(session_view::working::Waiting::Approval);
+        }
+        if family.iter().any(|p| matches!(p, opencode_kit::model::Pending::Form { .. })) {
+            return Some(session_view::working::Waiting::Answer);
+        }
+        None
     }
     fn session_revert(&self, session: &str) -> Option<&str> {
         self.session(session).and_then(|i| i.revert.as_deref())
@@ -168,17 +190,33 @@ impl session_view::TimelineHost for App {
     fn ends_mut(&mut self) -> &mut jump::Ends {
         &mut self.timeline_fx.ends
     }
+    fn math_client(&self) -> Option<&rune_kit::math::Client> {
+        Some(self.kernel.slots.get(&crate::app::MATH))
+    }
     fn fold_user_messages(&self) -> bool {
         self.settings.fold_user
     }
     fn open_link(&mut self, url: &str, tx: &mut Tx) {
         self.open_reply_link(url, tx);
     }
+    fn open_file(&mut self, path: std::path::PathBuf) {
+        crate::open_in::reveal_abs(self, path.to_string_lossy().into_owned());
+    }
+    fn reveal_file(&mut self, path: &std::path::Path) -> bool {
+        let Ok(verified) = browser_policy::verify_local_path(&path.to_string_lossy()) else {
+            return false;
+        };
+        crate::open_in::reveal_abs(self, verified.path);
+        true
+    }
     fn reply_link_menu(&mut self, url: &str, press: rune::PointerPress, tx: &mut Tx) -> bool {
         crate::files::reply::menu(self, url, press, tx)
     }
     fn reply_video_source(&self, url: &str) -> Option<String> {
         crate::files::reply::video(self, url)
+    }
+    fn load_reply_video(&mut self, url: &str, _tx: &mut Tx) -> Option<String> {
+        crate::files::reply::load_video(self, url)
     }
     fn context_menu(&mut self, at: session_view::images::menu::MenuAt, press: rune::PointerPress, tx: &mut Tx) {
         popup::context::open(self, at, press, tx);
@@ -200,16 +238,24 @@ impl session_view::TimelineHost for App {
             r.send(req).ok();
         }
     }
+    /// Official `packages/app/src/session/composer/timeline-actions.ts:45`: child sessions hide
+    /// the Switch model action on error cards.
     fn can_switch_model(&self) -> bool {
-        true
+        self.subagent_page().is_none()
     }
     fn switch_model(&mut self, _tx: &mut Tx) {
         if self.composer_ext.pickers.open() != Some(pickers::Kind::Model) {
             self.open_picker(pickers::Kind::Model);
         }
     }
+    fn focus_composer(&mut self, tx: &mut Tx) {
+        App::focus_composer(self, tx);
+    }
     fn model_name(&self, model: &opencode_kit::model::ModelRef) -> String {
         self.composer_ext.pickers.model_name(model)
+    }
+    fn model_speed_switch(&self, model: &opencode_kit::model::ModelRef, previous: &opencode_kit::model::ModelRef) -> Option<Option<String>> {
+        self.composer_ext.pickers.speed_switch(model, previous)
     }
     fn tool_row_action(&self, p: &palette::Pal, session: &str, call: &session_view::tools::Call) -> Option<rune::El> {
         tool_open::action(self, p, session, call)
@@ -256,6 +302,9 @@ impl session_view::TimelineHost for App {
     fn loading_error(&self, session: &str) -> Option<&str> {
         self.opening.as_ref().filter(|o| o.id == session).and_then(|o| o.error())
     }
+    fn retry_loading(&mut self, session: &str, tx: &mut Tx) {
+        self.retry_open(session, tx);
+    }
     fn partial_output(&self, session: &str) -> Option<&str> {
         self.opening.as_ref().filter(|o| o.id == session).and_then(|o| o.partial())
     }
@@ -263,7 +312,9 @@ impl session_view::TimelineHost for App {
         self.pages.loading_older(session)
     }
     fn more_above(&self, session: &str) -> bool {
-        self.pages.more_above(session)
+        // The boot record's preview of a longer session: its older messages land above it once
+        // its server answers, so it is drawn as it will stand under them from the first frame.
+        self.pages.more_above(session) || self.launch.cold_transcript.as_ref().is_some_and(|cold| cold.id == session && cold.older)
     }
     fn watch_scroll_top(&self, session: &str) -> Option<Box<dyn Fn(rune::ScrollPos)>> {
         let (pages, nav) = (self.pages.watch_top(session), self.kernel.slots.get(&crate::message_nav::MESSAGE_NAV).watch());
@@ -274,6 +325,9 @@ impl session_view::TimelineHost for App {
     }
     fn on_timeline_selection_change(s: &mut Self, change: &rune::SelectionChange, tx: &mut Tx) {
         quote::selection_changed(s, change, tx);
+    }
+    fn on_timeline_key(&mut self, ev: &rune::KeyEvent, tx: &mut Tx) -> bool {
+        crate::keys::timeline_key(self, ev, tx)
     }
     fn find_row_version(&self, row_key: &str) -> u64 {
         self.kernel.slots.get(&crate::find::FIND).row_version(row_key)
@@ -289,6 +343,10 @@ impl session_view::TimelineHost for App {
     }
     fn user_menu_open_on(&self, id: &str) -> bool {
         self.kernel.slots.get(&crate::rewind::REWIND).menu_open_on(id)
+    }
+    fn inline_quotes(&self) -> bool {
+        // Local and dev builds first, as Desktop (`inline-quotes.ts`).
+        !matches!(crate::updater::build_channel(), "stable" | "prod" | "latest" | "beta")
     }
     fn quote_more_open(&self, id: &str) -> bool {
         self.kernel.slots.get(&crate::quote::QUOTE).more.contains(id)

@@ -5,7 +5,7 @@
 use browser_pane::prompts::DialogGate;
 use browser_pane::{DialogKind, PermissionDecision, PermissionKind};
 use opencode_i18n::t;
-use rune::{Cursor, El, KeyEvent, Tx, col, el, icon, row, text};
+use rune::{El, KeyEvent, Tx, col, el, icon, row, text};
 use rune_kit::{ButtonVariant, TextInput};
 use rune_theme_opencode::icons as ic;
 use session_view::palette::Elevate;
@@ -18,7 +18,12 @@ use super::{
 };
 use crate::App;
 use crate::palette::{Pal, kit};
-use crate::view::{UI_MED, UI_SMALL};
+use crate::view::{UI, UI_MED, UI_SMALL};
+
+/// Official's notice copy (`refusal-bar.tsx`): 13 px regular on 24 px lines.
+const NOTICE: rune::TextStyle = rune::TextStyle::new(13.0, 440.0).lh(24.0);
+/// The notice's destination row (`text-12-regular`): 12 px on 20 px lines, muted.
+const NOTICE_TARGET: rune::TextStyle = rune::TextStyle::new(12.0, 440.0).lh(20.0);
 
 /// Top-of-viewport strips (blocked pop-up notice, site permission bar) rendered above the page.
 pub fn view_bars(s: &App, p: &Pal, tab_id: u64) -> Vec<El> {
@@ -26,33 +31,113 @@ pub fn view_bars(s: &App, p: &Pal, tab_id: u64) -> Vec<El> {
     let mut out = Vec::new();
     let k = kit(p);
 
-    if let Some((url, count, _armed)) = tab.prompts.popup.blocked() {
-        let host = short_host(url);
-        let msg = if count > 1 {
-            format!("{} ({count}) — {host}", t!("rune.browser.prompt.popup.blocked"))
-        } else if !host.is_empty() {
-            format!("{} — {host}", t!("rune.browser.prompt.popup.blocked"))
-        } else {
-            t!("rune.browser.prompt.popup.blocked").to_owned()
+    if let Some(reason) = tab.prompts.blocked_guard_notice.as_ref()
+        && (tab.prompts.agent_driven || matches!(reason, browser_pane::BlockedGuardReason::Passkey { .. }))
+    {
+        let plugin_name = match tab.prompts.driver.as_ref() {
+            Some(browser_pane::TabDriver::Plugin(name)) => Some(name.as_str()),
+            _ => None,
         };
-        #[allow(deprecated)]
-        let open_btn = crate::widgets::button(t!("rune.browser.prompt.popup.open"), ButtonVariant::Neutral)
+        let (notice, reopen_url, import_signin) = match reason {
+            browser_pane::BlockedGuardReason::InheritedPermission { url } => (
+                match plugin_name {
+                    Some(name) => t!("rune.browser.prompt.controlled.inheritedPermission.plugin", name = name),
+                    None => t!("rune.browser.prompt.controlled.inheritedPermission.agent").to_owned(),
+                },
+                url.clone().unwrap_or_else(|| tab.url.clone()),
+                false,
+            ),
+            browser_pane::BlockedGuardReason::Passkey { native: true, url } => (
+                t!("rune.browser.prompt.passkey.off").to_owned(),
+                url.clone().unwrap_or_else(|| tab.url.clone()),
+                false,
+            ),
+            browser_pane::BlockedGuardReason::Passkey { native: false, .. } => (
+                t!("rune.browser.prompt.passkey").to_owned(),
+                String::new(),
+                true,
+            ),
+            browser_pane::BlockedGuardReason::Action => (
+                match plugin_name {
+                    Some(name) => t!("rune.browser.prompt.controlled.plugin", name = name),
+                    None => t!("rune.browser.prompt.controlled.agent").to_owned(),
+                },
+                tab.url.clone(),
+                false,
+            ),
+        };
+        let can_reopen = !import_signin
+            && !reopen_url.is_empty()
+            && !reopen_url.eq_ignore_ascii_case("about:blank")
+            && tab.preview.is_none()
+            && !matches!(
+                tab.context,
+                browser_pane::ContextKind::Preview { .. } | browser_pane::ContextKind::Artifact { .. }
+            )
+            && tab.refusal.as_deref() != Some("browser.proxy.required");
+        let mut actions = row().gap(4.0).center_y();
+        if import_signin {
+            #[allow(deprecated)]
+            let import_btn = crate::widgets::button(t!("rune.browser.prompt.passkey.import"), ButtonVariant::Neutral)
+                .size(rune_kit::ButtonSize::Small)
+                // The import opens on the page's site, chosen already only in a tab of the person's;
+                // the notice stays until an import brings cookies (`panel.tsx:603-618`).
+                .on_press_tx(move |app: &mut App, tx: &mut Tx| {
+                    let Some(tab) = app.workspace_panes.browser.host.tab(tab_id).filter(|t| t.prompts.blocked_guard_armed()) else {
+                        return;
+                    };
+                    let site = page_site(&tab.url);
+                    let choose = !tab.prompts.agent_driven;
+                    crate::plugin_host::browser_import_site(app, site, choose, tab_id, tx);
+                })
+                .build(k)
+                .key("browser-passkey-import");
+            actions = actions.child(import_btn);
+        }
+        if can_reopen {
+            #[allow(deprecated)]
+            let reopen_btn = crate::widgets::button(
+                t!("rune.browser.prompt.controlled.openNewTab"),
+                ButtonVariant::Neutral,
+            )
             .size(rune_kit::ButtonSize::Small)
             .on_press(move |app: &mut App| {
-                // `take_blocked_popup_url` enforces the 500 ms activation delay.
-                if let Some(url) = app.workspace_panes.browser.host.take_blocked_popup_url(tab_id) {
-                    let sid = app.browser_tab_session(tab_id).map(str::to_owned);
-                    app.open_new_browser_tab_for_session(sid.as_deref(), &url, None, true);
+                if !app
+                    .workspace_panes
+                    .browser
+                    .host
+                    .tab(tab_id)
+                    .is_some_and(|t| t.prompts.blocked_guard_armed())
+                {
+                    return;
+                }
+                if let Some((_, mut ctx)) = app.browser_context_for_opener(tab_id) {
+                    let url = reopen_url.clone();
+                    let proxy_ok = match &mut ctx {
+                        browser_pane::ContextKind::RemoteServer { server_id, proxy } => {
+                            *proxy = app.workspace_panes.browser.host.remote_proxy(server_id.trim()).cloned();
+                            proxy.is_some()
+                        }
+                        _ => true,
+                    };
+                    if proxy_ok && !url.is_empty() && !url.eq_ignore_ascii_case("about:blank") {
+                        let sid = app.browser_tab_session(tab_id).map(str::to_owned);
+                        app.open_new_browser_tab_with_context(sid.as_deref(), &url, None, true, false, ctx, None);
+                        app.workspace_panes.browser.host.dismiss_blocked_guard_notice(tab_id);
+                    }
                 }
             })
             .build(k)
-            .key("browser-popup-open");
-        let close_btn = dismiss_icon_btn(p, "browser-popup-dismiss", t!("common.close"), move |app: &mut App| {
-            app.workspace_panes.browser.host.dismiss_blocked_popup(tab_id);
+            .key("browser-controlled-open-new");
+            actions = actions.child(reopen_btn);
+        }
+        let close_btn = dismiss_icon_btn(p, "browser-controlled-dismiss", t!("common.close"), move |app: &mut App| {
+            app.workspace_panes.browser.host.dismiss_blocked_guard_notice(tab_id);
         });
+        actions = actions.child(close_btn);
         out.push(
             col()
-                .key("browser-popup-bar")
+                .key("browser-controlled-bar")
                 .w_full()
                 .child(
                     row()
@@ -65,18 +150,87 @@ pub fn view_bars(s: &App, p: &Pal, tab_id: u64) -> Vec<El> {
                         .center_y()
                         .fill(p.layer1)
                         .child(icon(&ic::WARNING, 14.0).color(p.icon_muted))
-                        .child(text(msg).font(UI_SMALL).color(p.text).grow(1.0).shrink().min_w(0.0).truncate_fade())
-                        .child(row().gap(4.0).center_y().child(open_btn).child(close_btn)),
+                        .child(text(notice).font(UI_SMALL).color(p.text).grow(1.0).shrink().min_w(0.0).wrap())
+                        .child(actions),
                 )
-                .child(el().w_full().h(0.5).fill(p.border_muted)),
+                .child(el().w_full().h(1.0).fill(p.border_muted)),
+        );
+    }
+
+    if let Some((url, count, _armed)) = tab.prompts.popup.blocked() {
+        let isolated = tab.preview.is_some() || tab.context.is_isolated();
+        // Official's notice (`refusal-bar.tsx`): the opener's origin and the refusal stacked in one
+        // cell beside the buttons, the destination on a muted row of its own under all three.
+        let opener = match browser_pane::policy::destination_origin(&tab.url) {
+            Some(site) if site.starts_with("http://") || site.starts_with("https://") => {
+                t!("rune.browser.prompt.popup.fromSite", site = site)
+            }
+            _ => t!("rune.browser.prompt.popup.fromPage").to_owned(),
+        };
+        let msg = if count > 1 {
+            format!("{} ({count})", t!("rune.browser.prompt.popup.blocked"))
+        } else {
+            t!("rune.browser.prompt.popup.blocked").to_owned()
+        };
+        let target = popup_target(p, url, isolated);
+        #[allow(deprecated)]
+        let open_btn = crate::widgets::button(t!("rune.browser.prompt.popup.open"), ButtonVariant::Neutral)
+            .size(rune_kit::ButtonSize::Small)
+            .on_press(move |app: &mut App| {
+                // `take_blocked_popup_url` enforces the 500 ms activation delay.
+                if let Some(url) = app.workspace_panes.browser.host.take_blocked_popup_url(tab_id)
+                    && url.len() <= 16_384
+                    && browser_pane::policy::destination_origin(&url).is_some()
+                    && let Some((driver, ctx)) = app.browser_context_for_opener(tab_id)
+                {
+                    let sid = app.browser_tab_session(tab_id).map(str::to_owned);
+                    app.open_new_browser_tab_with_context(sid.as_deref(), &url, None, true, false, ctx, driver);
+                }
+            })
+            .build(k)
+            .key("browser-popup-open");
+        let close_btn = sized_dismiss_btn(p, "browser-popup-dismiss", t!("common.close"), 20.0, 4.0, move |app: &mut App| {
+            app.workspace_panes.browser.host.dismiss_blocked_popup(tab_id);
+        });
+        let lines = col()
+            .grow(1.0)
+            .shrink()
+            .min_w(0.0)
+            .child(text(opener).font(NOTICE).color(p.text).wrap_anywhere())
+            .child(text(msg).font(NOTICE).color(p.text).wrap_anywhere());
+        out.push(
+            col()
+                .key("browser-popup-bar")
+                .w_full()
+                .child(
+                    col()
+                        .role("status")
+                        .w_full()
+                        .px(12.0)
+                        .py(8.0)
+                        .fill(p.layer1)
+                        .child(row().w_full().gap(12.0).center_y().child(lines).child(open_btn).child(close_btn))
+                        .children(target),
+                )
+                .child(el().w_full().h(1.0).fill(p.border_muted)),
         );
     }
 
     if let Some(queued) = tab.prompts.permission.active() {
         let req_id = queued.request.id;
         let agent = queued.agent_driven;
-        let preview = queued.request.origin.to_ascii_lowercase().starts_with("oc-preview:");
-        let can_remember = !agent && !preview;
+        let trustworthy = browser_pane::prompts::trustworthy_origin(&queued.request.origin)
+            && !queued.request.origin.to_ascii_lowercase().starts_with("oc-preview:");
+        // Official `site-permissions.ts:116-120` & `prompts.tsx:522-555`:
+        // - `Default` profile (non-agent, non-preview, trustworthy): persistent "Never allow" / "Always allow"
+        // - `RemoteServer` (non-agent, non-preview, trustworthy): RAM-only "Block" / "Allow until you quit OpenCode"
+        // - Agent, Preview, Artifact, Private, untrustworthy: visit-only "Block" / "Allow this time"
+        let keep_profile = !agent && tab.preview.is_none() && tab.context.is_default() && trustworthy;
+        let keep_session = !agent
+            && tab.preview.is_none()
+            && matches!(tab.context, browser_pane::ContextKind::RemoteServer { .. })
+            && trustworthy;
+        let can_remember = keep_profile || keep_session;
         let waiting = tab.prompts.permission.waiting_count();
         let sentence = permission_sentence(&queued.request.origin, &queued.request.kinds);
 
@@ -85,10 +239,16 @@ pub fn view_bars(s: &App, p: &Pal, tab_id: u64) -> Vec<El> {
             .shrink()
             .min_w(0.0)
             .gap(2.0)
-            .child(text(sentence).font(UI_SMALL).color(p.text).wrap());
+            .child(text(sentence).font(UI).color(p.text).wrap());
         if agent {
+            let driver_copy = match tab.prompts.driver.as_ref() {
+                Some(browser_pane::TabDriver::Plugin(name)) => {
+                    t!("rune.browser.prompt.perm.plugin", name = name.as_str())
+                }
+                _ => t!("rune.browser.prompt.perm.agent").to_owned(),
+            };
             msg_col = msg_col.child(
-                text(t!("rune.browser.prompt.perm.agent"))
+                text(driver_copy)
                     .font(UI_MED)
                     .color(p.text)
                     .wrap(),
@@ -105,65 +265,23 @@ pub fn view_bars(s: &App, p: &Pal, tab_id: u64) -> Vec<El> {
         #[allow(deprecated)]
         let mut actions = row().gap(4.0).center_y();
         if can_remember {
-            #[allow(deprecated)]
-            let never = crate::widgets::button(t!("rune.browser.prompt.never"), ButtonVariant::Ghost)
-                .size(rune_kit::ButtonSize::Small)
-                .on_press(move |app: &mut App| {
-                    if app.workspace_panes.browser.host.tab(tab_id).is_some_and(|t| t.prompts.permission.armed()) {
-                        app.workspace_panes.browser.host.answer_permission(tab_id, req_id, PermissionDecision::BlockAlways);
-                    }
-                })
-                .build(k)
-                .key("browser-perm-never");
-            #[allow(deprecated)]
-            let once = crate::widgets::button(t!("rune.browser.prompt.allowOnce"), ButtonVariant::Neutral)
-                .size(rune_kit::ButtonSize::Small)
-                .on_press(move |app: &mut App| {
-                    if app.workspace_panes.browser.host.tab(tab_id).is_some_and(|t| t.prompts.permission.armed()) {
-                        app.workspace_panes.browser.host.answer_permission(tab_id, req_id, PermissionDecision::AllowOnce);
-                    }
-                })
-                .build(k)
-                .key("browser-perm-allow-once");
-            #[allow(deprecated)]
-            let always = crate::widgets::button(t!("rune.browser.prompt.allowAlways"), ButtonVariant::Contrast)
-                .size(rune_kit::ButtonSize::Small)
-                .on_press(move |app: &mut App| {
-                    if app.workspace_panes.browser.host.tab(tab_id).is_some_and(|t| t.prompts.permission.armed()) {
-                        app.workspace_panes.browser.host.answer_permission(tab_id, req_id, PermissionDecision::AllowAlways);
-                    }
-                })
-                .build(k)
-                .key("browser-perm-allow-always");
-            actions = actions.child(never).child(once).child(always);
+            let (deny_label, deny_key, rem_label, rem_key) = if keep_profile {
+                (t!("rune.browser.prompt.never"), "browser-perm-never", t!("rune.browser.prompt.allowAlways"), "browser-perm-allow-always")
+            } else {
+                (t!("rune.browser.prompt.block"), "browser-perm-block", t!("rune.browser.prompt.allowSession"), "browser-perm-allow-session")
+            };
+            actions = actions
+                .child(perm_btn(k, deny_label, ButtonVariant::Ghost, deny_key, tab_id, req_id, PermissionDecision::BlockAlways))
+                .child(perm_btn(k, t!("rune.browser.prompt.allowOnce"), ButtonVariant::Neutral, "browser-perm-allow-once", tab_id, req_id, PermissionDecision::AllowOnce))
+                .child(perm_btn(k, rem_label, ButtonVariant::Contrast, rem_key, tab_id, req_id, PermissionDecision::AllowAlways));
         } else {
-            #[allow(deprecated)]
-            let block = crate::widgets::button(t!("rune.browser.prompt.block"), ButtonVariant::Ghost)
-                .size(rune_kit::ButtonSize::Small)
-                .on_press(move |app: &mut App| {
-                    if app.workspace_panes.browser.host.tab(tab_id).is_some_and(|t| t.prompts.permission.armed()) {
-                        app.workspace_panes.browser.host.answer_permission(tab_id, req_id, PermissionDecision::BlockOnce);
-                    }
-                })
-                .build(k)
-                .key("browser-perm-block");
-            #[allow(deprecated)]
-            let once = crate::widgets::button(t!("rune.browser.prompt.allowOnce"), ButtonVariant::Contrast)
-                .size(rune_kit::ButtonSize::Small)
-                .on_press(move |app: &mut App| {
-                    if app.workspace_panes.browser.host.tab(tab_id).is_some_and(|t| t.prompts.permission.armed()) {
-                        app.workspace_panes.browser.host.answer_permission(tab_id, req_id, PermissionDecision::AllowOnce);
-                    }
-                })
-                .build(k)
-                .key("browser-perm-allow-once");
-            actions = actions.child(block).child(once);
+            actions = actions
+                .child(perm_btn(k, t!("rune.browser.prompt.block"), ButtonVariant::Ghost, "browser-perm-block", tab_id, req_id, PermissionDecision::BlockOnce))
+                .child(perm_btn(k, t!("rune.browser.prompt.allowOnce"), ButtonVariant::Contrast, "browser-perm-allow-once", tab_id, req_id, PermissionDecision::AllowOnce));
         }
-        let close_btn = dismiss_icon_btn(p, "browser-perm-dismiss", t!("rune.browser.prompt.dismiss"), move |app: &mut App| {
-            app.workspace_panes
-                .browser
-                .host
-                .answer_permission(tab_id, req_id, PermissionDecision::BlockOnce);
+        // Official's dismiss is `IconButton size="large"` (28 pt, `prompts.tsx:557-563`) and keeps nothing.
+        let close_btn = sized_dismiss_btn(p, "browser-perm-dismiss", t!("rune.browser.prompt.dismiss"), 28.0, 6.0, move |app: &mut App| {
+            app.workspace_panes.browser.host.answer_permission(tab_id, req_id, PermissionDecision::Dismiss);
         });
         actions = actions.child(close_btn);
 
@@ -186,7 +304,7 @@ pub fn view_bars(s: &App, p: &Pal, tab_id: u64) -> Vec<El> {
                         .child(msg_col)
                         .child(actions),
                 )
-                .child(el().w_full().h(0.5).fill(p.border_muted)),
+                .child(el().w_full().h(1.0).fill(p.border_muted)),
         );
     }
 
@@ -238,6 +356,7 @@ pub fn view_modal(s: &App, p: &Pal, tab_id: u64) -> Option<El> {
         }
         if kind == DialogKind::Prompt {
             let field = TextInput::new(&ui.prompt_input)
+                .large()
                 .width(None)
                 .placeholder(t!("rune.browser.prompt.value").to_owned())
                 .label(t!("rune.browser.prompt.value").to_owned())
@@ -265,7 +384,6 @@ pub fn view_modal(s: &App, p: &Pal, tab_id: u64) -> Option<El> {
                 .label_static(t!("rune.browser.prompt.stop"))
                 .gap(8.0)
                 .center_y()
-                .cursor(Cursor::Pointer)
                 .on_press(|app: &mut App| {
                     let st = app.kernel.slots.get_mut(&BROWSER_PROMPTS);
                     st.stop_dialogs = !st.stop_dialogs;
@@ -321,7 +439,11 @@ pub fn view_modal(s: &App, p: &Pal, tab_id: u64) -> Option<El> {
         );
         body = body.child(footer);
 
-        let refocus = if kind == DialogKind::Prompt { PROMPT_INPUT_KEY } else { PROMPT_OK_KEY };
+        let refocus = match kind {
+            DialogKind::Prompt => PROMPT_INPUT_KEY,
+            DialogKind::Alert => PROMPT_CARD_KEY,
+            DialogKind::Confirm | DialogKind::Leave => PROMPT_CANCEL_KEY,
+        };
         return Some(modal_frame(p, tab_id, PROMPT_CARD_KEY, refocus, title, body));
     }
 
@@ -359,6 +481,7 @@ pub fn view_modal(s: &App, p: &Pal, tab_id: u64) -> Option<El> {
             );
         }
         let user_field = TextInput::new(&ui.auth_user)
+            .large()
             .width(None)
             .placeholder(t!("rune.browser.prompt.auth.username").to_owned())
             .label(t!("rune.browser.prompt.auth.username").to_owned())
@@ -367,6 +490,7 @@ pub fn view_modal(s: &App, p: &Pal, tab_id: u64) -> Option<El> {
             .build(k)
             .key(AUTH_USER_KEY);
         let pass_field = TextInput::new(&ui.auth_pass)
+            .large()
             .secure()
             .width(None)
             .placeholder(t!("rune.browser.prompt.auth.password").to_owned())
@@ -429,6 +553,27 @@ pub fn view_modal(s: &App, p: &Pal, tab_id: u64) -> Option<El> {
     None
 }
 
+#[allow(deprecated)]
+fn perm_btn(
+    k: &rune_kit::Kit,
+    label: &str,
+    variant: ButtonVariant,
+    key: &'static str,
+    tab_id: u64,
+    req_id: u64,
+    decision: PermissionDecision,
+) -> El {
+    crate::widgets::button(label, variant)
+        .size(rune_kit::ButtonSize::Small)
+        .on_press(move |app: &mut App| {
+            if app.workspace_panes.browser.host.tab(tab_id).is_some_and(|t| t.prompts.permission.armed()) {
+                app.workspace_panes.browser.host.answer_permission(tab_id, req_id, decision);
+            }
+        })
+        .build(k)
+        .key(key)
+}
+
 fn dismiss_icon_btn(p: &Pal, key: &'static str, label: &'static str, on_press: impl Fn(&mut App) + 'static) -> El {
     el().key(key)
         .role("button")
@@ -438,10 +583,53 @@ fn dismiss_icon_btn(p: &Pal, key: &'static str, label: &'static str, on_press: i
         .h(24.0)
         .radius(4.0)
         .center()
-        .cursor(Cursor::Pointer)
         .hover(p.hover)
         .on_press(on_press)
         .child(icon(&ic::CLOSE, 12.0).color(p.icon_muted))
+}
+
+/// Official's ghost-muted `IconButton` with its 16 pt `close` icon: `side` 20 (small) or 28 (large).
+fn sized_dismiss_btn(
+    p: &Pal,
+    key: &'static str,
+    label: &'static str,
+    side: f32,
+    radius: f32,
+    on_press: impl Fn(&mut App) + 'static,
+) -> El {
+    el().key(key)
+        .role("button")
+        .focusable(true)
+        .label_static(label)
+        .w(side)
+        .h(side)
+        .radius(radius)
+        .center()
+        .hover(p.hover)
+        .on_press(on_press)
+        .child(icon(&ic::CLOSE, 16.0).color(p.icon_muted))
+}
+
+/// The blocked pop-up's destination row: a web address's host whole, then the rest cut short
+/// (`refusal-bar.tsx`'s `hostDisplay`); an isolated tab's or another scheme's address in full
+/// (bounded), so the scheme is never hidden.
+fn popup_target(p: &Pal, url: &str, isolated: bool) -> Option<El> {
+    let lower = url.to_ascii_lowercase();
+    let web = !isolated && (lower.starts_with("http://") || lower.starts_with("https://"));
+    let row = row().w_full().min_w(0.0).dir(rune::Direction::Ltr);
+    if !web {
+        let shown = bounded_origin_url(url);
+        return (!shown.is_empty()).then(|| {
+            row.child(text(shown).font(NOTICE_TARGET).color(p.muted).truncate().grow(1.0).shrink().min_w(0.0))
+        });
+    }
+    let host = short_host(url);
+    let after = url.split_once("://").map_or(url, |(_, r)| r);
+    let rest = after.find(['/', '?', '#']).map_or("", |i| &after[i..]);
+    Some(
+        row.child(text(host).font(NOTICE_TARGET).color(p.muted))
+            .child(text(rest.to_owned()).font(NOTICE_TARGET).color(p.muted).truncate().shrink().min_w(0.0)),
+    )
 }
 
 fn modal_frame(
@@ -456,6 +644,8 @@ fn modal_frame(
         .key(key)
         .role("alertdialog")
         .focusable(true)
+        // The card holds focus for its keys but draws no ring (`prompts.tsx:198` `outline: none`).
+        .no_focus_ring()
         .label(title)
         .w_full()
         .max_w(480.0) // dialog-size: ok (in-pane browser prompt card matching upstream #63002 prompts.tsx width: min(100%, 480px))
@@ -483,17 +673,54 @@ fn modal_frame(
         .child(card)
 }
 
-/// UTF-8 safe left-elided authority display (up to 64 characters, keeping the registrable tail).
+/// Full-origin + bounded path display (max 96 chars) for blocked pop-ups from isolated/preview
+/// tabs so the user sees the complete scheme, host, and port before clicking Open.
+fn bounded_origin_url(url: &str) -> String {
+    let origin = browser_pane::policy::destination_origin(url);
+    let shown = origin.as_deref().unwrap_or(url);
+    let tail = origin
+        .as_deref()
+        .and_then(|o| url.get(o.len()..))
+        .unwrap_or("");
+    let full = if tail.is_empty() || tail == "/" {
+        shown.to_owned()
+    } else {
+        format!("{shown}{tail}")
+    };
+    if full.chars().count() > 96 {
+        let head: String = full.chars().take(95).collect();
+        format!("{head}…")
+    } else {
+        full
+    }
+}
+
+/// UTF-8 safe left-elided authority display (up to 64 characters, keeping the registrable tail),
+/// with bidi overrides and control characters stripped.
 fn short_host(url: &str) -> String {
     let rest = url.split_once("://").map_or(url, |(_, r)| r);
     let authority = rest.split(['/', '?', '#']).next().unwrap_or(rest);
-    let count = authority.chars().count();
+    let clean = browser_pane::prompts::sanitize_single_line_prompt(authority, 256);
+    let count = clean.chars().count();
     if count > 64 {
-        let tail: String = authority.chars().skip(count - 63).collect();
+        let tail: String = clean.chars().skip(count - 63).collect();
         format!("…{tail}")
     } else {
-        authority.to_owned()
+        clean
     }
+}
+
+/// The site (registrable domain) of the page at `url`, which the passkey notice's import opens on
+/// (`model.ts:899-905` `notice.site`): `github.com` for `https://gist.github.com:8443/x`.
+fn page_site(url: &str) -> Option<String> {
+    let origin = browser_pane::destination_origin(url)?;
+    let authority = origin.split_once("://")?.1;
+    // A port ends the authority; an IPv6 literal's own colons sit inside its brackets.
+    let host = match authority.rsplit_once(':') {
+        Some((host, port)) if !port.is_empty() && port.bytes().all(|b| b.is_ascii_digit()) => host,
+        _ => authority,
+    };
+    browser_pane::cookies::sites::cookie_site(host)
 }
 
 fn prompt_site(origin: &str, top_url: &str) -> String {
@@ -502,7 +729,9 @@ fn prompt_site(origin: &str, top_url: &str) -> String {
     let embedded = if orig.is_some() {
         orig != top
     } else {
-        !origin.is_empty() && origin != top_url
+        // Empty, `about:srcdoc`, `data:`, or `blob:` dialog origins on a web page come from an
+        // embedded/sandboxed frame rather than the top-level site (`review-rd-engine.md`).
+        top.is_some() || (!origin.is_empty() && origin != top_url)
     };
     let lower = origin.to_ascii_lowercase();
     if lower.starts_with("file:") || lower.starts_with("oc-preview:") {

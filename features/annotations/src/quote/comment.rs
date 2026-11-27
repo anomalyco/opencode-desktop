@@ -7,16 +7,28 @@ use rune::TextEdit;
 use rune::machine::{Attempt, Effects, Seq};
 
 /// Where the editor stands when it replaced the Quote toolbar: the quoted text's line boxes,
-/// relative to the first text they cover (`ComposerQuoteAnchor`), so it follows the timeline.
+/// relative to the first text they cover (`ComposerQuoteAnchor`), so it follows its source.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Anchor {
-    pub session: String,
+    pub bounds: Bounds,
     /// The first selected text's key path.
     pub path: String,
     /// The quoted lines' boxes, each `[x, y, w, h]` from `path`'s top left.
     pub rects: Vec<[f32; 4]>,
     pub short: bool,
     pub backward: bool,
+}
+
+/// What the editor stays inside, beside its source (`quotePosition`'s `bounds`).
+#[derive(Clone, Debug, PartialEq)]
+pub enum Bounds {
+    /// This session's timeline, under its header and over the composer; the editor goes out
+    /// of sight with the text.
+    Timeline(String),
+    /// The element with this key, whole (a terminal's pane: official `packages/gui-plugins/src/
+    /// terminal/quote-machine.ts` `quotePosition`): the editor is pinned to its bottom edge
+    /// where neither side fits, and stands at the composer once its source no longer holds.
+    Element(String),
 }
 
 /// What an open editor holds: its quote, the draft (the saved comment until edited), where it
@@ -361,7 +373,7 @@ pub fn field_step(seq: &mut Seq, f: &mut Field, event: FieldEvent) -> (Effects<F
             }
             let alternate = modified && config.alternate.is_some();
             if !alternate && !config.can_submit() {
-                return (cancel(f), true);
+                return if config.allow_empty { (cancel(f), true) } else { (Effects::none(), false) };
             }
             (submit(f, config, alternate), true)
         }
@@ -394,7 +406,11 @@ fn key_step(f: &mut Field, key: FieldKey, config: Config) -> (Effects<FieldEffec
             (Effects::none(), true)
         }
         FieldKey::Escape => (cancel(f), true),
-        FieldKey::Enter { modified: true, repeat } if config.alternate.is_some() => {
+        // A full-size editor (`!allow_empty`) whose alternate send is disabled lets Mod+Enter save
+        // as Enter does; a compact editor (`allow_empty`) swallows it (`line-comment/machine.ts:371`).
+        FieldKey::Enter { modified: true, repeat }
+            if config.alternate.is_some() && (config.allow_empty || config.alternate == Some(false)) =>
+        {
             if repeat { (Effects::none(), true) } else { (submit(f, config, true), true) }
         }
         FieldKey::Enter { .. } if open => (insert(f, active), true),

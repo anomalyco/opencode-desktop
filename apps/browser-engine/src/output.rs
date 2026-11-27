@@ -54,6 +54,13 @@ impl Output {
         (output, messages)
     }
 
+    /// A sink `Output` whose receiver is dropped: used by internal helper browsers (such as the
+    /// extension tab-ID seed probe) so they never emit wire messages to the desktop app.
+    pub fn null() -> Self {
+        let (entries, _rx) = mpsc::channel();
+        Self { entries, pending: Arc::new(Mutex::new(HashMap::new())) }
+    }
+
     pub fn send(&self, msg: EngineMsg) -> Result<(), ()> {
         self.send_with(msg, Vec::new())
     }

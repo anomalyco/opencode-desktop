@@ -21,6 +21,7 @@ pub mod provider_mark;
 pub mod scroller;
 pub mod sheet;
 pub mod style;
+pub mod tab;
 pub mod themes;
 pub mod toast;
 pub mod video_overlay;

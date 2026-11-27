@@ -16,7 +16,7 @@ pub const KEYS: &[Trigger] = &[
 ];
 
 fn view(s: &App, p: &Pal) -> El {
-    col().key("settings-story").w(1048.0).h(640.0).fill(p.bg_base).child(crate::settings::page(s, p, (1048.0, 640.0)))
+    col().key("settings-story").w(1056.0).h(640.0).fill(p.bg_base).child(crate::settings::page(s, p, (1056.0, 640.0)))
 }
 
 /// Settings › Interface layout over the whole window, at rest in top tabs: S and T switch to
@@ -104,6 +104,17 @@ rune_register::register!(crate::scenes::SCENE_LIST: crate::scenes::Scene = [
     ("settings-projects", |s| on(s, Page::Projects)),
     ("settings-worktrees", |s| on(s, Page::Worktrees)),
     ("settings-preferences", |s| on(s, Page::General)),
+    // Preferences with new sessions in a new worktree of the current project.
+    ("settings-new-session-worktree", |s| {
+        on(s, Page::General);
+        s.settings.worktree = crate::settings::Worktree::New;
+    }),
+    // Preferences with new sessions in the server's default directory, as it reported it.
+    ("settings-new-session-directory", |s| {
+        on(s, Page::General);
+        s.settings.start_in = crate::settings::StartIn::Directory;
+        crate::start_location::answered(s, "/home/me".into());
+    }),
     ("settings-appearance", |s| on(s, Page::Appearance)),
     ("settings-notifications", |s| on(s, Page::Notifications)),
     ("settings-shortcuts", |s| on(s, Page::Shortcuts)),
@@ -130,7 +141,7 @@ rune_register::register!(crate::scenes::SCENE_LIST: crate::scenes::Scene = [
     // Shortcuts recording Auto-accept permissions' chord.
     ("settings-shortcut-recording", |s| {
         on(s, Page::Shortcuts);
-        s.kernel.slots.get_mut(&super::SETTINGS_PAGES).shortcuts.capture = Some("permissions.autoaccept".into());
+        s.kernel.slots.get_mut(&super::SETTINGS_PAGES).shortcuts.capture = crate::settings::pages::shortcuts::Capture::Recording { id: "permissions.autoaccept".into(), prefix: Vec::new() };
     }),
     // Providers disconnect confirmation dialog.
     ("provider-disconnect", |s| {

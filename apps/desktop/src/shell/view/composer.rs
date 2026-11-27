@@ -13,9 +13,12 @@ pub(super) mod touch;
 // Composer and status bar
 
 pub(super) fn composer_dock(s: &App, p: &Pal) -> El {
-    let session_ver = match &*s.route {
-        Route::Session { id, .. } => Some(crate::plugin_host::services::session_version(s, id)),
-        _ => None,
+    let (session_ver, is_child) = match &*s.route {
+        Route::Session { id, .. } => (
+            Some(crate::plugin_host::services::session_version(s, id)),
+            s.session(id).is_some_and(|i| i.parent.is_some()),
+        ),
+        _ => (None, false),
     };
     let touch = session_view::style::touch_controls();
     let touch_server_ver = touch.then(|| (crate::servers::runtime::version(), crate::servers::health::version()));
@@ -29,19 +32,33 @@ pub(super) fn composer_dock(s: &App, p: &Pal) -> El {
         crate::keymap::overrides::version(),
         crate::speech::listening(s),
         crate::plugin_host::surfaces_version(s),
-        session_ver,
+        (session_ver, is_child),
         rune::Tracked::untracked(&s.composer),
     );
     rune::region_with("composer-dock", inputs, || {
-        let (queue, status) = match &*s.route {
-            Route::Session { id, .. } => (
-                Some(col().key("queue-room").w_full().items_center().child(crate::queue::panel(s, p, id, s.busy(id)))),
-                crate::subagents::reply::status_line(s, p, id),
-            ),
-            _ => (None, None),
+        // Child/subagent sessions hide the prompt composer, queue, and free-limit panel, showing
+        // only any active question/permission dock (mb-2) above the quiet `SubagentBar`
+        // (`packages/app/src/session/composer/session-composer-region.tsx:41,68-111`).
+        if let Route::Session { id, .. } = &*s.route
+            && s.session(id).is_some_and(|i| i.parent.is_some())
+        {
+            let dock = session_view::composer::request_dock(s, p).map(|el| el.mb(8.0));
+            let status = crate::subagents::reply::status_line(s, p, id);
+            return col()
+                .key("composer-dock")
+                .w_full()
+                .center()
+                .px(crate::view::DOCK_SIDE)
+                .pb(crate::view::DOCK_SIDE)
+                .children(dock)
+                .children(status);
+        }
+        let queue = match &*s.route {
+            Route::Session { id, .. } => {
+                Some(col().key("queue-room").w_full().items_center().child(crate::queue::panel(s, p, id, s.busy(id))))
+            }
+            _ => None,
         };
-        // A subagent's page keeps its status line under the composer, in the dock's bottom inset.
-        let pb = if status.is_some() { 0.0 } else { crate::view::DOCK_SIDE };
         let body = if crate::free_limit::replaces_composer(s) {
             crate::free_limit::panel(s, p)
         } else {
@@ -52,10 +69,9 @@ pub(super) fn composer_dock(s: &App, p: &Pal) -> El {
             .w_full()
             .center()
             .px(crate::view::DOCK_SIDE)
-            .pb(pb)
+            .pb(crate::view::DOCK_SIDE)
             .children(queue)
             .child(body)
-            .children(status)
     })
 }
 
@@ -91,6 +107,12 @@ impl session_view::dock::DockHost for App {
     }
     fn dock_new_question_ui(&self) -> bool {
         self.settings.new_question_ui
+    }
+    fn dock_question_submit(&self) -> session_view::dock::question::SubmitKey {
+        match self.settings.question_submit {
+            crate::settings::QuestionSubmitKey::Enter => session_view::dock::question::SubmitKey::Enter,
+            crate::settings::QuestionSubmitKey::ModEnter => session_view::dock::question::SubmitKey::ModEnter,
+        }
     }
     fn dock_reply_permission(&mut self, id: &str, decision: &str) {
         self.reply_permission(id, decision);
@@ -132,6 +154,12 @@ impl ComposerHost for App {
     fn composer_send(&mut self, tx: &mut Tx) {
         self.send(tx);
     }
+    fn composer_send_in_place(&mut self, tx: &mut Tx) {
+        self.submit_mode(crate::send::SubmitMode::InPlace, tx);
+    }
+    fn composer_shift_held(&self) -> bool {
+        *self.kernel.slots.get(&crate::attachments::SHIFT_HELD)
+    }
     fn composer_stop(&mut self, tx: &mut Tx) {
         crate::stop::press(self, tx);
     }
@@ -143,7 +171,9 @@ impl ComposerHost for App {
         self.suggest_edited();
     }
     fn composer_paste_attachment(&mut self, a: Attachment) -> bool {
-        self.composer_ext.attach.add(a);
+        if !self.composer_ext.attach.add(a) {
+            crate::status_toast::say(self, t!("prompt.toast.attachmentDuplicate.title"), "");
+        }
         self.suggest_edited();
         true
     }
@@ -235,6 +265,19 @@ impl ComposerHost for App {
         crate::quote::typed(self, tx);
         self.suggest_input(tx);
     }
+    fn composer_set_hovered(&mut self, hovered: bool) {
+        if self.composer_ext.pickers.composer_hovered != hovered {
+            self.composer_ext.pickers.composer_hovered = hovered;
+        }
+    }
+    fn composer_on_pill_secondary(&mut self, id: &str, press: rune::PointerPress, tx: &mut Tx) -> bool {
+        let Some(sid) = id.strip_prefix("session:") else { return false };
+        if !crate::mentions::wire::session_id_ok(sid) {
+            return false;
+        }
+        crate::mentions::refs::open_session_chip_menu(self, sid, press, tx);
+        true
+    }
     fn composer_on_key(&mut self, ev: &KeyEvent, tx: &mut Tx) -> bool {
         crate::tab_hints::key_down(self, ev, tx);
         // editor.tsx:343: even above suggestions, Return writes a line, never sends a prompt.
@@ -286,6 +329,12 @@ impl ComposerHost for App {
             }
             return true;
         }
+        if crate::keymap::Bind::SubmitInPlace.matches_tx(ev, tx) {
+            if !tx.key_repeat() {
+                self.submit_mode(crate::send::SubmitMode::InPlace, tx);
+            }
+            return true;
+        }
         if crate::keymap::Bind::SubmitAlternate.matches_tx(ev, tx) {
             if !tx.key_repeat() {
                 self.submit_mode(crate::send::SubmitMode::Alternate, tx);
@@ -307,7 +356,7 @@ fn toolbar_items(s: &App, p: &Pal, scope: &str, queues: bool) -> Vec<El> {
         model::capitalize(&model.variant)
     };
     let agent = (s.settings.show_agent || s.subagent_page().is_some()).then(|| model::capitalize(&selected.agent));
-    let model_name = s.composer_ext.pickers.model_name(&model);
+    let model_name = s.composer_ext.pickers.composer_model_name(&model);
     let provider = s.composer_ext.pickers.provider_label(&model);
     // What the model's button measures to: the provider, its slash's 6 pt either side, the name.
     let model_label = match &provider {
@@ -320,7 +369,10 @@ fn toolbar_items(s: &App, p: &Pal, scope: &str, queues: bool) -> Vec<El> {
     // row's end, which scrolls (`editor.tsx`, `overflow-x-auto`): it folds nothing. The row folds as
     // if it weren't there, and it shows where it fits without folding anything.
     let default_effort = model.variant.is_empty() || model.variant == "default";
-    let fold_with = |effort: Option<&str>| folds(s, scope, agent.as_deref(), &model_label, effort, mic.is_some(), dictating);
+    // The speed's button, after the effort's and folded with it; none at the standard speed
+    // (`editor.tsx`, opencode#65749).
+    let speed = s.speed_shown().then(|| model::capitalize(&s.picker_current(Kind::Speed)));
+    let fold_with = |effort: Option<&str>| folds(s, scope, agent.as_deref(), &model_label, [effort, speed.as_deref()], mic.is_some(), dictating);
     let fold = fold_with(s.has_effort().then_some(effort.as_str()).filter(|_| !default_effort));
     let effort_shows = s.has_effort() && fold.effort && (!default_effort || fold_with(Some(effort.as_str())) == fold);
     let agent = agent.and_then(|name| match fold.agent {
@@ -334,6 +386,9 @@ fn toolbar_items(s: &App, p: &Pal, scope: &str, queues: bool) -> Vec<El> {
     out.push(hidden(session_view::pickers::view::model_trigger(s, p, provider.as_deref(), &model_name, fold.chevrons).shrink().min_w(0.0)));
     if effort_shows {
         out.push(hidden(session_view::pickers::view::effort_trigger(s, p, &model.variant, fold.chevrons)));
+    }
+    if speed.is_some() && fold.effort {
+        out.push(hidden(session_view::pickers::view::speed_trigger(s, p, fold.chevrons)));
     }
     // Shell mode has no other delivery, and its Exit stands where that hint would.
     let actions = if s.kernel.slots.get(&crate::add_menu::ADD_MENU).shell() {
@@ -366,7 +421,8 @@ fn folds(
     scope: &str,
     agent: Option<&str>,
     model: &str,
-    effort: Option<&str>,
+    // The effort's and the speed's labels, which fold together.
+    after: [Option<&str>; 2],
     mic: bool,
     dictating: bool,
 ) -> narrow::Toolbar {
@@ -393,8 +449,8 @@ fn folds(
         // The slash takes its 6 pt either side, a little more than the spaces measured.
         let whole = label(model, t.chevrons) + if model.contains(" / ") { 4.0 } else { 0.0 };
         items.push(if t.model_whole { whole } else { whole.min(narrow::MODEL_FLOOR) });
-        if let Some(effort) = effort.filter(|_| t.effort) {
-            items.push(label(effort, t.chevrons));
+        if t.effort {
+            items.extend(after.iter().flatten().map(|name| label(name, t.chevrons)));
         }
         items.iter().sum::<f32>() + 2.0 * (items.len() - 1) as f32
     };

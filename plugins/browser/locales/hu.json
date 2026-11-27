@@ -64,5 +64,6 @@
   "zoom.reset": "Nagyítás visszaállítása",
   "zoom.percent": "{{percent}}%",
   "link.copy": "Link másolása",
-  "history.clear": "Előzmények törlése"
+  "history.clear": "Előzmények törlése",
+  "extensions.compat.feature.management": "Más bővítmények kezelése"
 }

@@ -78,6 +78,9 @@ pub fn format(style: Style, at: Moment) -> String {
 /// `at` in `style` in the locale at index `locale` (`crate::locales`), whatever the chosen one:
 /// `format_in(crate::system_locale(), …)` is Desktop's `toLocaleTimeString(undefined, …)`.
 pub fn format_in(locale: usize, style: Style, at: Moment) -> String {
+    // The system's locale need not be the one the app shows: its messages may still be in the bundle.
+    #[cfg(bundle_assets)]
+    crate::bundle::load(locale, crate::locales()[locale].id());
     let text = |key| I18N.text_in(locale, key);
     let (pattern, months, periods) = style_keys(style);
     let (year, month, day) = calendar_date(locale, at);

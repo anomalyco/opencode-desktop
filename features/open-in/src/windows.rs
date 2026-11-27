@@ -4,9 +4,10 @@
 //! An app is found by the command Desktop opens it with: `where` on the `PATH`, where a `.exe`
 //! wins and a `.cmd` or `.bat` shim (VS Code's `code.cmd`) leads to the `.exe` it starts, then an
 //! executable named like the command beside it; failing those, the folder its installer puts it
-//! in. File Explorer shows a folder or opens a file in its default app, and reveals a file with it
-//! selected (`SHOpenFolderAndSelectItems`, no new `explorer.exe`); PowerShell (5 or 7) opens in its
-//! own console in the folder, Windows Terminal in a new window there.
+//! in. File Explorer shows a verified local directory or reveals a file with it selected
+//! (`SHOpenFolderAndSelectItems`, never executing files); PowerShell (5 or 7) opens in its own
+//! console in the folder, Windows Terminal in a new window there (using `-d .` with `.current_dir`
+//! so folder names containing `;` work safely).
 
 use std::ffi::OsString;
 use std::os::windows::process::CommandExt;
@@ -27,73 +28,106 @@ impl Launcher for Win {
     }
 
     fn open(&self, path: &str, app: Option<&str>) -> Result<(), String> {
-        let path = native(path);
+        // Verify local fixed drive, non-subst-UNC, and zero reparse points BEFORE touching disk
+        // or launching any external application.
+        let verified = browser_policy::verify_local_path(path).map_err(|e| e.to_string())?;
+        let clean = verified.path;
+        let dir = if verified.is_dir {
+            PathBuf::from(&clean)
+        } else {
+            Path::new(&clean).parent().unwrap_or_else(|| Path::new(&clean)).to_path_buf()
+        };
         match app {
-            None => start(Command::new("explorer.exe").arg(&path)),
+            None => {
+                // Only open a verified local fixed-drive non-symlink, non-CLSID directory directly
+                // in Explorer; files and CLSID-suffixed folders fall back to safe reveal (never
+                // default-app execution).
+                if !verified.is_dir || browser_policy::is_clsid_folder_name(&clean) {
+                    return self.reveal(&clean);
+                }
+                if harness_log::record("openIn", &[("path", &clean)]) {
+                    return Ok(());
+                }
+                if rune::is_headless() {
+                    return Ok(());
+                }
+                start(Command::new("explorer.exe").arg(&clean))
+            }
             Some(app) => {
                 let exe = resolve(app, |k| std::env::var_os(k)).ok_or_else(|| format!("{app} isn't installed"))?;
+                if harness_log::record("openIn", &[("path", &clean), ("app", app)]) {
+                    return Ok(());
+                }
                 if is_powershell(&exe) {
-                    return powershell(&exe, &path);
+                    if rune::is_headless() {
+                        return Ok(());
+                    }
+                    return powershell(&exe, &dir);
                 }
                 if is_terminal(&exe) {
-                    // Windows Terminal opens in a window of its own (`-w new`, never a tab in one
-                    // the person already has open) in the folder (`-d`), not the path.
-                    return start(Command::new(exe).args(["-w", "new", "-d"]).arg(folder(&path)));
+                    if rune::is_headless() {
+                        return Ok(());
+                    }
+                    // Windows Terminal splits its command line on `;` even inside quoted arguments.
+                    // Pass `-d .` and set the folder via `.current_dir(&dir)` so repository names
+                    // containing `;` work safely without ever placing `dir` on `wt`'s command line.
+                    return start(Command::new(exe).args(["-w", "new", "-d", "."]).current_dir(&dir));
                 }
-                start(Command::new(exe).arg(&path))
+                if rune::is_headless() {
+                    return Ok(());
+                }
+                // `clean` is guaranteed by `verify_local_path` to begin with `<drive>:\` (never `-`).
+                start(Command::new(exe).arg(&clean))
             }
         }
     }
 
     fn reveal(&self, path: &str) -> Result<(), String> {
-        let path = native(path);
-        if !Path::new(&path).exists() {
-            return Err(format!("{path} doesn't exist"));
-        }
-        // The shell selects it in a File Explorer window (an open one on its folder when there is
-        // one) without a new explorer.exe; only if it can't does that start.
-        if shell_select(&path) {
+        let verified = browser_policy::verify_local_path(path).map_err(|e| e.to_string())?;
+        if harness_log::record("reveal", &[("path", &verified.path)]) {
             return Ok(());
         }
-        // Explorer reads `/select,` and the quoted path itself, so they go as written.
-        start(Command::new("explorer.exe").raw_arg(format!("/select,\"{path}\"")))
-    }
-}
-
-/// `SHOpenFolderAndSelectItems` on `path`, in this thread's own apartment (the launcher's worker).
-#[allow(unsafe_code)]
-fn shell_select(path: &str) -> bool {
-    use std::os::windows::ffi::OsStrExt;
-    use windows_sys::Win32::System::Com::{COINIT_APARTMENTTHREADED, CoInitializeEx};
-    use windows_sys::Win32::UI::Shell::{ILCreateFromPathW, ILFree, SHOpenFolderAndSelectItems};
-    let wide: Vec<u16> = std::ffi::OsStr::new(path).encode_wide().chain([0]).collect();
-    // SAFETY: COM for this thread, then an ID list made from a NUL-terminated path and freed
-    // after the call that reads it.
-    unsafe {
-        let _ = CoInitializeEx(std::ptr::null(), COINIT_APARTMENTTHREADED as u32);
-        let pidl = ILCreateFromPathW(wide.as_ptr());
-        if pidl.is_null() {
-            return false;
+        if rune::is_headless() {
+            return Ok(());
         }
-        let ok = SHOpenFolderAndSelectItems(pidl, 0, std::ptr::null(), 0) >= 0;
-        ILFree(pidl);
-        ok
+        harness_log::reveal(&verified.path).map(|_| ()).map_err(|e| e.to_string())
     }
-}
-
-/// The folder `path` is, or is in.
-fn folder(path: &str) -> PathBuf {
-    let at = Path::new(path);
-    if at.is_dir() { at.to_path_buf() } else { at.parent().unwrap_or(at).to_path_buf() }
 }
 
 fn is_terminal(exe: &Path) -> bool {
     exe.file_stem().is_some_and(|s| s.eq_ignore_ascii_case("wt"))
 }
 
-/// `path` with Windows separators, which Explorer needs.
-fn native(path: &str) -> String {
-    path.replace('/', "\\")
+/// Opens a user-confirmed allow-listed app-scheme URI via Windows Shell association
+/// (`ShellExecuteExW` with `lpVerb = "open"` and `SEE_MASK_FLAG_NO_UI`, never splicing a shell
+/// command line ourselves).
+///
+/// Windows' Shell association engine resolves both classic `HKCR\<scheme>\shell\open\command`
+/// (`"%1"` substitution) and modern MSIX/UWP `DelegateExecute` handlers. Because classic `%1`
+/// substitution injects the URI text inside `"%1"`, `browser_policy::is_strict_rfc3986_uri` is
+/// re-verified here to ban `"`, `\`, spaces/whitespace, controls, `< > ` ^ { | }`, non-ASCII, and
+/// malformed `%XX`, preventing quote break-out and argument injection.
+#[allow(unsafe_code)]
+pub(crate) fn open_app_uri(uri: &str) -> bool {
+    use std::ffi::OsStr;
+    use std::os::windows::ffi::OsStrExt;
+    use windows_sys::Win32::UI::Shell::{SEE_MASK_FLAG_NO_UI, SHELLEXECUTEINFOW, ShellExecuteExW};
+    use windows_sys::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
+
+    if !browser_policy::is_strict_rfc3986_uri(uri) {
+        return false;
+    }
+    let verb: Vec<u16> = OsStr::new("open").encode_wide().chain([0]).collect();
+    let target: Vec<u16> = OsStr::new(uri).encode_wide().chain([0]).collect();
+    // SAFETY: zero-initialized `SHELLEXECUTEINFOW` with exact `cbSize`, valid NUL-terminated
+    // UTF-16 `verb` and `target` buffers live across the synchronous `ShellExecuteExW` call.
+    let mut info: SHELLEXECUTEINFOW = unsafe { std::mem::zeroed() };
+    info.cbSize = std::mem::size_of::<SHELLEXECUTEINFOW>() as u32;
+    info.fMask = SEE_MASK_FLAG_NO_UI;
+    info.lpVerb = verb.as_ptr();
+    info.lpFile = target.as_ptr();
+    info.nShow = SW_SHOWNORMAL;
+    unsafe { ShellExecuteExW(&mut info) != 0 }
 }
 
 /// Starts `cmd` on its own: the app keeps running after the launch answers.
@@ -107,14 +141,14 @@ fn is_powershell(exe: &Path) -> bool {
 }
 
 /// PowerShell takes its working directory rather than a path, and needs a console of its own:
-/// `start` opens one, as Desktop's `openPath` does.
-fn powershell(exe: &Path, path: &str) -> Result<(), String> {
-    let dir = folder(path);
+/// `start` opens one, as Desktop's `openPath` does. `dir` goes only to `.current_dir`, never
+/// onto `cmd.exe`'s command line.
+fn powershell(exe: &Path, dir: &Path) -> Result<(), String> {
     let status = Command::new("cmd.exe")
         .args(["/d", "/c", "start", ""])
         .arg(exe)
         .arg("-NoExit")
-        .current_dir(&dir)
+        .current_dir(dir)
         .creation_flags(CREATE_NO_WINDOW)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
@@ -147,7 +181,8 @@ fn resolve(app: &str, var: impl Fn(&str) -> Option<OsString>) -> Option<PathBuf>
     if let Some(exe) = named_like(app, &found) {
         return Some(exe);
     }
-    installed_at(app, var).or_else(|| found.into_iter().next())
+    // Never fall back to spawning a `.cmd`/`.bat` shim directly (cmd.exe metacharacter exposure).
+    installed_at(app, var).or_else(|| found.into_iter().find(|p| ext(p, "exe")))
 }
 
 /// What `where` finds for `app` on the `PATH`, in order: each folder of `PATH` with each

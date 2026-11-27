@@ -78,15 +78,15 @@ fn app() -> Vec<MenuItem<App>> {
 /// a plain `fn`, so each slot runs the plugin item at its place in the list.
 fn plugin_items() -> Vec<MenuItem<App>> {
     const SLOTS: [fn(&mut App, &mut Tx); 8] = [plugin_slot::<0>, plugin_slot::<1>, plugin_slot::<2>, plugin_slot::<3>, plugin_slot::<4>, plugin_slot::<5>, plugin_slot::<6>, plugin_slot::<7>];
-    app_items().into_iter().zip(SLOTS).map(|((key, label), slot)| MenuItem::new(label, slot).id(format!("App/{key}"))).collect()
+    app_items().into_iter().zip(SLOTS).map(|((key, label, enabled), slot)| MenuItem::new(label, slot).id(format!("App/{key}")).enabled(enabled)).collect()
 }
 
-fn app_items() -> Vec<(&'static str, String)> {
-    crate::plugin_host::commands::menubar_items().into_iter().filter(|(_, menu, _, _)| menu == "app").map(|(key, _, label, _)| (key, label)).collect()
+fn app_items() -> Vec<(&'static str, String, bool)> {
+    crate::plugin_host::commands::menubar_items().into_iter().filter(|(_, menu, _, _, _)| menu == "app").map(|(key, _, label, _, enabled)| (key, label, enabled)).collect()
 }
 
 fn plugin_slot<const I: usize>(s: &mut App, tx: &mut Tx) {
-    if let Some((key, _)) = app_items().get(I) {
+    if let Some((key, _, true)) = app_items().get(I) {
         crate::plugin_host::run_menubar(s, key, tx);
     }
 }
@@ -102,6 +102,8 @@ fn file() -> Vec<MenuItem<App>> {
         MenuItem::separator().menu("File"),
         keyed(MenuItem::new(t!("command.tab.close"), |s: &mut App, tx: &mut Tx| run(s, Act::CloseTab, tx)).id("File/CloseTab").menu("File"), Bind::TabClose).keys_first(),
         fixed(MenuItem::new(t!("desktop.menu.closeWindow"), |s: &mut App, tx: &mut Tx| run(s, Act::CloseWindow, tx)).id("File/CloseWindow").menu("File"), "mod+shift+w"),
+        // AppKit's Close All, behind Close Window while Option is held, as official Desktop's File menu has it.
+        fixed(MenuItem::new(t!("rune.menu.file.closeAll"), |s: &mut App, tx: &mut Tx| run(s, Act::CloseAll, tx)).id("File/CloseAll").menu("File").alternate(), "mod+alt+shift+w"),
     ]
 }
 

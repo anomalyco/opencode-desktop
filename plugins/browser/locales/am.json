@@ -64,5 +64,6 @@
   "zoom.reset": "ማጉላትን ዳግም አስጀምር",
   "zoom.percent": "{{percent}}%",
   "link.copy": "አገናኝ ቅዳ",
-  "history.clear": "ታሪክን አጽዳ"
+  "history.clear": "ታሪክን አጽዳ",
+  "extensions.compat.feature.management": "ሌሎች ቅጥያዎችን ማስተዳደር"
 }

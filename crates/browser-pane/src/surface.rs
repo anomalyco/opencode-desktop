@@ -47,7 +47,7 @@ impl BrowserHost {
         crate::frame::draw(page, &tab.surface)
             .surface_anchor(Align::Start, Align::Start)
             .surface_unscaled(true)
-            .on_layout(move |s: &mut S, [x, y, w, h]| {
+            .on_layout_tx(move |s: &mut S, [x, y, w, h], tx| {
                 let width_pt = (w * z).max(1.0);
                 let height_pt = (h * z).max(1.0);
                 let sc = scale.max(1.0);
@@ -79,6 +79,7 @@ impl BrowserHost {
                         host.send(HostMsg::Emulate { tab_id, device: Some(device), scale });
                     }
                 }
+                tx.live_only();
             })
             .on_pointer_move_local(move |s: &mut S, p: PointerEvent, tx| {
                 let host = access(s);
@@ -104,6 +105,7 @@ impl BrowserHost {
                         leave: true,
                     });
                 }
+                tx.live_only();
             })
             .on_drag(move |s: &mut S, d: &mut Drag, tx| {
                 if access(s).tab(tab_id).is_some_and(|t| t.prompts.has_blocking_modal()) {
@@ -115,6 +117,11 @@ impl BrowserHost {
                     pressed(s, tab_id);
                 }
                 let host = access(s);
+                if d.phase == Phase::Down
+                    && let Some(t) = host.tabs.iter_mut().find(|t| t.id == tab_id)
+                {
+                    t.prompts.record_document_input();
+                }
                 match d.phase {
                     Phase::Down => host.send(HostMsg::MouseButton {
                         tab_id,
@@ -125,22 +132,28 @@ impl BrowserHost {
                         clicks: d.clicks.clamp(1, 3),
                         mods,
                     }),
-                    Phase::Move => host.send(HostMsg::MouseMove {
-                        tab_id,
-                        x: d.x * z,
-                        y: d.y * z,
-                        mods,
-                        leave: false,
-                    }),
-                    Phase::Up => host.send(HostMsg::MouseButton {
-                        tab_id,
-                        x: d.x * z,
-                        y: d.y * z,
-                        button: btn,
-                        up: true,
-                        clicks: d.clicks.clamp(1, 3),
-                        mods,
-                    }),
+                    Phase::Move => {
+                        host.send(HostMsg::MouseMove {
+                            tab_id,
+                            x: d.x * z,
+                            y: d.y * z,
+                            mods,
+                            leave: false,
+                        });
+                        tx.live_only();
+                    }
+                    Phase::Up => {
+                        host.send(HostMsg::MouseButton {
+                            tab_id,
+                            x: d.x * z,
+                            y: d.y * z,
+                            button: btn,
+                            up: true,
+                            clicks: d.clicks.clamp(1, 3),
+                            mods,
+                        });
+                        tx.live_only();
+                    }
                 }
             })
             .on_secondary_press_local(move |s: &mut S, p: PointerEvent, tx| {
@@ -150,6 +163,9 @@ impl BrowserHost {
                 let mods = pack_mods(tx.mods());
                 pressed(s, tab_id);
                 let host = access(s);
+                if let Some(t) = host.tabs.iter_mut().find(|t| t.id == tab_id) {
+                    t.prompts.record_document_input();
+                }
                 for up in [false, true] {
                     host.send(HostMsg::MouseButton {
                         tab_id,
@@ -162,7 +178,7 @@ impl BrowserHost {
                     });
                 }
             })
-            .on_wheel(move |s: &mut S, w: WheelEvent, _tx| {
+            .on_wheel(move |s: &mut S, w: WheelEvent, tx| {
                 let host = access(s);
                 if host.tab(tab_id).is_some_and(|t| t.prompts.has_blocking_modal()) {
                     return false;
@@ -172,6 +188,7 @@ impl BrowserHost {
                     host.step_zoom(tab_id, if w.dy > 0.0 { 1 } else { -1 });
                     return true;
                 }
+                host.note_wheel_scroll(tab_id);
                 host.send(HostMsg::Wheel {
                     tab_id,
                     x: w.x * z,
@@ -180,12 +197,14 @@ impl BrowserHost {
                     dy: w.dy,
                     mods: pack_mods(w.mods),
                 });
+                tx.live_only();
                 true
             })
-            // Off macOS a pinch or Ctrl + wheel reaches Rune as a pinch; step the page's zoom
-            // presets (`chromium.ts:275` `zoom-changed`), leaving the window's own pinch zoom alone.
+            // Ctrl + wheel (and off macOS a pinch, which arrives as one) steps the page's zoom
+            // presets (`chromium.ts:289` `zoom-changed`), leaving the window's own pinch zoom alone.
+            // A macOS pinch gesture is no `zoom-changed` in Electron, so it goes on to the window.
             .on_magnify(move |s: &mut S, m: MagnifyEvent, _tx| {
-                if cfg!(target_os = "macos") {
+                if cfg!(target_os = "macos") && !m.wheel {
                     return false;
                 }
                 let host = access(s);
@@ -197,7 +216,34 @@ impl BrowserHost {
                 }
                 true
             })
-            .on_key(move |s: &mut S, ev: &KeyEvent, _tx| access(s).forward_key(tab_id, ev, true))
-            .on_key_up(move |s: &mut S, ev: &KeyEvent, _tx| access(s).forward_key(tab_id, ev, false))
+            .on_key(move |s: &mut S, ev: &KeyEvent, tx| {
+                let host = access(s);
+                match host.forward_key(tab_id, ev, true) {
+                    crate::client::KeyForward::Ignored => false,
+                    crate::client::KeyForward::Forwarded => {
+                        if let Some(t) = host.tabs.iter_mut().find(|t| t.id == tab_id) {
+                            t.prompts.record_document_input();
+                        }
+                        tx.live_only();
+                        true
+                    }
+                    crate::client::KeyForward::StateChanged => {
+                        if let Some(t) = host.tabs.iter_mut().find(|t| t.id == tab_id) {
+                            t.prompts.record_document_input();
+                        }
+                        true
+                    }
+                }
+            })
+            .on_key_up(move |s: &mut S, ev: &KeyEvent, tx| {
+                match access(s).forward_key(tab_id, ev, false) {
+                    crate::client::KeyForward::Ignored => false,
+                    crate::client::KeyForward::Forwarded => {
+                        tx.live_only();
+                        true
+                    }
+                    crate::client::KeyForward::StateChanged => true,
+                }
+            })
     }
 }

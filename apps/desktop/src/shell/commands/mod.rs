@@ -58,6 +58,15 @@ impl Command {
         crate::keymap::overrides::command(self.id)
             .map_or(self.chord, |k| k.chords().first().copied())
     }
+
+    /// The strokes its rows show (`formatKeybind`'s first combo): a chord Settings › Shortcuts
+    /// bound it (opencode#64395), else its first chord alone. Empty when unbound.
+    pub fn strokes(&self) -> Vec<rune::Chord> {
+        match self.keys {
+            Some(bind) => bind.strokes(),
+            None => crate::keymap::sequence::first(self.id).unwrap_or_else(|| self.effective_chord().into_iter().collect()),
+        }
+    }
 }
 
 /// Search commands' own entry: the commands-only palette doesn't list itself.
@@ -142,6 +151,8 @@ impl App {
         self.search.focused = false;
         self.kernel.slots.get_mut(&crate::find::FIND).input.focused = false;
         self.composer.focused = true;
+        // ^L from the keys shows the prompt's ring; from the palette's pointer it doesn't.
+        tx.focus("prompt", tx.by_keys());
         true
     }
 
@@ -155,6 +166,16 @@ impl App {
     pub(crate) fn open_root_session(&self) -> Option<String> {
         let id = self.active_session_id()?;
         self.session(id).is_none_or(|i| i.parent.is_none()).then(|| id.to_owned())
+    }
+
+    /// The open root session and whether it's archived (`archivable` / `unarchivable`,
+    /// `use-session-commands.tsx`), when the window knows it: among the sessions, or on the
+    /// archived list, which the session list leaves out.
+    pub(crate) fn open_root_archived(&self) -> Option<(String, bool)> {
+        let id = self.open_root_session()?;
+        let info = self.session(&id).or_else(|| self.inbox_archived().iter().find(|a| a.id == id))?;
+        let archived = info.archived.is_some();
+        Some((id, archived))
     }
 
     pub(crate) fn in_root_session(&self) -> bool {
@@ -232,7 +253,7 @@ fn has_sidebar(s: &App) -> bool {
 pub fn register_shell_commands(b: &mut KernelBuilder<App>) {
     // `session.new` has no keybind of its own; it runs `tab.new` (`use-session-commands.tsx:446-451`).
     b.add_command(
-        CommandEntry::<App>::from_key("new", opencode_i18n::key!("command.session.new"), order::NEW, |s, tx| s.new_session(tx))
+        CommandEntry::<App>::from_key("session.new", opencode_i18n::key!("command.session.new"), order::NEW, |s, tx| s.new_session(tx))
             .slash("new")
             .section("session"),
     );
@@ -261,13 +282,13 @@ pub fn register_shell_commands(b: &mut KernelBuilder<App>) {
             .when(has_sidebar),
     );
     b.add_command(
-        CommandEntry::<App>::from_key("reload", opencode_i18n::key!("command.config.reload"), order::RELOAD, reload)
+        CommandEntry::<App>::from_key("config.reload", opencode_i18n::key!("command.config.reload"), order::RELOAD, reload)
             .describe(opencode_i18n::key!("command.config.reload.description"))
             .slash("reload")
             .when(is_live),
     );
     b.add_command(
-        CommandEntry::<App>::from_key("compact", opencode_i18n::key!("command.session.compact"), order::COMPACT, compact)
+        CommandEntry::<App>::from_key("session.compact", opencode_i18n::key!("command.session.compact"), order::COMPACT, compact)
             .describe(opencode_i18n::key!("command.session.compact.description"))
             .slash("compact")
             .section("session")

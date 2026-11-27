@@ -55,6 +55,9 @@ impl App {
     /// the one it holds.
     pub(crate) fn children_listed(&mut self, sessions: Vec<SessionInfo>) {
         for mut info in sessions {
+            if rune::Tracked::untracked(&self.recent_page).would_record_info(&info) {
+                self.recent_page.record_info(&info);
+            }
             match self.sessions.iter_mut().find(|x| x.id == info.id) {
                 Some(old) => {
                     info.viewed = info.viewed.max(old.viewed);

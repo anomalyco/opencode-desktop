@@ -64,5 +64,6 @@
   "zoom.reset": "확대/축소 초기화",
   "zoom.percent": "{{percent}}%",
   "link.copy": "링크 복사",
-  "history.clear": "기록 지우기"
+  "history.clear": "기록 지우기",
+  "extensions.compat.feature.management": "다른 확장 프로그램 관리"
 }

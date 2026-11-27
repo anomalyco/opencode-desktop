@@ -64,5 +64,6 @@
   "zoom.reset": "Бозсозии миқёс",
   "zoom.percent": "{{percent}}%",
   "link.copy": "Нусхабардории пайванд",
-  "history.clear": "Тоза кардани таърих"
+  "history.clear": "Тоза кардани таърих",
+  "extensions.compat.feature.management": "Идоракунии васеъкуниҳои дигар"
 }

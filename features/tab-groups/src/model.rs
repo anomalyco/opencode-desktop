@@ -88,6 +88,8 @@ pub struct Doc {
     pub overrides: BTreeMap<String, Override>,
     pub manual_groups: Vec<ManualGroup>,
     pub manual_assignments: BTreeMap<String, String>,
+    /// Default color remembered for each automatic group when it first appears (`colors`, #65165).
+    pub colors: BTreeMap<String, Color>,
 }
 
 impl Default for Doc {
@@ -100,6 +102,7 @@ impl Default for Doc {
             overrides: BTreeMap::new(),
             manual_groups: Vec::new(),
             manual_assignments: BTreeMap::new(),
+            colors: BTreeMap::new(),
         }
     }
 }
@@ -120,6 +123,7 @@ impl Doc {
                 (k.clone(), Value::Object(v))
             })
             .collect();
+        let colors: Map<String, Value> = self.colors.iter().map(|(k, c)| (k.clone(), json!(c.name()))).collect();
         json!({
             "mode": self.mode.name(),
             "groupOrder": self.group_order,
@@ -131,6 +135,7 @@ impl Doc {
                 "color": g.color.name(),
             })).collect::<Vec<_>>(),
             "manualAssignments": self.manual_assignments,
+            "colors": colors,
         })
     }
 
@@ -174,6 +179,9 @@ impl Doc {
             manual_assignments: obj("manualAssignments")
                 .filter_map(|(k, x)| Some((k.clone(), x.as_str()?.to_owned())))
                 .collect(),
+            colors: obj("colors")
+                .filter_map(|(k, x)| Some((k.clone(), Color::parse(x.as_str())?)))
+                .collect(),
         }
     }
 }
@@ -206,6 +214,7 @@ pub struct Group {
     pub default_name: String,
     pub name: String,
     pub color: Color,
+    pub default_color: Color,
     pub collapsed: bool,
     pub all: Vec<usize>,
     pub visible: Vec<usize>,
@@ -247,25 +256,51 @@ pub fn next_manual_number(existing: &[ManualGroup], format: &dyn Fn(usize) -> St
         .unwrap_or(existing.len() + 1)
 }
 
-fn stable_colors(seeds: impl IntoIterator<Item = String>, prefix: &str, overrides: &BTreeMap<String, Override>) -> HashMap<String, Color> {
+/// Keeps the default color each group was first given (`remembered`), and picks one for a new
+/// group in sorted seed order, avoiding colors the other present groups already use. Recoloring,
+/// reordering, filtering or closing one group never changes another group's color (`#65165`).
+fn stable_colors(seeds: impl IntoIterator<Item = String>, prefix: &str, remembered: &BTreeMap<String, Color>) -> HashMap<String, Color> {
     let unique: BTreeSet<String> = seeds.into_iter().collect();
-    let mut used = BTreeSet::new();
+    let mut used: BTreeSet<&'static str> = unique
+        .iter()
+        .filter_map(|seed| remembered.get(&format!("{prefix}{seed}")).map(|c| c.name()))
+        .collect();
     let mut out = HashMap::new();
     for seed in &unique {
         if prefix == "project:" && seed == "other" {
             out.insert(seed.clone(), Color::Gray);
             continue;
         }
+        if let Some(&saved) = remembered.get(&format!("{prefix}{seed}")) {
+            out.insert(seed.clone(), saved);
+            continue;
+        }
         let picked = hash_color(seed, &used);
         used.insert(picked.name());
         out.insert(seed.clone(), picked);
     }
-    for seed in &unique {
-        if let Some(c) = overrides.get(&format!("{prefix}{seed}")).and_then(|o| o.color) {
-            out.insert(seed.clone(), c);
-        }
-    }
     out
+}
+
+/// Records the position and default color of each automatic group the first time it appears
+/// (`rememberAutoGroups`, #65165). Without this, group order follows the first tab of each group
+/// in tab order and colors depend on which groups are open, so closing one tab could reorder or
+/// recolor the groups that remain.
+pub fn remember_auto_groups(groups: &[Group], doc: &Doc) -> Option<(Vec<String>, BTreeMap<String, Color>)> {
+    let auto: Vec<&Group> = groups.iter().filter(|g| matches!(g.kind, Kind::Server | Kind::Project)).collect();
+    let known: BTreeSet<&str> = doc.group_order.iter().map(String::as_str).collect();
+    let added: Vec<&Group> = auto.iter().copied().filter(|g| !known.contains(g.key.as_str())).collect();
+    let uncolored: Vec<&Group> = auto.iter().copied().filter(|g| !doc.colors.contains_key(&g.key)).collect();
+    if added.is_empty() && uncolored.is_empty() {
+        return None;
+    }
+    let mut group_order = doc.group_order.clone();
+    group_order.extend(added.into_iter().map(|g| g.key.clone()));
+    let mut colors = doc.colors.clone();
+    for g in uncolored {
+        colors.insert(g.key.clone(), g.default_color);
+    }
+    Some((group_order, colors))
 }
 
 pub fn matches(meta: &Meta, query: &str) -> bool {
@@ -362,6 +397,7 @@ pub fn build(items: &[Meta], doc: &Doc, servers: usize, known_servers: &[String]
             default_name: String::new(),
             name: String::new(),
             color: Color::Gray,
+            default_color: Color::Gray,
             collapsed: false,
             all: filtered.clone(),
             visible: filtered,
@@ -377,7 +413,7 @@ pub fn build(items: &[Meta], doc: &Doc, servers: usize, known_servers: &[String]
             } else {
                 items.iter().map(seed).collect()
             };
-            let colors = stable_colors(seeds, prefix, &doc.overrides);
+            let colors = stable_colors(seeds, prefix, &doc.colors);
             let mut buckets: Vec<(String, Vec<usize>)> = Vec::new();
             for &i in &filtered {
                 let s = seed(&items[i]);
@@ -396,17 +432,19 @@ pub fn build(items: &[Meta], doc: &Doc, servers: usize, known_servers: &[String]
                     } else {
                         first.project_name.clone().unwrap_or_else(|| other.to_owned())
                     };
-                    let name = doc
-                        .overrides
-                        .get(&key)
+                    let override_entry = doc.overrides.get(&key);
+                    let name = override_entry
                         .and_then(|o| o.name.as_deref())
                         .map(str::trim)
                         .filter(|n| !n.is_empty())
                         .map_or_else(|| default_name.clone(), str::to_owned);
                     let fallback = if mode == Mode::Server { Color::Blue } else { Color::Gray };
+                    let default_color = colors.get(&seed).copied().unwrap_or(fallback);
+                    let color = override_entry.and_then(|o| o.color).unwrap_or(default_color);
                     let c = collapsed(&key);
                     Group {
-                        color: colors.get(&seed).copied().unwrap_or(fallback),
+                        color,
+                        default_color,
                         collapsed: c,
                         visible: if c { Vec::new() } else { rows.clone() },
                         all: rows,
@@ -440,6 +478,7 @@ fn manual(items: &[Meta], filtered: &[usize], doc: &Doc, searching: bool) -> Vec
                 default_name: String::new(),
                 name: String::new(),
                 color: Color::Gray,
+                default_color: Color::Gray,
                 collapsed: false,
                 visible: all.clone(),
                 all,
@@ -464,6 +503,7 @@ fn manual(items: &[Meta], filtered: &[usize], doc: &Doc, searching: bool) -> Vec
             default_name: g.name.clone(),
             name: g.name.clone(),
             color: g.color,
+            default_color: g.color,
             collapsed,
             visible: if collapsed { Vec::new() } else { rows.clone() },
             all: rows,

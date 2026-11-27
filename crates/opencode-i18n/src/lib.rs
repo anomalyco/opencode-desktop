@@ -21,6 +21,8 @@
 
 include!(concat!(env!("OUT_DIR"), "/i18n.rs"));
 
+#[cfg(bundle_assets)]
+mod bundle;
 pub mod date;
 mod intl;
 pub mod names;
@@ -125,6 +127,10 @@ pub fn set_locale(id: &str) -> bool {
     let Some(index) = I18N.find_locale(id) else { return false };
     #[cfg(target_arch = "wasm32")]
     if !web::load_or_spawn(index, id) {
+        return false;
+    }
+    #[cfg(bundle_assets)]
+    if !bundle::load(index, id) {
         return false;
     }
     I18N.set_locale(index)

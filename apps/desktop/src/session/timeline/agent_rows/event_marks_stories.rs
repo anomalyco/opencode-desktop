@@ -13,7 +13,7 @@ use serde_json::{Value, json};
 use crate::App;
 use crate::stories::{Trigger, replay, sid};
 
-pub const VARIANTS: &[(&str, usize)] = &[("Subagents", 0), ("Shells", 1), ("Notices", 2)];
+pub const VARIANTS: &[(&str, usize)] = &[("Subagents", 0), ("Shells", 1), ("Notices", 2), ("Scripts", 3), ("Scripts grouped", 4)];
 pub const KEYS: &[Trigger] = &[replay(open)];
 
 fn child(k: usize) -> String {
@@ -112,12 +112,59 @@ fn notices() -> (Vec<Part>, Vec<NoticeKind>) {
     (parts, notices)
 }
 
+/// A Code Mode script that went to the background: its `execute` call, done with the job's id.
+fn script(k: usize, job: &str, code: &str) -> Part {
+    let calls = json!([{ "tool": "shell", "status": "completed", "input": { "command": "bun run typecheck" } }]);
+    tool(k, "execute", ToolStatus::Completed, json!({ "code": code }), json!({ "jobID": job, "toolCalls": calls }))
+}
+
+fn job(id: &str, outcome: Outcome) -> NoticeKind {
+    NoticeKind::Job { id: id.into(), description: "Script".into(), script: Some(outcome), required: outcome == Outcome::Error }
+}
+
+/// Scripts reporting back, each named by its code's first line: one line, one over several
+/// lines with indents and runs of spaces, one that failed, one cancelled, and one whose call
+/// isn't in the transcript, which says only that it finished.
+fn scripts() -> (Vec<Part>, Vec<NoticeKind>) {
+    let parts = vec![
+        text("Five scripts went to the background while the agent kept reading."),
+        script(0, "cm_story_one", "return (await tools.shell({ command: \"bun run typecheck\" })).output"),
+        script(1, "cm_story_many", "\n\n    const   files = await tools.read({ path: \"src/parser\" })\n    for (const f of files.entries) {\n      await tools.shell({ command: `wc -l ${f}` })\n    }"),
+        script(2, "cm_story_fails", "await tools.shell({ command: \"cargo test -p parser --no-fail-fast\" })"),
+        script(3, "cm_story_stops", "await tools.shell({ command: \"bun run watch\" })"),
+    ];
+    let notices = vec![
+        job("cm_story_one", Outcome::Completed),
+        job("cm_story_many", Outcome::Completed),
+        job("cm_story_fails", Outcome::Error),
+        job("cm_story_stops", Outcome::Cancelled),
+        job("cm_story_gone", Outcome::Completed),
+    ];
+    (parts, notices)
+}
+
+/// A script whose report folds into the group that launched it, as Compact places notices:
+/// "Ran 1 command", opened to show the call and its report.
+fn scripts_grouped(s: &mut App) -> (Vec<Part>, Vec<NoticeKind>) {
+    s.timeline_fx.expanded.insert("c-call_story_mark_00".into());
+    let parts = vec![script(0, "cm_story_grouped", "const r = await tools.shell({ command: \"bun run typecheck\" })\nreturn r.output")];
+    (parts, vec![job("cm_story_grouped", Outcome::Completed)])
+}
+
 fn open(s: &mut App, _tx: &mut Play<App>) {
     s.finish_stream();
     let parent = sid(s);
+    // The Scripts variant gives each report its own row; the others keep Compact's places.
+    let mut detail = session_view::detail::Detail::default();
+    if *s.fixture_run.variant == 3 {
+        detail.set(session_view::detail::Category::Notices, session_view::detail::Activity { placement: session_view::detail::Placement::Separate, expanded: false });
+    }
+    s.settings.timeline_detail = detail;
     let (parts, kinds) = match *s.fixture_run.variant {
         0 => subagents(s, &parent),
         1 => shells(),
+        3 => scripts(),
+        4 => scripts_grouped(s),
         _ => notices(),
     };
     let answer = Assistant { id: "msg_story_marks".into(), completed: Some(*s.now_ms), parts, ..Default::default() };

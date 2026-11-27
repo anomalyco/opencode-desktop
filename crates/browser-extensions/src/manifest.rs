@@ -30,17 +30,14 @@ const MAX_MANIFEST_BYTES: u64 = 1024 * 1024;
 const MAX_LIST_ITEMS: usize = 256;
 const MAX_ITEM_CHARS: usize = 256;
 
-/// Native Chromium permissions refused at load/approval because they can bypass the extension
-/// host boundary (`debugger` attaches CDP to any tab; `nativeMessaging` launches host binaries;
-/// `downloads` writes to the user's Downloads folder; `proxy` MITMs all traffic; `management`
-/// disables or uninstalls other extensions). Checked on required `permissions` only (never
-/// `optional_permissions`, which Chromium does not grant at install and our shim refuses).
+/// Native Chromium permissions still refused at install/load because they bypass the extension
+/// host boundary (`debugger` attaches CDP to any tab; `proxy` MITMs all traffic).
+/// `nativeMessaging`, `downloads`, and `management` are stripped from Chromium's C++
+/// `PermissionsData` at load time (with fail-closed post-load verification) and answered by dead
+/// stubs, so extensions declaring them install as `Partial` matching official Electron.
 pub const DISALLOWED_REQUIRED_PERMS: &[&str] = &[
     "debugger",
-    "nativeMessaging",
-    "downloads",
     "proxy",
-    "management",
 ];
 
 /// Parsed fields of an extension's `manifest.json` (`extensions.ts:15-44`).
@@ -288,8 +285,9 @@ pub fn compare_versions(a: &str, b: &str) -> Option<Ordering> {
     Some(pa.cmp(&pb))
 }
 
-/// Permissions supported natively in CEF 156 or via our extension host shim (`compatibility.ts:10-34`
-/// plus native MV3 `webRequest` in CEF 156).
+/// Permissions supported natively in CEF 156 or via our extension host shim (`compatibility.ts:14-33`
+/// minus `management`, `proxy`, `declarativeNetRequestFeedback`, and MV3 `webRequest*`, which are
+/// stripped in C++ so extensions can never observe `Default` agent tabs or bypass Rune guards).
 const SUPPORTED_PERMS: &[&str] = &[
     "activeTab",
     "alarms",
@@ -299,7 +297,6 @@ const SUPPORTED_PERMS: &[&str] = &[
     "contextMenus",
     "cookies",
     "declarativeNetRequest",
-    "declarativeNetRequestFeedback",
     "declarativeNetRequestWithHostAccess",
     "idle",
     "notifications",
@@ -311,8 +308,6 @@ const SUPPORTED_PERMS: &[&str] = &[
     "tabs",
     "unlimitedStorage",
     "webNavigation",
-    "webRequest",
-    "webRequestBlocking",
 ];
 
 const STARTUP_FATAL_PERMS: &[&str] = &[
@@ -333,6 +328,7 @@ const FEATURE_ORDER: &[ExtensionFeature] = &[
     ExtensionFeature::Signin,
     ExtensionFeature::Network,
     ExtensionFeature::BrowserData,
+    ExtensionFeature::Management,
     ExtensionFeature::Settings,
     ExtensionFeature::AddressBar,
     ExtensionFeature::NewTab,
@@ -404,7 +400,7 @@ fn permission_feature(perm: &str) -> Option<ExtensionFeature> {
         return None;
     }
     Some(match perm {
-        "webRequestAuthProvider" | "proxy" => ExtensionFeature::Network,
+        "webRequest" | "webRequestBlocking" | "webRequestAuthProvider" | "proxy" => ExtensionFeature::Network,
         "nativeMessaging" => ExtensionFeature::Native,
         "identity" | "identity.email" => ExtensionFeature::Signin,
         "sidePanel" => ExtensionFeature::SidePanel,
@@ -417,7 +413,9 @@ fn permission_feature(perm: &str) -> Option<ExtensionFeature> {
         | "favicon"
         | "downloads"
         | "downloads.open"
-        | "downloads.ui" => ExtensionFeature::BrowserData,
+        | "downloads.ui"
+        | "downloads.shelf" => ExtensionFeature::BrowserData,
+        "management" => ExtensionFeature::Management,
         "privacy" | "fontSettings" | "contentSettings" | "browsingData" => ExtensionFeature::Settings,
         "userScripts" => ExtensionFeature::UserScripts,
         _ => ExtensionFeature::Other,
@@ -481,7 +479,7 @@ pub fn extension_access(manifest: &Manifest) -> Vec<ExtensionAccess> {
     let mut out = Vec::new();
     if all {
         out.push(ExtensionAccess::AllSites);
-    } else if !sites.is_empty() {
+    } else if !sites.is_empty() || manifest.permissions.iter().any(|p| p == "scripting") {
         out.push(ExtensionAccess::SomeSites);
     }
     if manifest.permissions.iter().any(|p| p == "cookies") {
@@ -496,6 +494,8 @@ pub fn extension_access(manifest: &Manifest) -> Vec<ExtensionAccess> {
             "declarativeNetRequest"
                 | "declarativeNetRequestWithHostAccess"
                 | "declarativeNetRequestFeedback"
+                | "webRequest"
+                | "webRequestBlocking"
         )
     }) {
         out.push(ExtensionAccess::BlockRequests);
@@ -507,11 +507,12 @@ pub fn extension_access(manifest: &Manifest) -> Vec<ExtensionAccess> {
     {
         out.push(ExtensionAccess::Activity);
     }
-    if manifest.permissions.iter().any(|p| p == "clipboardRead") {
+    if manifest
+        .permissions
+        .iter()
+        .any(|p| matches!(p.as_str(), "clipboardRead" | "clipboardWrite"))
+    {
         out.push(ExtensionAccess::Clipboard);
-    }
-    if manifest.permissions.iter().any(|p| p == "management") {
-        out.push(ExtensionAccess::ManageExtensions);
     }
     if !manifest.externally_connectable.is_empty() {
         out.push(ExtensionAccess::ExternalConnect);
@@ -563,14 +564,30 @@ fn parse_pattern(pattern: &str) -> Option<ParsedPattern> {
     };
     let slash = rest.find('/')?;
     let authority = &rest[..slash];
-    let (raw_host, port) = match authority.split_once(':') {
-        Some((h, p)) if p == "*" || (!p.is_empty() && p.bytes().all(|b| b.is_ascii_digit())) => {
-            (h, Some(p.to_owned()))
+    let (raw_host, port) = if let Some(after_open) = authority.strip_prefix('[') {
+        let (inner, trailing) = after_open.split_once(']')?;
+        let ip = inner.parse::<std::net::Ipv6Addr>().ok()?;
+        let port = if trailing.is_empty() {
+            None
+        } else {
+            let p = trailing.strip_prefix(':')?;
+            if p == "*" || (!p.is_empty() && p.bytes().all(|b| b.is_ascii_digit())) {
+                Some(p.to_owned())
+            } else {
+                return None;
+            }
+        };
+        (format!("[{ip}]"), port)
+    } else {
+        match authority.split_once(':') {
+            Some((h, p)) if p == "*" || (!p.is_empty() && p.bytes().all(|b| b.is_ascii_digit())) => {
+                (h.to_ascii_lowercase(), Some(p.to_owned()))
+            }
+            Some(_) => return None,
+            None => (authority.to_ascii_lowercase(), None),
         }
-        Some(_) => return None,
-        None => (authority, None),
     };
-    let host = raw_host.to_ascii_lowercase();
+    let host = raw_host;
     let path = rest[slash..].to_owned();
     Some(ParsedPattern { schemes, host, port, path })
 }

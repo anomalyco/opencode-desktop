@@ -224,6 +224,12 @@ pub trait ProjectsHost: opencode_kernel::AppEnv + opencode_kernel::AppOverlays {
         let _ = key;
         true
     }
+    /// Whether the sessions listed for `key` are the ones it listed before this launch, kept in
+    /// the app's saved state and shown until its first reads land.
+    fn lists_saved_sessions(&self, key: &ServerKey) -> bool {
+        let _ = key;
+        false
+    }
     /// Whether all server sources (including plugin server sources) have finished initial hydration.
     fn server_sources_hydrated(&self) -> bool {
         true

@@ -6,6 +6,7 @@ use serde_json::Value;
 
 use super::{Call, Ctx, Display, Press, Trigger, body, busy, directory, disclosure, field, file_name, output, path, still, sub_key, trigger};
 use crate::TimelineHost;
+use crate::focus::FocusExt;
 use crate::palette::Pal;
 use crate::style::{HOVER_FADE, INSTANT, UI, arrow, readable};
 
@@ -70,7 +71,7 @@ pub fn read_group<S: TimelineHost>(s: &S, p: &Pal, cx: Ctx, calls: &[Call]) -> E
         .w_full()
         .min_h(28.0)
         .gap(8.0)
-        .hover_group()
+        .hover_group_focus()
         .hover_motion(HOVER_FADE, HOVER_FADE)
         .child(row().h(if open { 20.0 } else { 28.0 }).center_y().child(title))
         .child(row().shrink().min_w(0.0).center_y().child(readable(p, words).shrink().min_w(0.0)));
@@ -79,9 +80,13 @@ pub fn read_group<S: TimelineHost>(s: &S, p: &Pal, cx: Ctx, calls: &[Call]) -> E
         // The group's arrow turns to the line's start right to left (`message-part.css:1864`).
         let a = el().key("arrow").w(16.0).h(20.0).center().child(arrow(p, open).mirror_in_rtl());
         r = r
-            .child(if open { a } else { a.group_opacity(0.0, 1.0) })
+            .child(if open || crate::style::hover_none() { a } else { a.group_opacity(0.0, 1.0) })
             .role("button")
             .label_static(opencode_i18n::t!("ui.tool.read"))
+            .expanded(open)
+            .radius(4.0)
+            .cursor(rune::Cursor::Pointer)
+            .focus_default(p)
             .on_press_tx(crate::disclosure::toggle::<S>(k, format!("tool-{}", first.id)));
     }
     r
@@ -120,12 +125,34 @@ pub fn search<S: TimelineHost>(s: &S, p: &Pal, cx: Ctx, c: &Call) -> El {
 pub fn webfetch<S: TimelineHost>(s: &S, p: &Pal, cx: Ctx, c: &Call) -> El {
     let d = Display::of(s, cx, c, false);
     let url = field(c.input, "url").filter(|_| d.phase != super::Phase::Pending);
-    let t = Trigger { title: opencode_i18n::t!("ui.tool.fetch").into(), link: url.map(|u| link::<S>(p, u).key("subtitle")), ..Default::default() };
+    let t = Trigger { title: opencode_i18n::t!("ui.tool.fetch").into(), link: url.map(|u| webfetch_link::<S>(p, u).key("subtitle")), ..Default::default() };
     still(trigger(s, p, cx, c, d, t, Press::None, None))
 }
 
-/// A URL that opens in the browser (`webfetch-link`): accent text, underlined under the pointer,
-/// with the way-out icon then too.
+/// `.webfetch-link` in New timeline (`timeline-next.css:195-210`): `text-base` ink with a faint
+/// 40% underline that brightens to full ink on hover, and no external arrow icon.
+fn webfetch_link<S: TimelineHost>(p: &Pal, url: &str) -> El {
+    let to = url.to_owned();
+    el().key("words")
+        .shrink()
+        .min_w(0.0)
+        .radius(4.0)
+        .role("link")
+        .label(url.to_owned())
+        .help(url.to_owned())
+        .focus_default(p)
+        .hover_group_focus()
+        .hover_motion(INSTANT, INSTANT)
+        .on_press_tx(move |s: &mut S, tx: &mut Tx| {
+            tx.instant();
+            s.open_link(&to, tx);
+        })
+        .child(text(url.to_owned()).font(UI).color(p.text).truncate_fade())
+        .child(el().key("underline").pin(Some(0.0), None, Some(0.0), Some(1.0)).h(1.0).fill(p.text).group_opacity(0.4, 1.0))
+}
+
+/// A search result URL that opens in the browser (`ExaOutput`): accent text, underlined under
+/// the pointer, with the way-out icon then too.
 fn link<S: TimelineHost>(p: &Pal, url: &str) -> El {
     let to = url.to_owned();
     let words = el()
@@ -139,10 +166,12 @@ fn link<S: TimelineHost>(p: &Pal, url: &str) -> El {
         .center_y()
         .shrink()
         .min_w(0.0)
+        .radius(4.0)
         .role("link")
         .label(url.to_owned())
         .help(url.to_owned())
-        .hover_group()
+        .focus_default(p)
+        .hover_group_focus()
         .hover_motion(INSTANT, INSTANT)
         .on_press_tx(move |s: &mut S, tx: &mut Tx| {
             tx.instant();
@@ -187,7 +216,9 @@ pub fn websearch<S: TimelineHost>(s: &S, p: &Pal, cx: Ctx, c: &Call) -> El {
                 .key("more")
                 .role("button")
                 .label(more.clone())
-                .hover_group()
+                .radius(4.0)
+                .focus_default(p)
+                .hover_group_focus()
                 .on_press_tx(crate::disclosure::toggle::<S>(more_key, format!("tool-{}", c.id)))
                 .child(text(more.clone()).font(UI).color(p.faint).group_color(p.muted))
                 .child(el().key("underline").pin(Some(0.0), None, Some(0.0), Some(1.0)).h(1.0).fill(p.muted).group_opacity(0.0, 1.0));

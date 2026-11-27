@@ -53,7 +53,7 @@ pub fn parse_inbox_item(v: &Value) -> Option<InboxItem> {
     // it names by path showing as cards, even when it holds no words of its own.
     if let Some((display, comments)) = crate::quote::parse_metadata(&payload["metadata"]) {
         let refs = crate::mention::path_attachments(&payload["metadata"]).unwrap_or_default();
-        if display.is_empty() && !refs.is_empty() {
+        if display.is_empty() && (!refs.is_empty() || !comments.is_empty()) {
             text = display;
         }
         crate::mention::set_user_path_attachments(&s(id), refs);
@@ -74,6 +74,13 @@ fn inbox_payload_store() -> &'static Mutex<HashMap<String, Value>> {
 /// The payload of inbox item `id`, once listed or admitted.
 pub fn inbox_payload(id: &str) -> Option<Value> {
     inbox_payload_store().lock().unwrap_or_else(std::sync::PoisonError::into_inner).get(id).cloned()
+}
+
+pub(crate) fn retain_inbox_payloads(keep: &dyn Fn(&str) -> bool) -> bool {
+    let mut store = inbox_payload_store().lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let before = store.len();
+    store.retain(|id, _| keep(id));
+    store.len() != before
 }
 
 /// What [`Inbox::apply`] did.

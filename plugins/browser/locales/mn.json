@@ -64,5 +64,6 @@
   "zoom.reset": "Томруулалтыг дахин тохируулах",
   "zoom.percent": "{{percent}}%",
   "link.copy": "Холбоосыг хуулах",
-  "history.clear": "Түүхийг цэвэрлэх"
+  "history.clear": "Түүхийг цэвэрлэх",
+  "extensions.compat.feature.management": "Бусад өргөтгөлүүдийг удирдах"
 }

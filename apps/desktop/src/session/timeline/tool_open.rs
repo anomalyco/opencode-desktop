@@ -85,15 +85,65 @@ pub fn target(name: &str, status: &ToolStatus, input: &Value, metadata: &Value, 
     }
 }
 
-/// `path` inside `directory`, relative to it; `None` for a path outside it.
+/// `path` inside `directory`, relative to it; `None` for any path outside `directory`, UNC or
+/// device prefix, drive-letter / drive-relative / NTFS ADS (`:`), `..` traversal in either
+/// separator, or trailing dots/spaces in any path component.
 pub(crate) fn relative(path: &str, directory: &str) -> Option<String> {
-    let rel = if opencode_kit::path::is_absolute(path) {
+    if path.is_empty()
+        || path.starts_with(char::is_whitespace)
+        || path.ends_with(char::is_whitespace)
+        || browser_policy::is_raw_unc_href(path)
+        || path.chars().any(|c| {
+            let n = c as u32;
+            c.is_control()
+                || matches!(
+                    n,
+                    0x7f..=0x9f | 0x061c | 0x200b..=0x200f | 0x202a..=0x202e | 0x2060 | 0x2066..=0x2069 | 0xfeff
+                )
+        })
+    {
+        return None;
+    }
+    let raw_rel = if opencode_kit::path::is_absolute(path) {
         opencode_kit::path::strip_dir(path, directory)?
     } else {
-        path.trim_start_matches("./")
+        path
     };
-    let rel = crate::review::data::normalize_path(rel);
-    (!rel.is_empty()).then_some(rel)
+    // Normalise separators and strip leading `./` / `.\` repeatedly BEFORE checking for drive
+    // letters, `:`, absolute/UNC forms, or `..` so `./C:/...`, `.\D:\...`, `.\C:foo`, `./a:ads`
+    // can never sneak past the relative-path check.
+    let fwd = raw_rel.replace('\\', "/");
+    let mut s = fwd.as_str();
+    while let Some(rest) = s.strip_prefix("./") {
+        s = rest;
+    }
+    if s.is_empty()
+        || s.starts_with('/')
+        || s.contains(':')
+        || opencode_kit::path::is_absolute(s)
+        || browser_policy::is_raw_unc_href(s)
+        || browser_policy::is_unc_or_device_path_for(s, true)
+    {
+        return None;
+    }
+    for seg in s.split('/') {
+        if seg.is_empty()
+            || seg == "."
+            || seg == ".."
+            || seg.ends_with(['.', ' '])
+        {
+            return None;
+        }
+        let stem = seg.split('.').next().unwrap_or(seg).trim_end();
+        if browser_policy::is_windows_device_name(stem) {
+            return None;
+        }
+    }
+    let rel = crate::review::data::normalize_path(s);
+    if rel.is_empty() || rel.starts_with('/') || rel.contains(':') || rel.split('/').any(|p| p == "..") {
+        return None;
+    }
+    Some(rel)
 }
 
 /// The first changed line of the step's own diff (`metadata.files[].patch`) for `path`.
@@ -245,7 +295,6 @@ impl App {
 
     /// Opens `target` for step `step`; pressed again while it shows, puts the side region back.
     pub fn open_tool_step(&mut self, step: &str, target: Target, tx: &mut Tx) {
-        tx.instant();
         // The timeline narrows or widens with the side region; the pressed row stays put.
         tx.keep_on_screen(format!("tool-{step}"));
         if self.tool_step_showing(step) {
@@ -253,6 +302,7 @@ impl App {
             return;
         }
         let Some(sid) = self.active_session_id().map(str::to_owned) else { return };
+        let was = crate::panels::panes_shown(self);
         // A chain of steps opened one after another still goes back to where it began.
         let before = match self.workspace_panes.tool_open.take().filter(|o| self.showing(o)) {
             Some(o) => o.before,
@@ -269,12 +319,16 @@ impl App {
         // Focus stays in the timeline, as a link's click leaves it.
         self.kernel.slots.get_mut(&crate::panels::SIDE).focus.blur();
         *self.workspace_panes.tool_open = Some(Opened { session: sid, step: step.to_owned(), tab, before });
+        // Once more over the whole open: a closed side region flies open on `SIDE_SPRING` even
+        // after a second tab or a scroll to a line asked for `tx.instant()`; an open one switches
+        // tabs at once.
+        crate::panels::state::finish_show_pane_tab(self, was, tx);
     }
 
     /// Opens Changes at `path`'s change, or Files at its line when Changes doesn't list it.
     /// Returns the tab it opened.
     fn open_change(&mut self, sid: &str, path: &str, anchor: Option<&Anchor>, tx: &mut Tx) -> String {
-        self.show_side_tab(sid, REVIEW_KEY, None);
+        self.show_pane_tab(tx, |s| s.show_side_tab(sid, REVIEW_KEY, None));
         self.ensure_session_review(sid);
         let Some(sr) = self.kernel.slots.get_mut(&crate::review::REVIEW).sessions.get_mut(sid) else { return REVIEW_KEY.to_owned() };
         if let crate::review::Load::Loading { focus } = &mut sr.load {
@@ -305,13 +359,14 @@ impl App {
         if !self.showing(&o) {
             return false;
         }
-        tx.instant();
         tx.keep_on_screen(format!("tool-{}", o.step));
         match o.before {
+            // Back to the tab it showed: a tab switch, at once (`select_side_tab`).
             Some(tab) => {
                 self.select_side_tab(&tab, tx);
                 self.kernel.slots.get_mut(&crate::panels::SIDE).focus.blur();
             }
+            // Shut, as the region's toggle does: on `SIDE_SPRING`.
             None => {
                 self.session_side_mut(&o.session).visibility.step(false);
                 self.kernel.slots.get_mut(&crate::panels::SIDE).focus.blur();

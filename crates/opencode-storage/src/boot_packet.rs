@@ -7,7 +7,11 @@ use std::ops::Range;
 
 use crate::WindowFrame;
 
-pub(crate) const MAGIC: &[u8; 4] = b"RNB1";
+/// The record's format. It moves on when a build changes what the record holds, so a record an
+/// older build wrote isn't trusted: it reads as malformed and that launch reads SQLite, which
+/// rebuilds it. `RNB2`: the plugin slice holds the shown sessions' values (`RNB1` never did, and
+/// answered "nothing stored" for them).
+pub(crate) const MAGIC: &[u8; 4] = b"RNB2";
 pub(crate) const HEAD: usize = 24;
 /// A visible draft or session preview larger than this stays out of the record; the app reads
 /// it from the full store after stage B.
@@ -228,11 +232,15 @@ impl BootPacket {
         BootPacket { source: BootSource::Denied, ..BootPacket::default() }
     }
 
-    /// The record's entries without its header (generation, sum): two records with the same
-    /// body show the same first frame.
-    #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
-    pub(crate) fn body(&self) -> &[u8] {
-        self.bytes.get(HEAD..).unwrap_or_default()
+    /// The entries a first frame is built from: two records with the same ones show the same
+    /// first frame. The journal's bookkeeping (where it is, which run kept it) is left out: a
+    /// record rebuilt by a run without the journal (a held run, `owe.want_journal`) has none.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(crate) fn shown_entries(&self) -> impl Iterator<Item = (u8, &[u8], &[u8], &[u8])> + '_ {
+        self.entries
+            .iter()
+            .filter(|e| e.kind != Kind::Journal as u8 && e.kind != Kind::JournalOwner as u8)
+            .map(|e| (e.kind, &self.bytes[e.a.clone()], &self.bytes[e.b.clone()], &self.bytes[e.value.clone()]))
     }
 }
 

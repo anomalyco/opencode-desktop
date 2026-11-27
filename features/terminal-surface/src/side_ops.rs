@@ -10,8 +10,8 @@ use serde_json::Value;
 use opencode_ui::palette::Pal;
 
 use crate::{
-    PaneTarget, TAB_UI, TerminalSurfaceHost, find, grid, input, ops, panel_key, persist, poll,
-    rename, workspace_key,
+    PaneTarget, TAB_UI, TerminalSurfaceHost, calls, find, grid, input, ops, panel_key, persist, poll,
+    rename,
 };
 
 /// Every terminal tab's key starts so: `terminal:{pty id}`.
@@ -69,7 +69,7 @@ pub fn surface<H: TerminalSurfaceHost + 'static>(
     focused: bool,
 ) -> El {
     s.terminal().painted_dark.set(Some(p.dark));
-    let ws_key = workspace_key(ops::server_id_str(s), sid);
+    let ws_key = ops::terminal_workspace_key_for_session(s, sid);
     let shown = s.side_tab_visible(&panel_key(id));
     grid::render_terminal_pane(s, p, &ws_key, Some(id), size, scale, focused && !s.is_composer_focused(), shown)
 }
@@ -95,7 +95,7 @@ pub fn on_focus(host: &mut dyn TerminalSurfaceHost, session_id: &str, tab_id: &s
 }
 
 pub fn poll_panel(host: &mut dyn TerminalSurfaceHost, tx: &mut Tx) -> bool {
-    rename::poll(host, tx) | poll::poll_terminal(host, tx)
+    poll_asked(host, tx) | rename::poll(host, tx) | poll::poll_terminal(host, tx) | crate::grid::poll_edge_scroll(host, tx)
 }
 
 pub fn key_terminal(host: &mut dyn TerminalSurfaceHost, ev: &KeyEvent, tx: &mut Tx) -> bool {
@@ -184,13 +184,76 @@ pub fn terminal_focus(host: &dyn TerminalSurfaceHost) -> Option<(String, String)
     Some((ops::terminal_workspace_key_for_session(host, sid), id.to_owned()))
 }
 
+/// A terminal asked for (a toggle, a new tab, a plugin's open) before the server listed its
+/// session (`ops::waits_for_folder`). It's done once the session is listed, while the page
+/// still shows that session; the newest ask replaces an older one.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Asked {
+    Toggle { session: String },
+    Create { session: String, pane: Option<PaneTarget> },
+    Open { session: String, new_tab: bool },
+    /// A terminal when the session has none (the narrow window's Terminal view).
+    First { session: String },
+}
+
+/// Does the terminal asked for while its session wasn't listed, now that it is; forgets it
+/// when the page moved to another session.
+pub fn poll_asked(host: &mut dyn TerminalSurfaceHost, tx: &mut Tx) -> bool {
+    let Some(asked) = host.terminal().asked.clone() else { return false };
+    let (Asked::Toggle { session } | Asked::Create { session, .. } | Asked::Open { session, .. } | Asked::First { session }) = &asked;
+    if host.active_session_id() != Some(session.as_str()) {
+        host.terminal_mut().asked = None;
+        return false;
+    }
+    if ops::waits_for_folder(host, session) || calls::listing(host, &ops::terminal_workspace_key_for_session(host, session)) {
+        return false;
+    }
+    host.terminal_mut().asked = None;
+    match asked {
+        Asked::Toggle { .. } => toggle_terminal(host, tx),
+        Asked::Create { pane, .. } => create_terminal_tab(host, pane, tx),
+        Asked::Open { session, new_tab } => drop(ops::open_terminal_for_session(host, &session, new_tab)),
+        Asked::First { .. } => first_terminal(host, tx),
+    }
+    true
+}
+
+/// Starts the routed session's first terminal when it has none and this window may (the narrow
+/// window's Terminal view); with its terminals still being listed, once they are.
+pub fn first_terminal(host: &mut dyn TerminalSurfaceHost, tx: &mut Tx) {
+    let Some(sid) = host.active_session_id().map(str::to_owned) else { return };
+    let wk = ops::terminal_workspace_key_for_session(host, &sid);
+    if !ops::waits_for_folder(host, &sid) {
+        persist::ensure_terminal_workspace_hydrated(host, &wk);
+    }
+    if ops::waits_for_folder(host, &sid) || calls::listing(host, &wk) {
+        host.terminal_mut().asked = Some(Asked::First { session: sid });
+        return;
+    }
+    let empty = host.terminal().workspaces.get(&wk).is_none_or(|w| w.tabs.is_empty() && w.failure.is_none());
+    if empty && ops::live_terminals(host).is_some_and(|(_, observer)| !observer) {
+        create_terminal_tab(host, None, tx);
+    }
+}
+
 /// Starts a terminal in the routed session and opens its tab, in `pane` or beside its other
 /// terminals (Desktop's `create`).
 pub fn create_terminal_tab(host: &mut dyn TerminalSurfaceHost, pane: Option<PaneTarget>, tx: &mut Tx) {
     let Some(sid) = host.active_session_id().map(str::to_owned) else { return };
+    if ops::waits_for_folder(host, &sid) {
+        host.terminal_mut().asked = Some(Asked::Create { session: sid, pane });
+        return;
+    }
     let wk = ops::terminal_workspace_key_for_session(host, &sid);
     persist::ensure_terminal_workspace_hydrated(host, &wk);
-    let Some(id) = ops::new_terminal_in(host, &wk) else { return };
+    // Its number comes from the terminals it has: asked again when the server has listed them.
+    if calls::listing(host, &wk) {
+        host.terminal_mut().asked = Some(Asked::Create { session: sid, pane });
+        return;
+    }
+    // On a live server its tab shows when the server has started it (`calls::After::Pane`).
+    let after = calls::After::Pane { session: sid.clone(), pane };
+    let Some(id) = ops::new_terminal_in(host, &wk, after) else { return };
     let key = panel_key(&id);
     host.show_pane_tab(&sid, &key, pane, tx);
     ops::focus_terminal_surface(host);
@@ -200,8 +263,17 @@ pub fn create_terminal_tab(host: &mut dyn TerminalSurfaceHost, pane: Option<Pane
 /// pane hides while that tab shows; otherwise the tab opens and shows.
 pub fn toggle_terminal(host: &mut dyn TerminalSurfaceHost, tx: &mut Tx) {
     let Some(sid) = host.active_session_id().map(str::to_owned) else { return };
+    if ops::waits_for_folder(host, &sid) {
+        host.terminal_mut().asked = Some(Asked::Toggle { session: sid });
+        return;
+    }
     let wk = ops::terminal_workspace_key_for_session(host, &sid);
     persist::ensure_terminal_workspace_hydrated(host, &wk);
+    // Whether it has a terminal to show isn't known yet: asked again when the server has listed them.
+    if calls::listing(host, &wk) {
+        host.terminal_mut().asked = Some(Asked::Toggle { session: sid });
+        return;
+    }
     let active = host
         .terminal()
         .workspaces

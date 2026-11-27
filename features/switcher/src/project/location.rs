@@ -23,7 +23,6 @@ pub(crate) enum Event {
     Servers { active: Option<String> },
     /// Other projects, chosen (`chosen` with an `other` entry).
     Others { active: Option<String> },
-    Base { directory: String },
     BranchChosen(String),
     /// The step's title, or a key that steps back (`back`).
     Back,
@@ -76,11 +75,6 @@ pub(crate) fn step(mode: &mut StepMode, query: &str, history: &mut Vec<Frame>, e
                 return (Effects::none(), false);
             }
             (enter(mode, query, history, active, StepMode::Worktrees { project, server, direct: false, base: None }), false)
-        }
-        Event::Base { directory } => {
-            let StepMode::Worktrees { project, server, .. } = &*mode else { return (Effects::none(), false) };
-            let next = StepMode::Branches { project: project.clone(), server: server.clone(), direct: false, directory, list: Default::default() };
-            (enter(mode, query, history, Some("base".to_owned()), next), true)
         }
         Event::BranchChosen(branch) => {
             let StepMode::Branches { project, server, directory, .. } = &*mode else { return (Effects::none(), false) };

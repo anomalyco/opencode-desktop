@@ -11,6 +11,7 @@ use rune::{Color, El, TextStyle, Tx, col, el, icon, row, text};
 use rune_theme_opencode::icons as ic;
 use opencode_ui::palette::Pal;
 use opencode_ui::style::INSTANT;
+use opencode_ui::tab::TabExt;
 
 use crate::data::{file_tab_key, file_tab_path};
 use crate::{FilesHost, SessionFiles, ops, view, viewer};
@@ -126,8 +127,8 @@ fn header<H: FilesHost + 'static>(p: &Pal, sid: &str, opened: &[String], selecte
             let name = file_tab_path(id)
                 .map(|path| opencode_kit::path::basename(&path).to_owned())
                 .unwrap_or_default();
-            let (pick, close, sid) = (id.clone(), id.clone(), sid.to_owned());
-            let sid2 = sid.clone();
+            let (pick, close, mid, sid) = (id.clone(), id.clone(), id.clone(), sid.to_owned());
+            let (sid2, sid3) = (sid.clone(), sid.clone());
             strip.child(
                 row()
                     .key(format!("narrow-files-tab-{}", id.replace(['/', '\\', ':'], "_")))
@@ -139,6 +140,7 @@ fn header<H: FilesHost + 'static>(p: &Pal, sid: &str, opened: &[String], selecte
                     .gap(4.0)
                     .center_y()
                     .hover_group()
+                    .closable_tab(move |s: &mut H, tx: &mut Tx| on_tab_close(s, &sid3, &mid, tx))
                     .on_press_tx(move |s: &mut H, tx: &mut Tx| on_tab_press(s, &sid, &pick, tx))
                     .child(
                         el().key("rule")

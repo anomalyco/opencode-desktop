@@ -46,6 +46,15 @@ pub fn decode_for_search(bytes: &[u8]) -> Option<Vec<Message>> {
     read(bytes, Extras::Skip)
 }
 
+/// How many messages [`encode`]'s bytes hold, read from their head. None for other bytes.
+pub fn count(bytes: &[u8]) -> Option<usize> {
+    let mut r = R { b: bytes, at: 0 };
+    if r.u8()? != VERSION {
+        return None;
+    }
+    r.n()
+}
+
 #[derive(Clone, Copy)]
 enum Extras { Restore, Skip }
 

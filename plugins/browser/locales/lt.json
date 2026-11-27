@@ -66,5 +66,6 @@
   "zoom.reset": "Atkurti mastelį",
   "zoom.percent": "{{percent}} %",
   "link.copy": "Kopijuoti nuorodą",
-  "history.clear": "Išvalyti istoriją"
+  "history.clear": "Išvalyti istoriją",
+  "extensions.compat.feature.management": "Kitų plėtinių valdymas"
 }

@@ -44,6 +44,27 @@ pub trait AppEnv {
     fn active_session_id(&self) -> Option<&str> {
         None
     }
+
+    /// The session whose side panel strip the routed session shows. A child session (a
+    /// subagent) a tab routes to shares its root session's strip: its tabs, its selection, its
+    /// panes and whether it is open (official `packages/app/src/session/session-layout.ts`
+    /// `panelKey`, opencode#65957). What a panel shows of a session (a review's diff, the
+    /// context) still follows [`Self::active_session_id`].
+    fn panel_session_id(&self) -> Option<&str> {
+        self.active_session_id().map(|id| self.panel_root(id))
+    }
+
+    /// The session `sid`'s side panel strip is kept under: its root session while a tab holds
+    /// that root, else `sid` itself (official `host-apis.tsx` `panelSessionID`).
+    fn panel_root<'a>(&'a self, sid: &'a str) -> &'a str {
+        sid
+    }
+
+    /// Whether session `sid`'s side panel is the one on the page: `sid` is the routed session or
+    /// shares its strip (its root's page, or a sibling subagent's).
+    fn panel_shows(&self, sid: &str) -> bool {
+        self.panel_session_id().is_some_and(|shown| shown == self.panel_root(sid))
+    }
 }
 
 /// Shared toast feedback capability provided once by the host shell.

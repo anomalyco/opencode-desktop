@@ -133,8 +133,8 @@ pub(super) fn controls(s: &App, p: &Pal) -> El {
     }
     let open = s.popup.open_at(MENU_TRIGGER);
     let menu = super::super::home::projects::icon_button(p, MENU_TRIGGER, t!("tabs.groups.menu"), &ic::OUTLINE_SLIDERS, open)
-        .help(t!("tabs.groups.menu"))
         .menu_button(MENU_TRIGGER, open_grouping_menu);
+    let menu = if open { menu } else { menu.help(t!("tabs.groups.menu")) };
     row().key("tab-groups-controls").w_full().my(10.0).child(field.child(menu))
 }
 
@@ -331,7 +331,7 @@ fn header(s: &App, p: &Pal, g: &Group) -> El {
         .key(format!("tg-head-{}", g.key))
         .w_full()
         .h(26.0)
-        .pr(2.0)
+        .pr(4.0)
         .gap(6.0)
         .center_y()
         .radius(6.0)
@@ -385,6 +385,7 @@ fn tab_row(s: &App, p: &Pal, g: &Group, t: &crate::tabs::Tab, tab_index: usize, 
         .role("button")
         .label_static(t!("common.closeTab"))
         .focusable(true)
+        .absolute(0.0, 0.0)
         .size(20.0, 20.0)
         .center()
         .radius(4.0)
@@ -393,17 +394,30 @@ fn tab_row(s: &App, p: &Pal, g: &Group, t: &crate::tabs::Tab, tab_index: usize, 
         .press(p.pressed)
         .on_press_tx(move |s: &mut App, tx: &mut Tx| s.close_tab(&close_uid, tx))
         .child(icon(&ic::XMARK_SMALL, 14.0).color(p.icon_muted));
+    // Status mark and close button share the same 20×20 slot (`tab-nav.css:1-8, 40-50`),
+    // both positioned at (0, 0) so the hover close button never pushes the spinner aside.
+    let mark_el = status_el.map(|m| {
+        row()
+            .key("mark")
+            .absolute(0.0, 0.0)
+            .size(20.0, 20.0)
+            .center()
+            .a11y_hidden()
+            .group_opacity(1.0, 0.0)
+            .child(m)
+    });
     let tail = el()
         .key("tail")
         .size(20.0, 20.0)
-        .center()
-        .children(status_el.map(|m| m.group_opacity(1.0, 0.0)))
+        .children(mark_el)
         .child(session_view::style::hover_reveal(close_btn));
 
     let press_uid = uid.clone();
+    let middle_uid = uid.clone();
     let dbl_target = target.clone();
     let hover_uid = uid.clone();
-    let move_uid = uid.clone();
+    let anchor_key = format!("tg-tab-{uid}");
+    let hover_anchor = anchor_key.clone();
     let layout_key = format!("tab:{tkey}");
     let drag_tkey = tkey.clone();
     let drag_uid = uid.clone();
@@ -415,19 +429,20 @@ fn tab_row(s: &App, p: &Pal, g: &Group, t: &crate::tabs::Tab, tab_index: usize, 
     let dragging = drag_st.dragging_tab(&tkey);
 
     let mut slot = row()
-        .key(format!("tg-tab-{uid}"))
+        .key(anchor_key)
         .role("tab")
         .label(face.title.clone())
         .focus_selected(active)
         .w_full()
         .h(28.0)
-        .px(8.0)
+        .pl(8.0)
+        .pr(4.0)
         .gap(8.0)
         .center_y()
         .radius(6.0)
         .focus_inset(p)
         .fill(if active || dragging.is_some() { p.pressed } else if marked { p.hover } else { Color::TRANSPARENT })
-        .hover(if active { p.pressed } else { p.hover })
+        .hover(if active || dragging.is_some() || marked { Color::TRANSPARENT } else { p.hover })
         .hover_group()
         .hover_motion(INSTANT, INSTANT)
         .matched(format!("{}-{uid}", crate::view::tab_strip::MATCHED))
@@ -436,6 +451,7 @@ fn tab_row(s: &App, p: &Pal, g: &Group, t: &crate::tabs::Tab, tab_index: usize, 
             s.kernel.slots.untracked(&tg::LAYOUT).rects.borrow_mut().insert(layout_key.clone(), r);
         })
         .on_press_tx(move |s: &mut App, tx: &mut Tx| tg::tab_press(s, &press_uid, tx))
+        .closable_tab(move |s: &mut App, tx: &mut Tx| s.close_tab(&middle_uid, tx))
         .on_double_press_tx(move |s: &mut App, tx: &mut Tx| {
             tx.instant();
             s.begin_rename(&dbl_target);
@@ -444,9 +460,8 @@ fn tab_row(s: &App, p: &Pal, g: &Group, t: &crate::tabs::Tab, tab_index: usize, 
             if inside {
                 s.prefetch_session(&hover_uid);
             }
-            s.preview_hover(&hover_uid, inside, tx);
+            s.preview_hover_at(&hover_uid, &hover_anchor, inside, tx);
         })
-        .on_pointer_move_local(move |s: &mut App, pt: rune::PointerEvent, tx: &mut Tx| s.preview_pointer(&move_uid, pt.y, pt.window_y, tx))
         .on_drag(move |s: &mut App, d: &mut Drag, tx: &mut Tx| {
             tab_drag(s, &drag_tkey, &drag_uid, tab_index, drag_gk.clone(), drag_mid.clone(), d, tx);
         })

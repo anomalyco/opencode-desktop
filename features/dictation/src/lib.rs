@@ -66,6 +66,7 @@ pub enum SubmitKind {
     Default,
     Alternate,
     QueueFirst,
+    InPlace,
 }
 
 /// Host state and callbacks required by Hex voice dictation in the composer.
@@ -261,7 +262,7 @@ pub fn apply_fix(host: &mut dyn DictationHost, fix: Fix, tx: &mut Tx) {
     };
     match fix {
         Fix::Install => {
-            drop(tx.open_url(hex_client::DOWNLOAD));
+            harness_log::open_url(tx, hex_client::DOWNLOAD);
         }
         Fix::OpenHex => {
             if let Err(why) = hex_client::launch(&support, true) {

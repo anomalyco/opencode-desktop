@@ -107,6 +107,12 @@ pub trait PanelsHost: opencode_kernel::AppEnv {
         None
     }
 
+    /// The strokes published command `id`'s labels show: more than one for a chord
+    /// (opencode#64395), none when unbound.
+    fn command_strokes(&self, id: &str) -> Vec<Chord> {
+        self.command_chord(id).into_iter().collect()
+    }
+
     /// Resolves a stored closed-tab icon without waking dormant plugin VMs.
     fn resolve_closed_icon(&self, key: &str, name: Option<&str>) -> &'static rune::Icon {
         let _ = key;
@@ -150,6 +156,11 @@ pub trait PanelsHost: opencode_kernel::AppEnv {
     fn open_panel_entry(&mut self, plugin: &str, id: &str, pane: SessionPane, tx: &mut Tx) {
         let _ = (plugin, id, pane, tx);
     }
+    /// Ensures `plugin` is running before opening or showing one of its tabs (waking a dormant or
+    /// deferred built-in synchronously so the tab strip never opens empty).
+    fn ensure_panel_plugin(&mut self, plugin: &str) {
+        let _ = plugin;
+    }
     /// Handles pointer hover over launcher entry `id` of `plugin`.
     fn hover_panel_entry(&mut self, plugin: &str, id: &str, tx: &mut Tx) {
         let _ = (plugin, id, tx);
@@ -182,6 +193,11 @@ pub trait PanelsHost: opencode_kernel::AppEnv {
     fn panel_tab_lead_stamp(&self, p: &Pal, plugin: &str, tab: &PanelTabDesc, selected: bool) -> Option<u64> {
         let _ = (p, plugin, tab, selected);
         None
+    }
+    /// Extra horizontal width inside a custom strip label beyond icon + title (e.g. a 6 pt status dot + 6 pt gap).
+    fn panel_tab_extra_w(&self, plugin: &str, tab: &PanelTabDesc) -> f32 {
+        let _ = (plugin, tab);
+        0.0
     }
     /// Returns the preferred home pane for a new tab of `plugin`, overriding `default_pane` when `Some`.
     fn panel_home_pane(&self, plugin: &str) -> Option<SessionPane> {

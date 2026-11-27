@@ -1,4 +1,4 @@
-# OpenCode plugin API reference (contract 1.6)
+# OpenCode plugin API reference (contract 1.11)
 
 > Generated from crates/opencode-plugin-spec/contract.json by `cargo run -p opencode-plugin-spec -- --write`. Do not edit. For a walkthrough, read [Writing a plugin](writing-a-plugin.md).
 
@@ -6,7 +6,7 @@ Contents: [Versioning](#versioning) · [Modules and globals](#modules-and-global
 
 ## Versioning
 
-Contract versions are `MAJOR.MINOR`. This is contract `1.6`.
+Contract versions are `MAJOR.MINOR`. This is contract `1.11`.
 
 - A plugin names the contract it targets in plugin.toml: `contract = "1.0"`.
 - Minor versions (1.1, 1.2, …) only add: new optional properties on `ui.*` nodes and specs, new semantic tokens (each with a 1.0 fallback token), new services, methods, signals, contribution kinds and enum values. A plugin that targets 1.0 runs unchanged on every 1.x host.
@@ -291,9 +291,11 @@ Panels, settings and drafts in this window. Halves: window.
 | `:Narrow` | `() -> boolean` | The window is narrow-screen sized. |
 | `:PanelSidebar` | `() -> PanelSidebarInfo` | The file sidebar `ui.panelSidebar` draws. |
 | `:TogglePanelSidebar` | `() -> ()` | Shows or hides it. |
+| `:MovePanelSidebar` | `(side: PanelSidebarSide) -> ()` | Puts it on an edge of the panel, for every side panel. Since 1.9. |
 | `:OpenDrawerView` | `(title: string, data: { [string]: any }?) -> ()` | From a `drawer` kind panel's view in a narrow window's More drawer: shows a nested view in the drawer in its place (Desktop's `useDrawer().open`), with a back button named after the panel's view. The panel's render draws it, with `props.drawer` set to `data`. Does nothing elsewhere. |
 | `:RegionOpen` | `(sessionId: string?) -> boolean` | A session's side region is open. Defaults to the routed session. |
 | `:RegionFocused` | `() -> boolean` | The side region has the keyboard: the last focus, click or key was in it, as Desktop's side focus reads (`#review-panel[data-focused]`). Read it when a command runs: Desktop's Open browser shortcut focuses the new tab's address only from inside the region. |
+| `:Focus` | `(key: string) -> ()` | Moves the keyboard to the element with `key`, or to its first focusable control, and draws its focus ring: where a shortcut leaves the keyboard. Official's Toggle browser toolbar shortcut leaves it on the Options button. Since 1.7. |
 
 ### Links
 
@@ -552,6 +554,7 @@ The plugin's own messages in the interface language, and numbers, dates and list
 | `ui.button(props: UiButtonProps) -> UiNode` | control | [`UiButtonProps`](#uibuttonprops) | The app's own button. |
 | `ui.iconButton(props: UiIconButtonProps) -> UiNode` | control | [`UiIconButtonProps`](#uiiconbuttonprops) | The app's own icon button. |
 | `ui.switch(props: UiSwitchProps) -> UiNode` | control | [`UiSwitchProps`](#uiswitchprops) | The app's own switch. |
+| `ui.checkbox(props: UiCheckboxProps) -> UiNode` | control | [`UiCheckboxProps`](#uicheckboxprops) | Desktop's compact checkbox with its label. Since 1.7. |
 | `ui.radio(props: UiRadioProps) -> UiNode` | control | [`UiRadioProps`](#uiradioprops) | A radio row. |
 | `ui.field(props: UiFieldProps) -> UiNode` | control | [`UiFieldProps`](#uifieldprops) | The app's own text field. |
 | `ui.segmented(props: UiSegmentedProps) -> UiNode` | control | [`UiSegmentedProps`](#uisegmentedprops) | The app's segmented control. |
@@ -559,6 +562,7 @@ The plugin's own messages in the interface language, and numbers, dates and list
 | `ui.progressCircle(props: UiProgressCircleProps) -> UiNode` | content | [`UiProgressCircleProps`](#uiprogresscircleprops) | The app's progress ring: a track and an arc from twelve o'clock, clockwise. |
 | `ui.serverIndicator(props: UiServerIndicatorProps) -> UiNode` | control | [`UiServerIndicatorProps`](#uiserverindicatorprops) | A server's health indicator, for a server source's row. |
 | `ui.pill(props: UiPillProps) -> UiNode` | control | [`UiPillProps`](#uipillprops) | A status capsule. |
+| `ui.badge(props: UiBadgeProps) -> UiNode` | control | [`UiBadgeProps`](#uibadgeprops) | Desktop's compact badge. Since 1.11. |
 | `ui.settingsRow(props: UiSettingsRowProps, control: UiNode?) -> UiNode` | control | [`UiSettingsRowProps`](#uisettingsrowprops) | A settings row: title and description beside a control. |
 | `ui.settingsList(props: UiSettingsListProps, rows: { UiNode }) -> UiNode` | control | [`UiSettingsListProps`](#uisettingslistprops) | A card of settings rows. |
 | `ui.flyoutRow(props: UiFlyoutRowProps) -> UiNode` | control | [`UiFlyoutRowProps`](#uiflyoutrowprops) | A popover row that opens a nested popover. |
@@ -571,7 +575,7 @@ The plugin's own messages in the interface language, and numbers, dates and list
 | `ui.codeView(props: UiCodeViewProps) -> UiNode` | native | [`UiCodeViewProps`](#uicodeviewprops) | A highlighted file. |
 | `ui.diffView(props: UiDiffViewProps) -> UiNode` | native | [`UiDiffViewProps`](#uidiffviewprops) | Changes, split or unified. |
 | `ui.fileTree(props: UiFileTreeProps) -> UiNode` | native | [`UiFileTreeProps`](#uifiletreeprops) | A folder's file tree. |
-| `ui.panelSidebar(props: UiPanelSidebarProps, children: { UiNode }?) -> UiNode` | native | [`UiPanelSidebarProps`](#uipanelsidebarprops) | A resizable sidebar at a panel's start, its children stacked in it. |
+| `ui.panelSidebar(props: UiPanelSidebarProps, children: { UiNode }?) -> UiNode` | native | [`UiPanelSidebarProps`](#uipanelsidebarprops) | A resizable sidebar at a panel's start or end, its children stacked in it. |
 | `ui.openInButton(props: UiOpenInButtonProps) -> UiNode` | native | [`UiOpenInButtonProps`](#uiopeninbuttonprops) | The app's Open in split button for a path. |
 | `ui.officePages(props: UiOfficePagesProps) -> UiNode` | native | [`UiOfficePagesProps`](#uiofficepagesprops) | A Word document's pages or a deck's slides, fit to the pane's width, with zoom controls. |
 | `ui.officeSheet(props: UiOfficeSheetProps) -> UiNode` | native | [`UiOfficeSheetProps`](#uiofficesheetprops) | A workbook's sheet: its headers and the cells under the scroll position. |
@@ -881,6 +885,15 @@ How a `ui.frame` container arranges its children.
 | `"row"` | A horizontal stack. |
 | `"box"` | No axis: children stack on top of each other. |
 
+### PanelSidebarSide
+
+The edge of a panel its file sidebar sits on.
+
+| Value | Meaning |
+|---|---|
+| `"start"` | The inline start: left in a left-to-right layout. |
+| `"end"` | The inline end: right in a left-to-right layout. |
+
 ### ComposerPicker
 
 Which picker overlay the composer currently has open.
@@ -890,6 +903,7 @@ Which picker overlay the composer currently has open.
 | `"agent"` | The agent picker. |
 | `"model"` | The model picker. |
 | `"effort"` | The model effort/variant picker. |
+| `"speed"` | The model speed picker, for a model the server offers at faster or slower speeds. Since 1.8. |
 | `"project"` | The draft project picker. |
 
 ### FontWeight
@@ -1200,13 +1214,14 @@ A kind of menu entry.
 
 ### DialogSize
 
-A dialog's size: one of Desktop's three presets, each clamped to the window.
+A dialog's size: one of Desktop's four presets, each clamped to the window.
 
 | Value | Meaning |
 |---|---|
 | `"normal"` | Confirmations, sign-ins and small forms: 480 points wide, as tall as its content. The default. |
-| `"large"` | Palettes, pickers and lists: 880 by 600 points. |
-| `"x-large"` | Long documents and settings-like panels: 1040 by 680 points. |
+| `"tall"` | A short form that reveals a list under a choice: 480 points wide, as tall as its content up to 600 points, its top edge kept so that it only grows downward. Since 1.11. |
+| `"large"` | Palettes, pickers and lists: 680 by 600 points. |
+| `"x-large"` | Long documents and settings-like panels: 880 by 680 points. |
 | `"small"` | Deprecated: the same as `normal`. |
 | `"medium"` | Deprecated: the same as `normal`. |
 
@@ -1505,7 +1520,9 @@ Size, spacing, position and accessibility: every `ui.*` node takes these. A prop
 | `label` | `string?` | The accessible name. |
 | `help` | `string?` | A tooltip. |
 | `helpSide` | `Side?` | Where the tooltip shows. Defaults to below. |
+| `helpOpen` | `boolean?` | Keeps the tooltip showing while true, whatever the pointer does, as Desktop's `Tooltip forceOpen`: a Copy button's "Copied" for a moment after the press. Since 1.7. |
 | `dir` | `("ltr" \| "rtl" \| "auto")?` | Which way the subtree reads, as HTML's `dir` does: `ltr` or `rtl` keeps a figure or a path in that order inside a window running the other way, `auto` takes a text's first strong direction (a name). On `ui.field` it is the value's direction, as on an `input`: `auto` starts an Arabic name at the right, `ltr` keeps an address or a host left to right. Defaults to the window's. |
+| `cursor` | `("default" \| "pointer" \| "text" \| "grab" \| "grabbing" \| "not-allowed" \| "move" \| "col-resize" \| "row-resize" \| "ew-resize" \| "ns-resize" \| "nwse-resize" \| "nesw-resize" \| "crosshair" \| "cell" \| "zoom-in" \| "zoom-out")?` | The pointer's shape over the node and over what is inside it that sets none, by its CSS `cursor` name. Desktop shows the arrow on controls; set this only where its style sheet names another cursor, as the browser's address field does (`text`). Since 1.10. |
 
 ### UiPin
 
@@ -1543,6 +1560,7 @@ Also takes every field of [`UiLayoutProps`](#uilayoutprops).
 | `clip` | `boolean?` | Clips children to the box. |
 | `scrollY` | `boolean?` | Scrolls vertical overflow. |
 | `scrollX` | `boolean?` | Scrolls horizontal overflow. |
+| `stickBottom` | `boolean?` | With `scrollY`: stays scrolled to the bottom as content grows, as a log or a chat does, until the reader scrolls up. |
 | `focusable` | `boolean?` | Takes keyboard focus. |
 | `disabled` | `boolean?` | Takes no presses. |
 | `onPress` | `UiHandler?` | Runs on a press. |
@@ -1565,6 +1583,10 @@ Also takes every field of [`UiBoxProps`](#uiboxprops).
 |---|---|---|
 | `direction` | `UiDirection?` | Stack direction: `"col"` (default), `"row"` or `"box"`. |
 | `borderSides` | `{ number }?` | Per-side border widths in points: `{ top, right, bottom, left }`. Overrides `borderWidth`. |
+| `focusReturn` | `string?` | The key of the element that takes focus when this frame leaves while focus is on it or inside it: one view of a popover handing focus to the control that leads back to it. That element, or its first focusable child; nothing happens when none shows. Since 1.7. |
+| `focusGroup` | `boolean?` | One Tab stop for the focusable controls inside, which the arrow keys move between, as a roving `tabindex` does: Up and Down with `role` `list`, `listbox`, `menu` or `tree`, Left and Right as well otherwise. Home and End go to the ends; a `list` or `tree` stops at its ends, the others wrap. In a `list`, `listbox`, `menu`, `tree` or `tablist`, typing moves to the first control whose label starts with it. Space presses the focused control, and in a list Return does too. Since 1.7. |
+| `keys` | `{ string }?` | Keys `onKey` takes while focus is on the frame or inside it, outside a text field, pressed with no modifier: any of `Enter`, `Escape`, `ArrowUp`, `ArrowDown`, `ArrowLeft`, `ArrowRight`, `Home`, `End`, `PageUp`, `PageDown`, `Delete` and `Backspace`. A key it takes does nothing else there: Return in a `focusGroup` list then no longer presses the focused control. Since 1.7. |
+| `onKey` | `UiHandler?` | Runs as a key `keys` names is pressed, with its name in `event.keyName`. Since 1.7. |
 
 ### UiTextProps
 
@@ -1684,6 +1706,8 @@ Also takes every field of [`UiLayoutProps`](#uilayoutprops).
 | `pressed` | `boolean?` | A toggle button's pressed state. |
 | `onPress` | `UiHandler?` | Runs on a press. |
 | `menuTrigger` | `boolean?` | Its `onPress` opens a menu, as Kobalte's `Menu.Trigger` does: a mouse runs it as the button goes down. A key, a screen reader's Invoke or a tap run it on the click. Contract 1.1. |
+| `autofocus` | `boolean?` | Takes focus as the dialog it is in opens, as HTML's `autofocus` in a dialog: a confirmation's Cancel, say. Without one the dialog focuses its first text field or Tab stop. Since 1.7. |
+| `focusReturn` | `string?` | The key of the element that takes focus when this one leaves while it has focus, as a page's `element.focus()` after a view changes: a drill-in's Back hands focus to the row that opened it. That element, or its first focusable child; nothing happens when none shows. Since 1.7. |
 
 ### UiIconButtonProps
 
@@ -1702,6 +1726,8 @@ Also takes every field of [`UiLayoutProps`](#uilayoutprops).
 | `keybind` | `string?` | A published command id whose shortcut its tooltip shows after the `help` text, as keycaps. |
 | `onPress` | `UiHandler?` | Runs on a press. |
 | `menuTrigger` | `boolean?` | Its `onPress` opens a menu, as Kobalte's `Menu.Trigger` does: a mouse runs it as the button goes down. A key, a screen reader's Invoke or a tap run it on the click. Contract 1.1. |
+| `autofocus` | `boolean?` | Takes focus as the dialog it is in opens, as HTML's `autofocus` in a dialog: a confirmation's Cancel, say. Without one the dialog focuses its first text field or Tab stop. Since 1.7. |
+| `focusReturn` | `string?` | The key of the element that takes focus when this one leaves while it has focus, as a page's `element.focus()` after a view changes: a drill-in's Back hands focus to the row that opened it. That element, or its first focusable child; nothing happens when none shows. Since 1.7. |
 
 ### UiSwitchProps
 
@@ -1713,6 +1739,22 @@ Also takes every field of [`UiLayoutProps`](#uilayoutprops).
 |---|---|---|
 | `checked` | `boolean` | On. |
 | `disabled` | `boolean?` | Cannot change. |
+| `onChange` | `UiHandler?` | Runs with the new state in `event.checked`. |
+
+### UiCheckboxProps
+
+`ui.checkbox` props: Desktop's compact checkbox (`Checkbox appearance="compact"`) with its label.
+
+Also takes every field of [`UiLayoutProps`](#uilayoutprops).
+
+| Field | Type | Description |
+|---|---|---|
+| `text` | `string` | The label, beside the box. |
+| `description` | `string?` | A line under the label. |
+| `checked` | `boolean` | Ticked. |
+| `indeterminate` | `boolean?` | Some of what it stands for is ticked: the box shows a dash, as Desktop's `indeterminate`. A press still reports the opposite of `checked`. Since 1.11. |
+| `surface` | `("base" \| "layer-1")?` | The background the box sits on: `base` (the default) or `layer-1`, as Desktop's `surface`; an unticked box takes its fill. |
+| `disabled` | `boolean?` | Cannot change; drawn at half opacity. |
 | `onChange` | `UiHandler?` | Runs with the new state in `event.checked`. |
 
 ### UiRadioProps
@@ -1748,6 +1790,9 @@ Also takes every field of [`UiLayoutProps`](#uilayoutprops).
 | `readOnly` | `boolean?` | Takes no typing but looks as usual, such as while what was typed is sent. |
 | `multiline` | `boolean?` | Grows to more lines. Enter inserts a line break; Mod+Enter submits. |
 | `variant` | `FieldVariant?` | The look. Defaults to `default`. |
+| `icon` | `IconName?` | An icon in the box before the text, as Desktop's `TextInput` `leadingIcon`: a search field's magnifying glass. The `default` variant only. Since 1.7. |
+| `clearable` | `boolean?` | A Clear button at the box's end that empties the field, as Desktop's `TextInput` `showClearButton`: set it while the field has text. The `default` variant only. Since 1.7. |
+| `focusDown` | `string?` | The key of the element Down moves the keyboard to from this field, or that element's first focusable control: a list under its search field, as official's site chooser does. The `default` variant only. Since 1.7. |
 | `keys` | `{ string }?` | Keys the field hands to its editor's `KeyPressed` instead of handling them: any of `ArrowUp`, `ArrowDown` and `Escape`. |
 | `onSubmit` | `UiHandler?` | Runs on Enter with the text in `event.text`. |
 
@@ -1859,6 +1904,17 @@ Also takes every field of [`UiLayoutProps`](#uilayoutprops).
 | `props` | `{ [string]: any }?` | Passed to the nested popover's render as `props.data`. |
 | `alert` | `boolean?` | Shows a danger dot before the detail: something in the nested list failed. |
 | `side` | `Side?` | The side of the row the nested popover opens on. Defaults to `right`; a popover at the window's right edge opens its rows' lists on the `left`. |
+| `radius` | `number?` | Corner radius of the row's hover and open fill. Defaults to 4. |
+
+### UiBadgeProps
+
+`ui.badge` props: Desktop's compact badge, a short muted label in a 16-point tag. Desktop's plugin API calls it `Badge`.
+
+Also takes every field of [`UiLayoutProps`](#uilayoutprops).
+
+| Field | Type | Description |
+|---|---|---|
+| `text` | `string` | Its label, on one line; cut short where it has no room. |
 
 ### UiDialogHeaderProps
 
@@ -1870,6 +1926,7 @@ Also takes every field of [`UiLayoutProps`](#uilayoutprops).
 |---|---|---|
 | `title` | `string` | The dialog's title: 15 pt, wrapping anywhere unless `wrapTitle` is false. |
 | `description` | `string?` | A muted line under the title. |
+| `badge` | `string?` | A badge after the title on its line, such as a profile's name. The title then stays on one line, and each is cut short where the line has no room for both. Since 1.11. |
 | `hideClose` | `boolean?` | Leaves out the close button. |
 | `closeLabel` | `string?` | The close button's accessible name. Defaults to Close. |
 | `wrapTitle` | `boolean?` | Whether the title wraps across lines (breaking anywhere for long identifiers). Defaults to true; set false for short single-line dialog titles. Since 1.5. |
@@ -2010,7 +2067,7 @@ Also takes every field of [`UiLayoutProps`](#uilayoutprops).
 
 ### UiPanelSidebarProps
 
-`ui.panelSidebar(props, { sidebar, main })` props: a panel's frame with the file sidebar at its start, resized by its end edge (a double click resets it), and the sidebar toggle pinned at the panel's top left. Whether the sidebar shows and its width are one preference every panel shares (`Layout:PanelSidebar`); the toggle and Mod+\ flip it.
+`ui.panelSidebar(props, { sidebar, main })` props: a panel's frame with the file sidebar at its start or end, resized by its inner edge (a double click resets it), and the sidebar toggle pinned at the panel's top corner on the sidebar's side. Whether the sidebar shows, its width and the edge it sits on are one preference every panel shares (`Layout:PanelSidebar`); the toggle and Mod+\ flip it, and a right-click on the sidebar or the toggle offers Sidebar position.
 
 Also takes every field of [`UiLayoutProps`](#uilayoutprops).
 
@@ -2030,6 +2087,7 @@ The panels' shared file sidebar.
 |---|---|---|
 | `opened` | `boolean` | It shows. |
 | `width` | `number` | Its width in points. |
+| `side` | `PanelSidebarSide` | The edge of the panel it sits on. With `end`, the toggle is at the panel's top end corner: leave it room at the end of a header or toolbar under it, not at the start. Since 1.9. |
 
 ### UiOpenInButtonProps
 
@@ -3439,9 +3497,9 @@ A modal dialog, opened with `Dialog:Open`.
 | `title` | `string?` | Its heading and accessible name. |
 | `size` | `DialogSize?` | Its size preset. |
 | `layer` | `DialogLayer?` | Which modal overlay layer the dialog draws in (`"standard"` beneath elevated recovery/server dialogs, or `"elevated"` above them). Defaults to `"elevated"`. Since 1.5. |
-| `radius` | `number?` | Corner radius in points. Defaults to 6 for `normal` dialogs and 12 for `large` and `x-large`. Since 1.5. |
+| `radius` | `number?` | Corner radius in points. Defaults to 6 for `normal` dialogs and 12 for `tall`, `large` and `x-large`. Since 1.5. |
 | `hideScrollbar` | `boolean?` | Hides the scroll bar when a `normal` dialog's content overflows, as Desktop's `dialog-content` does. Defaults to false. Since 1.5. |
-| `render` | `(view: View, props: DialogProps) -> UiNode?` | Draws its body inside the host's dialog frame: Desktop's dialog with the overlay elevation. A normal one is as tall as its content on layer-01 with 6-point corners; a large or x-large one is its size's height on bg-base with 12-point corners, so its body can fill it (`h = "full"`). |
+| `render` | `(view: View, props: DialogProps) -> UiNode?` | Draws its body inside the host's dialog frame: Desktop's dialog with the overlay elevation. A normal one is as tall as its content on layer-01 with 6-point corners; a tall one is as tall as its content up to its size's height on bg-base with 12-point corners, and what in it may shrink (`shrink = true`, `minH = 0`) gives way once it is that tall; a large or x-large one is its size's height on bg-base with 12-point corners, so its body can fill it (`h = "full"`). |
 | `onDismiss` | `(() -> ())?` | Runs when Esc or a click outside closes it. |
 
 ### PopoverProps

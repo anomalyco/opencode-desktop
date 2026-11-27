@@ -5,7 +5,7 @@ pub use opencode_feature_composer_input::attachments::*;
 
 use std::path::Path;
 
-use opencode_kernel::{CommandEntry, Feature, KernelBuilder, OverlayRegistration};
+use opencode_kernel::{CommandEntry, EscapeLayer, Feature, KernelBuilder, OverlayRegistration};
 use opencode_kit::client::{PathAttachment, Server};
 use rune::{El, Tx};
 use session_view::palette::Pal;
@@ -48,6 +48,10 @@ impl AttachmentsHost for App {
             Source::Live { server, .. } => Some(server.clone()),
             Source::Fixture => None,
         }
+    }
+
+    fn attachment_input(&self) -> session_view::pickers::AttachmentInput {
+        App::attachment_input(self)
     }
 
     fn on_draft_edited(&mut self) {
@@ -109,6 +113,9 @@ fn agent_shown(s: &App) -> bool {
     s.has_composer() && s.picker_show_agent()
 }
 
+/// Live Shift key state for `Shift+Click` on the composer's Send button.
+pub(crate) static SHIFT_HELD: opencode_kernel::Slot<bool> = opencode_kernel::Slot::new();
+
 /// Kernel feature registration for composer attachments, dropzone, slash commands, and suggestions.
 pub struct ComposerInputFeature;
 
@@ -118,6 +125,7 @@ impl Feature<App> for ComposerInputFeature {
     }
 
     fn register(&self, builder: &mut KernelBuilder<App>) {
+        builder.register_slot(&SHIFT_HELD);
         // The composer's commands, after the session's, as Desktop registers them (`composer/commands.tsx:111-161`,
         // mounted after `use-session-commands.tsx`): a palette query lists them in that order.
         builder.add_command(
@@ -142,6 +150,20 @@ impl Feature<App> for ComposerInputFeature {
             .describe(opencode_i18n::key!("command.model.variant.cycle.description"))
             .bind_id(Bind::Variant.id())
             .when(|s| s.has_composer() && s.has_effort()),
+        );
+        // Only for a model that has other speeds, so nothing about speeds shows for the rest
+        // (`composer/commands.tsx`, opencode#65749). It has no key until Settings gives it one.
+        builder.add_command(
+            CommandEntry::<App>::from_key(
+                session_view::pickers::speed::CYCLE_COMMAND,
+                opencode_i18n::key!("command.model.speed.cycle"),
+                crate::commands::order::SPEED,
+                |s, tx| s.cycle_picker(Kind::Speed, false, tx),
+            )
+            .describe(opencode_i18n::key!("command.model.speed.cycle.description"))
+            .slash("speed")
+            .section("models")
+            .when(|s| s.has_composer() && s.has_speeds()),
         );
         // Offered while the agent shows, as Desktop's `disabled: !local.agent.visible()` (`composer/commands.tsx:145-161`).
         builder.add_command(
@@ -260,7 +282,7 @@ impl Feature<App> for ComposerInputFeature {
             OverlayRegistration::<App>::new("overlay.add_menu")
                 .with_render(crate::overlays::layer::SURFACE_POPOVER, |s, cx| {
                     let p = crate::palette::pal(s.dark(cx));
-                    crate::add_menu::menu(s, p).into_iter().collect()
+                    crate::add_menu::menu(s, p).into_iter().flatten().collect()
                 })
                 .above("overlay.history_suggestions"),
         );
@@ -270,6 +292,16 @@ impl Feature<App> for ComposerInputFeature {
                     let p = crate::palette::pal(s.dark(cx));
                     viewer(s, p, cx)
                 }),
+        );
+        // Pressing Escape during a file drag clears the dropzone (`attachments.ts:212`).
+        builder.register_escape_layer(
+            EscapeLayer::<App>::new(
+                "escape.dropzone",
+                crate::overlays::escape_band::CHROME,
+                |s| s.composer_ext.attach.drop.shown(),
+                |s, _, tx| crate::dropzone::hover(s, false, tx),
+            )
+            .after("escape.quote"),
         );
         builder
             .register_slot(&crate::prompt_history::PROMPTS)

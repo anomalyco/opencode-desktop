@@ -18,12 +18,15 @@ use crate::plugin_host::{Catalogs, Tier, console, cx, services};
 pub struct AppHalf {
     pub script: Script,
     pub half: Rc<Half>,
+    updater_rev: Cell<u64>,
 }
 
 thread_local! {
     static HALVES: RefCell<Vec<AppHalf>> = const { RefCell::new(Vec::new()) };
     /// The frame clock of the last poll: a second window polling in the same tick skips.
     static POLLED: Cell<f64> = const { Cell::new(f64::NAN) };
+    /// Hash of all app halves' menubar items after the last refresh.
+    static MENUBAR_SIG: Cell<u64> = const { Cell::new(0) };
 }
 
 /// Starts plugin `manifest`'s app half from `entry`, unless it runs already.
@@ -42,7 +45,7 @@ pub fn ensure(app: &App, tier: Tier, manifest: &Manifest, files: &[(String, Stri
         console::push(&manifest.id, rune_luau::LogLevel::Error, &format!("app.luau: {}", e.message));
     }
     half.adopt(script.vm_id());
-    HALVES.with_borrow_mut(|h| h.push(AppHalf { script, half }));
+    HALVES.with_borrow_mut(|h| h.push(AppHalf { script, half, updater_rev: Cell::new(0) }));
 }
 
 /// Whether plugin `id`'s app half runs.
@@ -65,12 +68,19 @@ pub fn poll(app: &App, now: f64, tx: &mut Tx) -> bool {
         return false;
     }
     POLLED.set(now);
-    HALVES.with_borrow(|halves| {
+    let updater_rev = crate::updater::revision_untracked(app);
+    let changed = HALVES.with_borrow(|halves| {
         halves.iter().fold(false, |changed, a| {
             let before = a.half.epoch.get();
             let vm = a.script.vm_id().unwrap_or(0);
             let prompts = services::askpass::drain(&a.half, vm).into_iter().filter_map(|(name, args)| Some((a.half.signals.borrow().get(&(vm, name))?.clone(), args)));
-            let fired: Vec<_> = services::process::drain(&a.half, vm).into_iter().chain(prompts).collect();
+            let mut fired: Vec<_> = services::process::drain(&a.half, vm).into_iter().chain(prompts).collect();
+            if a.updater_rev.get() != updater_rev {
+                a.updater_rev.set(updater_rev);
+                if let Some(sig) = a.half.signals.borrow().get(&(vm, "Updater.StateChanged".to_owned())).cloned() {
+                    fired.push((sig, crate::updater::state_data(app)));
+                }
+            }
             for (signal, args) in fired {
                 if let Some(fire) = a.half.fire.borrow().get(&vm).cloned() {
                     let args = match args {
@@ -95,7 +105,28 @@ pub fn poll(app: &App, now: f64, tx: &mut Tx) -> bool {
             let ran = cx::enter(app, || a.script.poll(now, tx));
             changed || before != a.half.epoch.get() || (!a.half.owns_redraw && ran)
         })
-    })
+    });
+    let sig = menubar_sig();
+    if MENUBAR_SIG.get() != sig {
+        MENUBAR_SIG.set(sig);
+        crate::menubar::refresh();
+    }
+    changed
+}
+
+fn menubar_sig() -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::hash::DefaultHasher::new();
+    HALVES.with_borrow(|halves| {
+        for a in halves {
+            for item in &a.half.contribs.borrow().menubar_items {
+                item.key.hash(&mut h);
+                item.spec.label.hash(&mut h);
+                item.spec.enabled.hash(&mut h);
+            }
+        }
+    });
+    h.finish()
 }
 
 /// Runs `f` on every running app half.

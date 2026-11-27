@@ -108,6 +108,14 @@ impl RestoreHost for App {
         *self.gestures.home_return_tab = uid;
     }
 
+    fn routed_child(&self) -> Option<(String, String)> {
+        crate::launch::saved::page_tab::routed_child(self)
+    }
+
+    fn set_saved_routed_child(&mut self, session: Option<String>) {
+        crate::launch::saved::page_tab::said(self, session);
+    }
+
     fn tab_key_by_uid(&self, uid: &str) -> Option<TabKey> {
         self.tab(uid).map(crate::tabs::Tab::key)
     }
@@ -336,9 +344,11 @@ impl RestoreHost for App {
     fn open_restored_settings(&mut self, tab: &str) {
         self.set_settings_open(true);
         self.kernel.slots.get_mut(&crate::settings::SETTINGS_PAGES).page = crate::settings::pages::Page::parse(tab);
+        crate::plugin_host::dormant::wake_settings(self);
     }
 
     fn reopen_settings_page(&mut self, tx: &mut Tx) {
+        crate::plugin_host::dormant::wake_settings(self);
         let page = std::mem::take(&mut self.kernel.slots.get_mut(&crate::settings::SETTINGS_PAGES).page);
         self.open_settings_page(page, tx);
     }
@@ -356,11 +366,15 @@ impl RestoreHost for App {
     }
 
     fn is_cold_transcript(&self, id: &str) -> bool {
-        self.launch.cold_transcript.as_deref() == Some(id)
+        self.launch.cold_transcript.as_ref().is_some_and(|cold| cold.id == id)
     }
 
-    fn set_cold_transcript(&mut self, id: Option<String>) {
-        self.launch.cold_transcript = id;
+    fn set_cold_transcript(&mut self, cold: Option<ColdTranscript>) {
+        self.launch.cold_transcript = cold;
+    }
+
+    fn more_above(&self, id: &str) -> bool {
+        self.pages.more_above(id)
     }
 
     fn has_session(&self, id: &str) -> bool {
@@ -546,6 +560,7 @@ impl RestoreHost for App {
             Notice::FirstRun => StorageNotice::FirstRun,
             Notice::Saving => StorageNotice::Saving,
             Notice::NotSaving { full, why } => StorageNotice::NotSaving { full, why },
+            Notice::SeedDroppedDrafts { count, official_dir } => StorageNotice::SeedDroppedDrafts { count, official_dir },
         })
     }
 
@@ -575,6 +590,8 @@ impl RestoreHost for App {
     }
 
     fn before_close(&mut self) {
+        #[cfg(not(target_arch = "wasm32"))]
+        crate::surfaces::browser::rpc::release_start_waiters(self);
         self.tear_back();
         self.close_rune_mcp();
     }
@@ -620,10 +637,16 @@ impl App {
     }
 
     pub fn save_on_close(&mut self) {
+        crate::launch::saved_list::save(self);
+        crate::launch::saved_catalog::save(self);
+        crate::launch::saved_gutters::save(self);
         save_on_close(self);
     }
 
     pub fn save_on_quit(&mut self) {
+        crate::launch::saved_list::save(self);
+        crate::launch::saved_catalog::save(self);
+        crate::launch::saved_gutters::save(self);
         save_on_quit(self);
     }
 

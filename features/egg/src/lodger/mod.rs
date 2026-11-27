@@ -310,16 +310,28 @@ impl Lodger {
         if !wordmark::can_interact(state) {
             return false;
         }
-        if state == State::Hidden {
-            let eyes = self.c.near * 0.55;
-            if eyes == self.c.eyes {
-                return false;
+        // Whether only the gaze can have changed: the perched lodger's eyes are always open; the
+        // hidden one's are when their opacity stays as it was.
+        let gaze_only = match state {
+            State::Hidden => {
+                let eyes = self.c.near * 0.55;
+                let same = eyes == self.c.eyes;
+                // Far from the "e" (eyes shut) a move does nothing.
+                if same && eyes == 0.0 {
+                    return false;
+                }
+                self.c.eyes = eyes;
+                // Not Desktop's: it skips every hidden move that leaves the opacity as it is
+                // (`wordmark.tsx:1065-1070`), so within 10 units of the hole, where it's full,
+                // the open eyes stop following the pointer: on the grip itself. Here they follow.
+                same
             }
-            self.c.eyes = eyes;
-        }
+            State::Idle { .. } => true,
+            _ => false,
+        };
         let gaze = (self.c.look_x, self.c.look_y);
         self.look();
-        if matches!(state, State::Idle { .. }) && gaze == (self.c.look_x, self.c.look_y) {
+        if gaze_only && gaze == (self.c.look_x, self.c.look_y) {
             return false;
         }
         // `onMove` starts the blink timer once the eyes show (it draws its delay then).

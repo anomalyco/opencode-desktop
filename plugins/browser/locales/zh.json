@@ -64,5 +64,6 @@
   "zoom.reset": "重置缩放",
   "zoom.percent": "{{percent}}%",
   "link.copy": "复制链接",
-  "history.clear": "清除历史记录"
+  "history.clear": "清除历史记录",
+  "extensions.compat.feature.management": "管理其他扩展程序"
 }

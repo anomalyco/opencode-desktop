@@ -174,6 +174,8 @@ fn apply_suggestion(host: &mut dyn SuggestionsHost, effect: Effect, tx: &mut Tx)
             let shell = host.shell_mode();
             if let Some(entry) = history_index(&id).and_then(|i| host.prompts().entries(shell).get(i).cloned()) {
                 put_end(&entry, host.composer_mut());
+                // Show the beginning of each previewed prompt (`editor.tsx:125-133`).
+                tx.scroll_to_instant("editor-scroll", 0.0, 0.0);
             }
         }
         Effect::Apply { index, caret } => {

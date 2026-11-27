@@ -64,5 +64,6 @@
   "zoom.reset": "Nulstil zoom",
   "zoom.percent": "{{percent}} %",
   "link.copy": "Kopier link",
-  "history.clear": "Ryd historik"
+  "history.clear": "Ryd historik",
+  "extensions.compat.feature.management": "Administration af andre udvidelser"
 }

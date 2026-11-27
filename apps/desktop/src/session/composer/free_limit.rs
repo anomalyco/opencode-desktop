@@ -217,7 +217,7 @@ pub(crate) fn panel(s: &App, p: &Pal) -> El {
         .focus_inset(p)
         .on_press_tx(|s: &mut App, tx: &mut Tx| {
             crate::open_in::open_external(tx, GO_URL);
-            s.open_connect(Some("opencode-go"), false, tx);
+            s.open_connect(Some("opencode"), false, tx);
         })
         .child(text(subscribe_label).font(UI_MED.features("\"tnum\"")).color(p.text));
 
@@ -290,6 +290,7 @@ fn scene(s: &mut App, reset_at: Option<i64>) {
         latest: false,
         inputs: Default::default(),
         tools: true,
+        speed: None,
     }];
     dispatch(s, Event::Seed(State::Active { reset_at }));
 }

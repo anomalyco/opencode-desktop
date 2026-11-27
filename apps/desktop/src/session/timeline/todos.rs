@@ -28,6 +28,10 @@ impl TodosHost for App {
         self.family_transcript_version(id).1
     }
 
+    fn transcript_changed_from(&self, id: &str, since: u64) -> Option<usize> {
+        App::transcript_changed_from(self, id, since)
+    }
+
     fn session_revert(&self, id: &str) -> Option<&str> {
         self.session(id).and_then(|i| i.revert.as_deref())
     }

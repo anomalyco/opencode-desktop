@@ -10,7 +10,7 @@ pub use opencode_feature_open_in::*;
 #[cfg(not(target_arch = "wasm32"))]
 use opencode_kernel::{Feature, KernelBuilder, Slot};
 #[cfg(not(target_arch = "wasm32"))]
-use rune::{Align, Anim, Cursor, PointerPress, el, icon, row};
+use rune::{Align, Anim, PointerPress, el, icon, row};
 use rune::{El, Tx};
 #[cfg(not(target_arch = "wasm32"))]
 use rune_kit::Loader;
@@ -31,7 +31,11 @@ pub const FINDER: &str = "finder";
 
 #[cfg(target_arch = "wasm32")]
 pub fn open_external(tx: &mut Tx, url: &str) -> bool {
-    tx.open_url(url).is_ok()
+    let trimmed = url.trim();
+    if !browser_policy::is_safe_os_external_url(trimmed) {
+        return false;
+    }
+    harness_log::open_url(tx, trimmed)
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -72,6 +76,11 @@ impl OpenInHost for App {
 
     fn active_session_directory(&self) -> Option<&str> {
         Some(self.session(self.active_session_id()?)?.directory.as_str())
+    }
+
+    fn active_session_physical_directory(&self) -> Option<String> {
+        let dir = self.active_session_directory()?;
+        self.pinned_local_root(dir)
     }
 
     fn read_json(&self, ns: &str, key: &str) -> Option<Value> {
@@ -129,10 +138,11 @@ pub(crate) fn apps_for_plugin(s: &App) -> Vec<(&'static str, &'static str)> {
     }
 }
 
-/// Opens absolute `abs_path` in its system default app (no-op on `wasm32`).
-pub(crate) fn open_default(s: &mut App, abs_path: String) {
+/// Reveals an absolute local fixed-drive `abs_path` in the system file manager (selecting the
+/// item; never executes or opens with the default app; no-op on `wasm32`).
+pub(crate) fn reveal_abs(s: &mut App, abs_path: String) {
     #[cfg(not(target_arch = "wasm32"))]
-    s.kernel.slots.get_mut(&OPEN_IN).open_default(abs_path);
+    s.kernel.slots.get_mut(&OPEN_IN).reveal_local(abs_path);
     #[cfg(target_arch = "wasm32")]
     let _ = (s, abs_path);
 }
@@ -147,6 +157,55 @@ impl App {
         #[cfg(target_arch = "wasm32")]
         {
             false
+        }
+    }
+
+    /// Revealing a local file in the OS file manager works on every native desktop OS (Windows, macOS, Linux).
+    pub fn can_reveal_outside(&self) -> bool {
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            can_reveal(self)
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            false
+        }
+    }
+
+    /// Resolves and pins a known-local workspace root directory once per process (shared across
+    /// all windows; returning the verified physical path, never the raw symlink/junction alias).
+    /// Returns `None` on remote servers, `wasm32`, refused paths, or past the fail-closed cap.
+    pub fn pinned_local_root(&self, raw_dir: &str) -> Option<String> {
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            if !self.can_reveal_outside() || raw_dir.is_empty() {
+                return None;
+            }
+            self.pinned_sidecar_root(raw_dir)
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            let _ = raw_dir;
+            None
+        }
+    }
+
+    /// Process-wide local root pin for callers that already verified the target session belongs
+    /// to this machine's sidecar (e.g. `browser_file_roots` for a parked sidecar tab while a
+    /// remote server is checked out).
+    pub fn pinned_sidecar_root(&self, raw_dir: &str) -> Option<String> {
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            if raw_dir.is_empty() {
+                return None;
+            }
+            let home = (!self.home.is_empty()).then_some(self.home.as_str());
+            opencode_feature_open_in::pinned_local_root(raw_dir, home)
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            let _ = raw_dir;
+            None
         }
     }
 
@@ -265,7 +324,12 @@ pub fn button(s: &App, p: &Pal, key: &'static str, rel: &str) -> Option<El> {
     }
     #[cfg(not(target_arch = "wasm32"))]
     {
-        if !s.can_open_in() {
+        // No app is handed a file outside the session's folder (#294, #855), here as on the
+        // file's own toolbar (`features/files/src/viewer/toolbar.rs` `open_in_button`). Official
+        // offers Open in for such a file, but not for a skill's virtual file, which is on no disk
+        // (`packages/gui-plugins/src/file/open-in-app.tsx:101-107`): the first is ours' difference
+        // since #294, not a new one.
+        if !s.can_open_in() || crate::files::data::is_outside(rel) {
             return None;
         }
         let label = s.kernel.slots.get(&OPEN_IN).current_label();
@@ -282,7 +346,6 @@ pub fn button(s: &App, p: &Pal, key: &'static str, rel: &str) -> Option<El> {
             .key(format!("{key}-run"))
             .size(28.0, 28.0)
             .center()
-            .cursor(Cursor::Pointer)
             .hover(p.hover)
             .press(p.pressed)
             .hover_motion(Anim::INSTANT, Anim::INSTANT)
@@ -295,20 +358,20 @@ pub fn button(s: &App, p: &Pal, key: &'static str, rel: &str) -> Option<El> {
                 open_current(s, &rel_main, false, false);
             })
             .child(mark);
+        let main = opencode_ui::focus::split_half(main, p, 6.0, false);
         let open = s.popup.open_at(&chevron_key);
         let menu_anchor = chevron_key.clone();
         let chev = el()
             .key(chevron_key)
             .size(20.0, 28.0)
             .center()
-            .cursor(Cursor::Pointer)
-            .fill(if open { p.hover } else { rune::Color::TRANSPARENT })
-            .hover(p.hover)
-            .press(p.pressed)
+            .fill(if open { p.pressed } else { rune::Color::TRANSPARENT })
+            .hover(if open { rune::Color::TRANSPARENT } else { p.hover })
+            .press(if open { rune::Color::TRANSPARENT } else { p.pressed })
             .hover_motion(Anim::INSTANT, Anim::INSTANT)
             .role("button")
             .label_static(opencode_i18n::t!("plugin.file.open.menu"))
-            .help(opencode_i18n::t!("plugin.file.open.menu"))
+            .expanded(open)
             .layer_opacity(if busy { 0.5 } else { 1.0 })
             .menu_button(menu_anchor, move |s: &mut App, tx: &mut Tx| {
                 if s.kernel.slots.get(&OPEN_IN).busy() {
@@ -324,6 +387,8 @@ pub fn button(s: &App, p: &Pal, key: &'static str, rel: &str) -> Option<El> {
                 });
             })
             .child(icon(&ic::CHEVRON_DOWN, 14.0).color(p.icon));
+        let chev = if open { chev } else { chev.help(opencode_i18n::t!("plugin.file.open.menu")) };
+        let chev = opencode_ui::focus::split_half(chev, p, 6.0, true);
         Some(
             row()
                 .key(key)

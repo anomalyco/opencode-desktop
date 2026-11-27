@@ -20,9 +20,9 @@ use crate::{ConnectHost, Modal, ModalEvent};
 /// Header title (`dialog.tsx` / `unpaid.tsx:87`): `15px`, `530`, `-0.13px`.
 const TITLE: TextStyle = TextStyle::new(15.0, 530.0).lh(16.0).tracking(-0.13);
 
-/// Featured provider order (`unpaid.tsx:19`, `#64927`): Go first, then Console, then top providers.
-const FEATURED: [(&str, &str); 6] = [
-    ("opencode-go", "OpenCode Go"),
+/// Featured provider order (`unpaid.tsx:19`): OpenCode, then top providers. Go connects through
+/// the OpenCode connection, so it is not featured (`#65466`).
+const FEATURED: [(&str, &str); 5] = [
     ("opencode", "OpenCode"),
     ("openai", "OpenAI"),
     ("anthropic", "Anthropic"),
@@ -254,11 +254,7 @@ pub fn dialog<H: ConnectHost + 'static>(s: &H, p: &Pal, win: [f32; 2]) -> Vec<El
     let card_index_base = models.len();
     let provider_card = |idx: usize, id: String, name: String| -> El {
         let is_active = active == Some(card_index_base + idx);
-        let note = match id.as_str() {
-            "opencode" => Some(t!("dialog.provider.opencode.note")),
-            "opencode-go" => Some(t!("dialog.provider.opencodeGo.tagline")),
-            _ => None,
-        };
+        let note = (id == "opencode").then(|| t!("dialog.provider.opencode.note"));
         let pick_id = id.clone();
         let mut label_col = col()
             .grow(1.0)

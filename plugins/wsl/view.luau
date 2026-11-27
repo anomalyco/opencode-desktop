@@ -229,7 +229,7 @@ local function setupCard(env: any, v: View, state: string, err: string?, install
         ui.text(description, { size = 13, weight = "regular", lineHeight = 20, tracking = -0.04, tabular = true, maxW = 300, wrap = true, color = "text-muted", textAlign = "center" }),
     }
     if not installable and err then
-        table.insert(message, ui.text(err, { size = 12, weight = "regular", lineHeight = 18, tracking = -0.04, maxW = 360, wrap = true, mt = 4, color = "text-faint", textAlign = "center" }))
+        table.insert(message, ui.text(err, { size = 12, weight = "regular", lineHeight = 18, tracking = -0.04, tabular = true, maxW = 360, wrap = true, mt = 4, color = "text-faint", textAlign = "center" }))
     end
     local content: { UiNode } = { ui.col({ w = "full", gap = 8, align = "center" }, message) }
     if state == "unavailable" and installable then

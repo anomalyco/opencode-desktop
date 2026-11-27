@@ -327,8 +327,7 @@ pub(crate) fn shared(cache: crate::cache::Cache) -> Arc<Mutex<crate::cache::Cach
 /// databases in `dirs` (its `userData` folders), read-only and in process. Feed them to
 /// `opencode_kit::servers::migration::window::from_beta`.
 pub fn desktop_recent_tabs(dirs: &[PathBuf]) -> Option<(serde_json::Value, serde_json::Value)> {
-    let (dir, _) = seed::pick(dirs)?;
-    seed::recent_tabs(&dir.join("drafts.sqlite"))
+    seed::recent_tabs_in(dirs)
 }
 /// Has SQLite count its heap from now on, which the build leaves off (`SQLITE_DEFAULT_MEMSTATUS=0`):
 /// for a measuring build, before the first connection opens.

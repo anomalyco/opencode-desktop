@@ -44,6 +44,10 @@ impl SubagentsHost for App {
         Some(rune::Tracked::version(&self.transcripts))
     }
 
+    fn transcript_changed_from(&self, session: &str, since: u64) -> Option<usize> {
+        App::transcript_changed_from(self, session, since)
+    }
+
     fn running_sessions(&self) -> &HashSet<String> {
         &self.running
     }
@@ -62,6 +66,24 @@ impl SubagentsHost for App {
 
     fn shows_esc_keycap(&self) -> bool {
         self.layout.narrow.sm()
+    }
+
+    fn subagent_model(&self, id: &str) -> Option<SubagentModel> {
+        let info = self.session(id)?;
+        let m = if !info.model.id.is_empty() {
+            info.model.clone()
+        } else {
+            // Fall back to the last assistant message's model (`region.tsx:565-568`).
+            let t = rune::Tracked::untracked(&self.transcripts).get(id)?;
+            t.messages.iter().rev().find_map(|msg| match msg {
+                opencode_kit::model::Message::Assistant(a) => a.model.as_ref().filter(|m| !m.id.is_empty()).cloned(),
+                _ => None,
+            })?
+        };
+        let provider = self.composer_ext.pickers.provider_label(&m);
+        let name = self.composer_ext.pickers.model_name(&m);
+        let variant = (!m.variant.is_empty() && m.variant != "default").then(|| m.variant.clone());
+        Some(SubagentModel { provider, name, variant })
     }
 
     fn is_shell_console_open(&self, call: &session_view::tools::Call<'_>) -> bool {
@@ -202,7 +224,7 @@ impl Feature<App> for SubagentsFeature {
             EscapeLayer::<App>::new(
                 "escape.child_session",
                 crate::overlays::escape_band::FALLBACK,
-                |s| reply::composer_empty(s) && s.has_parent(),
+                |s| s.subagent_page().is_some() && s.has_parent(),
                 |s, _, tx| {
                     s.open_parent(tx);
                 },

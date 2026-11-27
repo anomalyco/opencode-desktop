@@ -479,12 +479,19 @@ fn relative_time(now: i64, then: i64) -> String {
     opencode_i18n::date::format(style, session_view::turn_errors::moment(at))
 }
 
-/// The search block: 6 above the 28-tall field and 9 below it.
-const HEAD_H: f32 = 6.0 + 28.0 + 9.0;
-/// The description and its Retry, 4 above and below a 20-tall line.
-const SECTION_H: f32 = 28.0;
-const ROW_H: f32 = 28.0;
+/// The search block (`.command-palette-compact [data-slot="search-list-search"]`,
+/// `shell/commands/dialog.css:145-158`): 6 above the 28-tall field, 6 to its 1 pt `::after`
+/// hairline, 2 under it.
+const HEAD_H: f32 = 6.0 + 28.0 + 6.0 + 1.0 + 2.0;
+/// `fork-dialog-section` (`shell/search-list.css:249-263`): 10 above and 2 below its 18-tall line.
+const SECTION_H: f32 = 10.0 + 18.0 + 2.0;
+/// A row (`.fork-dialog [data-slot="search-list-row"]`, 32 tall), and the 2 between rows.
+const ROW_H: f32 = 32.0;
 const ROW_GAP: f32 = 2.0;
+/// `fork-dialog-section`'s words: 12 at 440 on an 18 line, `text-faint`.
+const SECTION: TextStyle = TextStyle::new(12.0, 440.0).lh(18.0).tracking(0.05);
+/// `.fork-dialog .search-list-trailing`: 11, tabular.
+const TIME: TextStyle = TextStyle::new(11.0, 440.0).lh(16.0).tracking(0.05).features("'tnum' 1");
 const EMPTY_H: f32 = 120.0;
 
 fn search_input_shell(host: &dyn MessageNavHost, p: &Pal) -> El {
@@ -511,14 +518,14 @@ fn clear_button_shell(p: &Pal) -> El {
         .center()
         .hover(p.hover)
         .hover_motion(INSTANT, INSTANT)
-        .child(icon(&ic::CIRCLE_XMARK, 16.0).color(p.icon_muted))
+        .child(icon(&ic::CLOSE, 16.0).color(p.icon_muted))
 }
 
 fn row_shell(p: &Pal, r: &Row, query: &str, is_active: bool, now_ms: i64) -> El {
     let at = r.prompt.created;
     let time = (at > 0).then(|| {
         let full = opencode_i18n::date::format(opencode_i18n::date::Style::MonthDayYearTime, session_view::turn_errors::moment(LocalTime::at(at)));
-        text(relative_time(now_ms, at)).key("time").font(UI.features("\"tnum\"")).color(p.muted).help(full)
+        text(relative_time(now_ms, at)).key("time").font(TIME).color(p.muted).help(full)
     });
     let line = highlighted(&r.snippet, query, UI, p.text, p.accent).key("text").grow(1.0).shrink().min_w(0.0);
     row()
@@ -527,7 +534,8 @@ fn row_shell(p: &Pal, r: &Row, query: &str, is_active: bool, now_ms: i64) -> El 
         .label(r.snippet.clone())
         .w_full()
         .h(ROW_H)
-        .px(8.0)
+        .pl(8.0)
+        .pr(6.0)
         .gap(12.0)
         .center_y()
         .radius(6.0)
@@ -552,16 +560,18 @@ fn dialog_shell(p: &Pal, w: f32, scroll_h: f32, search: El, note: &'static str, 
         .transition(Transition::none())
         .motion(Spring::NONE)
         .child(col().key("jump-search").w_full().pt(6.0).px(6.0).child(search))
-        .child(el().key("jump-divider").w_full().h(0.5).mt(8.5).fill(p.border_muted))
+        .child(rune::hairline(p.border).key("jump-divider").w_full().mt(6.0).mb(2.0))
         .child(
             row()
                 .key("jump-desc")
                 .w_full()
                 .h(SECTION_H)
                 .px(14.0)
+                .pt(10.0)
+                .pb(2.0)
                 .gap(8.0)
                 .center_y()
-                .child(text(note).font(UI.lh(20.0)).color(p.muted).truncate().grow(1.0).shrink().min_w(0.0))
+                .child(text(note).font(SECTION).color(p.faint).truncate().grow(1.0).shrink().min_w(0.0))
                 .children(retry),
         )
         .child(scroll)

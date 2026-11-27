@@ -1,3 +1,5 @@
+#[cfg(bundle_assets)]
+pub mod bundle;
 pub mod crash_notice;
 pub mod deep_links;
 pub mod dirs;

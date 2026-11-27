@@ -205,6 +205,10 @@ impl App {
                 let done = self.apply_event_shared(&ty, &data);
                 Heard::Event(StreamEvent { ty, data, done, notice: Cell::default(), sound: Cell::default() })
             }
+            Incoming::Opened => {
+                crate::reconnect::request_active(self, false);
+                Heard::Message(Box::new(Incoming::Opened))
+            }
             Incoming::Reconnected => {
                 self.resync_shared();
                 Heard::Message(Box::new(Incoming::Reconnected))
@@ -337,6 +341,11 @@ impl App {
             session.title = title.to_owned();
             done.renamed = true;
         }
+        // A desktop attached to the session's browser, or the last one let it go (`data.ts`).
+        if ty == "session.permissions"
+            && let Some(session) = self.sessions.iter_mut().find(|s| s.id == sid) {
+            session.browser = opencode_kit::model::BrowserGrant::of(&data["permissions"]);
+        }
         if crate::recent_page::reloads_on(ty, data) {
             self.schedule_recent_reload();
         }
@@ -358,10 +367,12 @@ impl App {
         let id = |v: &Value| v.as_str().unwrap_or("").to_owned();
         match ty {
             "session.execution.started" => {
+                self.stops.active_sync.note_execution(sid, true);
                 if let Some(missing) = self.missing_ancestor(sid) {
                     self.fetch_info(&missing);
                 }
                 self.stops.forget(sid);
+                crate::rewind::take_back::forget(self, sid);
                 // The run's start, as the server stamps `time.busy`: the inbox's Working age.
                 if let Some(s) = self.sessions.iter_mut().find(|s| s.id == sid) {
                     s.busy = Some(data["eventCreated"].as_i64().unwrap_or(*self.now_ms));
@@ -369,8 +380,10 @@ impl App {
                 self.running.insert(sid.to_owned())
             }
             "session.execution.succeeded" | "session.execution.failed" | "session.execution.interrupted" => {
+                self.stops.active_sync.note_execution(sid, false);
                 let was = self.running.remove(sid);
                 crate::stop::confirmed(self, sid);
+                crate::rewind::take_back::run_ended(self, sid);
                 if ty == "session.execution.interrupted" && data["reason"] == "shutdown" {
                     return was;
                 }
@@ -393,6 +406,7 @@ impl App {
             "permission.asked" | "form.created" => {
                 let parsed = if ty == "form.created" { opencode_kit::model::parse_form(data) } else { opencode_kit::model::parse_permission(data) };
                 let Some(p) = parsed else { return false };
+                self.request_reads.note_sse(p.id());
                 self.add_pending(p)
             }
             "permission.replied" | "form.replied" | "form.cancelled" => {
@@ -400,6 +414,7 @@ impl App {
                 let had = self.requests.iter().any(|(_, r)| *r == rid) || self.pending.iter().any(|p| p.id() == rid);
                 self.pending.retain(|p| p.id() != rid);
                 self.requests.retain(|(_, r)| *r != rid);
+                self.request_reads.forget_sse(&rid);
                 crate::notifications::answered(self, &rid);
                 had
             }
@@ -445,7 +460,7 @@ impl App {
         if matches!(*self.source, Source::Fixture) { self.fixture_run.served.record(ty, data); }
         crate::plugin_host::server_event(self, ty, data);
         let mut changed = self.note_agent(ty, data, &sid);
-        changed |= done.status | self.status_landed(ty, data, &sid);
+        changed |= done.status | self.status_landed(ty, data);
         changed |= self.note_review_event(ty, data);
         if ty == "filesystem.changed" {
             crate::files::watch::changed(self, data);
@@ -521,6 +536,27 @@ impl App {
             let active_server = crate::servers::runtime::active(self).clone();
             crate::surfaces::browser::rpc::on_session_lifecycle(self, &active_server, ty, &sid);
         }
+        if let Some(list) = match ty {
+            "provider.updated" => Some(crate::connect::PickerList::Providers),
+            "model.updated" => Some(crate::connect::PickerList::Models),
+            "agent.updated" => Some(crate::connect::PickerList::Agents),
+            "config.updated" => Some(crate::connect::PickerList::Config),
+            _ => None,
+        } {
+            // Only react to global updates or updates for the active/default location, and
+            // coalesce bursts per single resource (`packages/app/src/runtime/server/sync.tsx:163`,
+            // `packages/client/src/solid/data.ts:346-356,1460-1528`).
+            let loc = data["eventLocation"]["directory"].as_str();
+            let active_dir = match &*self.route {
+                Route::Session { id, .. } => self.session(id).map(|i| i.directory.as_str()),
+                Route::Draft(_) => Some(self.draft_dir()),
+                Route::Home => None,
+            };
+            if loc.is_none() || loc == crate::start_location::server_directory(self) || loc == active_dir {
+                let now = *self.clock;
+                crate::connect::picker_reads::schedule(self, list, now);
+            }
+        }
         if ty == "config.updated" {
             let loc = data["eventLocation"]["directory"].as_str();
             crate::settings::pages::extensions::on_config_updated(self);
@@ -533,25 +569,18 @@ impl App {
         changed
     }
 
-    /// After `apply_status`, in this window: its stops, its sidebar's request times, its
-    /// question dock and replies on their way, and the open session's read mark.
-    fn status_landed(&mut self, ty: &str, data: &Value, sid: &str) -> bool {
+    /// After `apply_status`, in this window: its sidebar's request times, its question dock and
+    /// replies on their way. A focused window reports the open session's new idle mark viewed
+    /// (`session_viewed::poll`).
+    fn status_landed(&mut self, ty: &str, data: &Value) -> bool {
         match ty {
-            "session.execution.succeeded" | "session.execution.failed" | "session.execution.interrupted" => {
-                // Desktop reports the open session's idle mark as viewed, so it never lights
-                // up: every window that shows it marks it, whichever window took the event.
-                let open = matches!(&*self.route, Route::Session { id: r, .. } if self.root_of(r) == self.root_of(sid));
-                let marked = open && self.sessions.iter_mut().find(|s| s.id == sid).is_some_and(|s| {
-                    let was = s.viewed;
-                    s.viewed = s.viewed.max(s.idle);
-                    s.viewed != was
-                });
-                if marked { crate::windows::peer::touch(self); }
-                marked
-            }
             "vcs.branch.updated" => {
                 let Some(dir) = data["eventLocation"]["directory"].as_str() else { return false };
-                self.sidebar_inbox.branches.updated(dir, data["branch"].as_str().map(str::to_owned));
+                let branch = data["branch"].as_str().map(str::to_owned);
+                let server = crate::servers::runtime::active(self).clone();
+                self.sidebar_inbox.branches.updated(&server, dir, branch.clone());
+                crate::view::location_card::branch_updated(self, &server, dir, branch.clone());
+                self.note_review_branch_updated(dir, branch);
                 true
             }
             "permission.asked" | "form.created" => {
@@ -593,9 +622,18 @@ impl App {
         if !matches!(ty, "session.archived" | "session.unarchived" | "session.metadata.updated") {
             return false;
         }
+        if ty == "session.unarchived" && self.session(sid).is_none() {
+            // Archived before this window read its sessions: it comes back from the inbox's archived list.
+            self.unarchive_session_locally(sid);
+            return self.session(sid).is_some();
+        }
         let Some(i) = self.sessions.iter_mut().find(|i| i.id == sid) else { return false };
         match ty {
-            "session.archived" => i.archived = Some(data["eventCreated"].as_i64().unwrap_or(*self.now_ms)),
+            "session.archived" => {
+                i.archived = Some(data["eventCreated"].as_i64().unwrap_or(*self.now_ms));
+                let info = i.clone();
+                self.inbox_file(info);
+            }
             "session.unarchived" => i.archived = None,
             "session.metadata.updated" => i.metadata = data["metadata"].clone(),
             _ => return false,

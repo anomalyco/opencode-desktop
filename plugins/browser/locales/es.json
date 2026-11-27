@@ -65,5 +65,6 @@
   "zoom.percent": "{{percent}} %",
   "link.copy": "Copiar enlace",
   "history.clear": "Borrar historial",
-  "site.cookies.count.many": "{{count}} cookies en uso"
+  "site.cookies.count.many": "{{count}} cookies en uso",
+  "extensions.compat.feature.management": "Administrar otras extensiones"
 }

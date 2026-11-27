@@ -59,14 +59,25 @@ thread_local! {
 
 /// The device pixels to a point of the view being built (its `Env::scale`), set once per view:
 /// [`native_bar`]'s thumb lands on whole ones, as Chromium places a native thumb.
+/// Last scale written by `set_device_scale` on any UI thread, so background page workers
+/// (`prepare_images`) decode thumbnails at the real display scale instead of falling back to 1.0.
+static LAST_SCALE: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+
 pub fn set_device_scale(scale: f32) {
     SCALE.set(scale);
+    if scale.is_finite() && scale > 0.0 {
+        LAST_SCALE.store(scale.to_bits(), std::sync::atomic::Ordering::Relaxed);
+    }
 }
 
 /// The device pixels to a point of the view being built, 1 before [`set_device_scale`].
 pub fn device_scale() -> f32 {
     let s = SCALE.get();
-    if s > 0.0 { s } else { 1.0 }
+    if s > 0.0 {
+        return s;
+    }
+    let last = f32::from_bits(LAST_SCALE.load(std::sync::atomic::Ordering::Relaxed));
+    if last > 0.0 { last } else { 1.0 }
 }
 
 /// The points a `w` pt CSS border takes at the view's scale: Chromium lays it out on whole
@@ -89,6 +100,29 @@ pub fn native_bar(p: &Pal) -> ScrollBarStyle {
 /// overflows, as of its last layout), for content laid out at a set width.
 pub fn gutter(key: &str) -> f32 {
     if FITS.with_borrow(|f| f.get(key).is_some_and(|fit| overflowing(*fit))) { GUTTER } else { 0.0 }
+}
+
+/// The [`Bar::Native`] containers whose content overflows now, by key, sorted: what a launch
+/// hands to [`expect_overflow`] next time.
+pub fn overflowing_keys() -> Vec<String> {
+    let mut keys: Vec<String> = FITS.with_borrow(|f| f.iter().filter(|(_, fit)| overflowing(**fit)).map(|(key, _)| key.to_string()).collect());
+    keys.sort();
+    keys
+}
+
+/// Before a view's first frame: the [`Bar::Native`] containers `keys` overflowed when the app
+/// last ran, so each starts with its gutter. A container learns whether it overflows from its
+/// first layout and takes the gutter the frame after: every row of a long list narrowed by
+/// [`GUTTER`] in the launch's second frame. Its first layout still decides: one that fits now
+/// gives the gutter back.
+pub fn expect_overflow(keys: impl IntoIterator<Item = String>) {
+    FITS.with_borrow_mut(|f| {
+        for key in keys {
+            // A viewport of any height and content past it: each height, as it's measured,
+            // replaces its half, and neither alone says it fits.
+            f.entry(Rc::from(key)).or_insert([1.0, f32::INFINITY]);
+        }
+    });
 }
 
 /// A scroll container keyed `key`, built by [`Scroller::build`].

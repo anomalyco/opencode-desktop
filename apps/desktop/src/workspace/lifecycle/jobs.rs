@@ -17,7 +17,7 @@ pub type Apply = Box<dyn FnOnce(&mut App, &mut Tx) + Send>;
 
 pub struct Jobs {
     /// Picker reads belong to this server checkout; a new connection supersedes old replies.
-    pub(crate) picker_reads: rune::machine::Seq,
+    pub(crate) picker_reads: crate::connect::PickerReads,
     tx: Sender<Apply>,
     rx: Receiver<Apply>,
     /// Window-scoped deferred work (`later`, `deliverer`: plugin stores, server probes, dialogs),
@@ -103,6 +103,8 @@ impl App {
         for apply in done {
             apply(self, tx);
         }
+        let now = *self.clock;
+        crate::connect::picker_reads::poll(self, now, tx);
         any
     }
 

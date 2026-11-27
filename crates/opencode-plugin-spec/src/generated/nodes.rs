@@ -38,6 +38,8 @@ string_enum! {
         IconButton = "iconButton",
         /// The app's own switch.
         Switch = "switch",
+        /// Desktop's compact checkbox with its label.
+        Checkbox = "checkbox",
         /// A radio row.
         Radio = "radio",
         /// The app's own text field.
@@ -52,6 +54,8 @@ string_enum! {
         ServerIndicator = "serverIndicator",
         /// A status capsule.
         Pill = "pill",
+        /// Desktop's compact badge.
+        Badge = "badge",
         /// A settings row: title and description beside a control.
         SettingsRow = "settingsRow",
         /// A card of settings rows.
@@ -76,7 +80,7 @@ string_enum! {
         DiffView = "diffView",
         /// A folder's file tree.
         FileTree = "fileTree",
-        /// A resizable sidebar at a panel's start, its children stacked in it.
+        /// A resizable sidebar at a panel's start or end, its children stacked in it.
         PanelSidebar = "panelSidebar",
         /// The app's Open in split button for a path.
         OpenInButton = "openInButton",
@@ -108,7 +112,7 @@ impl NodeKind {
         match self {
             Self::Box | Self::Row | Self::Col | Self::Frame | Self::Spacer | Self::Divider => NodeCategory::Layout,
             Self::Text | Self::Icon | Self::Image | Self::Video | Self::Metric | Self::Shimmer | Self::Keybind | Self::ProgressCircle => NodeCategory::Content,
-            Self::Button | Self::IconButton | Self::Switch | Self::Radio | Self::Field | Self::Segmented | Self::Loader | Self::ServerIndicator | Self::Pill | Self::SettingsRow | Self::SettingsList | Self::FlyoutRow | Self::DialogHeader => NodeCategory::Control,
+            Self::Button | Self::IconButton | Self::Switch | Self::Checkbox | Self::Radio | Self::Field | Self::Segmented | Self::Loader | Self::ServerIndicator | Self::Pill | Self::Badge | Self::SettingsRow | Self::SettingsList | Self::FlyoutRow | Self::DialogHeader => NodeCategory::Control,
             Self::Markdown | Self::VirtualList | Self::TerminalSurface | Self::TerminalTabLabel | Self::BrowserSurface | Self::CodeView | Self::DiffView | Self::FileTree | Self::PanelSidebar | Self::OpenInButton | Self::OfficePages | Self::OfficeSheet | Self::GenUi => NodeCategory::Native,
         }
     }
@@ -134,6 +138,7 @@ impl NodeKind {
             Self::Button => &UI_BUTTON_PROPS,
             Self::IconButton => &UI_ICON_BUTTON_PROPS,
             Self::Switch => &UI_SWITCH_PROPS,
+            Self::Checkbox => &UI_CHECKBOX_PROPS,
             Self::Radio => &UI_RADIO_PROPS,
             Self::Field => &UI_FIELD_PROPS,
             Self::Segmented => &UI_SEGMENTED_PROPS,
@@ -141,6 +146,7 @@ impl NodeKind {
             Self::ProgressCircle => &UI_PROGRESS_CIRCLE_PROPS,
             Self::ServerIndicator => &UI_SERVER_INDICATOR_PROPS,
             Self::Pill => &UI_PILL_PROPS,
+            Self::Badge => &UI_BADGE_PROPS,
             Self::SettingsRow => &UI_SETTINGS_ROW_PROPS,
             Self::SettingsList => &UI_SETTINGS_LIST_PROPS,
             Self::FlyoutRow => &UI_FLYOUT_ROW_PROPS,
@@ -162,6 +168,11 @@ impl NodeKind {
     }
 }
 
+/// `UiBadgeProps`.
+pub static UI_BADGE_PROPS: PropsSpec = PropsSpec::new("UiBadgeProps", Some(&UI_LAYOUT_PROPS), &[
+    PropSpec::new("text", PropType::String, true),
+]);
+
 /// `UiBoxProps`.
 pub static UI_BOX_PROPS: PropsSpec = PropsSpec::new("UiBoxProps", Some(&UI_LAYOUT_PROPS), &[
     PropSpec::new("gap", PropType::Number, false),
@@ -181,6 +192,7 @@ pub static UI_BOX_PROPS: PropsSpec = PropsSpec::new("UiBoxProps", Some(&UI_LAYOU
     PropSpec::new("clip", PropType::Bool, false),
     PropSpec::new("scrollY", PropType::Bool, false),
     PropSpec::new("scrollX", PropType::Bool, false),
+    PropSpec::new("stickBottom", PropType::Bool, false),
     PropSpec::new("focusable", PropType::Bool, false),
     PropSpec::new("disabled", PropType::Bool, false),
     PropSpec::new("onPress", PropType::Handler, false),
@@ -213,6 +225,19 @@ pub static UI_BUTTON_PROPS: PropsSpec = PropsSpec::new("UiButtonProps", Some(&UI
     PropSpec::new("pressed", PropType::Bool, false),
     PropSpec::new("onPress", PropType::Handler, false),
     PropSpec::new("menuTrigger", PropType::Bool, false),
+    PropSpec::new("autofocus", PropType::Bool, false),
+    PropSpec::new("focusReturn", PropType::String, false),
+]);
+
+/// `UiCheckboxProps`.
+pub static UI_CHECKBOX_PROPS: PropsSpec = PropsSpec::new("UiCheckboxProps", Some(&UI_LAYOUT_PROPS), &[
+    PropSpec::new("text", PropType::String, true),
+    PropSpec::new("description", PropType::String, false),
+    PropSpec::new("checked", PropType::Bool, true),
+    PropSpec::new("indeterminate", PropType::Bool, false),
+    PropSpec::new("surface", PropType::Any, false),
+    PropSpec::new("disabled", PropType::Bool, false),
+    PropSpec::new("onChange", PropType::Handler, false),
 ]);
 
 /// `UiCodeViewProps`.
@@ -227,6 +252,7 @@ pub static UI_CODE_VIEW_PROPS: PropsSpec = PropsSpec::new("UiCodeViewProps", Som
 pub static UI_DIALOG_HEADER_PROPS: PropsSpec = PropsSpec::new("UiDialogHeaderProps", Some(&UI_LAYOUT_PROPS), &[
     PropSpec::new("title", PropType::String, true),
     PropSpec::new("description", PropType::String, false),
+    PropSpec::new("badge", PropType::String, false),
     PropSpec::new("hideClose", PropType::Bool, false),
     PropSpec::new("closeLabel", PropType::String, false),
     PropSpec::new("wrapTitle", PropType::Bool, false),
@@ -259,6 +285,9 @@ pub static UI_FIELD_PROPS: PropsSpec = PropsSpec::new("UiFieldProps", Some(&UI_L
     PropSpec::new("readOnly", PropType::Bool, false),
     PropSpec::new("multiline", PropType::Bool, false),
     PropSpec::new("variant", PropType::Enum("FieldVariant"), false),
+    PropSpec::new("icon", PropType::String, false),
+    PropSpec::new("clearable", PropType::Bool, false),
+    PropSpec::new("focusDown", PropType::String, false),
     PropSpec::new("keys", PropType::List("string"), false),
     PropSpec::new("onSubmit", PropType::Handler, false),
 ]);
@@ -286,12 +315,17 @@ pub static UI_FLYOUT_ROW_PROPS: PropsSpec = PropsSpec::new("UiFlyoutRowProps", S
     PropSpec::new("props", PropType::Map, false),
     PropSpec::new("alert", PropType::Bool, false),
     PropSpec::new("side", PropType::Enum("Side"), false),
+    PropSpec::new("radius", PropType::Number, false),
 ]);
 
 /// `UiFrameProps`.
 pub static UI_FRAME_PROPS: PropsSpec = PropsSpec::new("UiFrameProps", Some(&UI_BOX_PROPS), &[
     PropSpec::new("direction", PropType::Enum("UiDirection"), false),
     PropSpec::new("borderSides", PropType::List("number"), false),
+    PropSpec::new("focusReturn", PropType::String, false),
+    PropSpec::new("focusGroup", PropType::Bool, false),
+    PropSpec::new("keys", PropType::List("string"), false),
+    PropSpec::new("onKey", PropType::Handler, false),
 ]);
 
 /// `UiGenUiProps`.
@@ -311,6 +345,8 @@ pub static UI_ICON_BUTTON_PROPS: PropsSpec = PropsSpec::new("UiIconButtonProps",
     PropSpec::new("keybind", PropType::String, false),
     PropSpec::new("onPress", PropType::Handler, false),
     PropSpec::new("menuTrigger", PropType::Bool, false),
+    PropSpec::new("autofocus", PropType::Bool, false),
+    PropSpec::new("focusReturn", PropType::String, false),
 ]);
 
 /// `UiIconProps`.
@@ -370,7 +406,9 @@ pub static UI_LAYOUT_PROPS: PropsSpec = PropsSpec::new("UiLayoutProps", None, &[
     PropSpec::new("label", PropType::String, false),
     PropSpec::new("help", PropType::String, false),
     PropSpec::new("helpSide", PropType::Enum("Side"), false),
+    PropSpec::new("helpOpen", PropType::Bool, false),
     PropSpec::new("dir", PropType::Any, false),
+    PropSpec::new("cursor", PropType::Any, false),
 ]);
 
 /// `UiLoaderProps`.

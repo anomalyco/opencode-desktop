@@ -262,7 +262,21 @@ pub fn render(app: &App, p: &Pal, ctx: &PanelViewCtx) -> El {
     let spec = &all[k].spec;
     let body = render_surface(app, p, i, &format!("panel:{}:{}:{instance}{suffix}", spec.id, ctx.session_id), f, data);
     let key = if instance.is_empty() { format!("plugin-{}-{}", ctx.plugin, spec.id) } else { format!("plugin-{}-{}-{instance}", ctx.plugin, spec.id) };
-    col().key(key).w_full().h_full().child(body)
+    #[cfg(not(target_arch = "wasm32"))]
+    let review_bar = if ctx.plugin == crate::surfaces::browser::PLUGIN
+        && app.plugins.is_builtin_plugin(ctx.plugin)
+        && ctx.visible
+    {
+        instance
+            .parse::<u64>()
+            .ok()
+            .and_then(|tab_id| crate::browser::prompts::app_link_review_bar(app, p, tab_id))
+    } else {
+        None
+    };
+    #[cfg(target_arch = "wasm32")]
+    let review_bar: Option<El> = None;
+    col().key(key).w_full().h_full().children(review_bar).child(body.grow(1.0).min_h(0.0).clip_soft(0.0))
 }
 
 /// A tab's own label in the strip (`PanelSpec.label`).
@@ -371,6 +385,12 @@ pub fn focused(app: &mut App, plugin: &str, session: &str, tab: &str, restored: 
 
 /// Tab `tab` left `session`'s strip: its panel's `onClose` runs.
 pub fn closed(app: &mut App, plugin: &str, session: &str, tab: &str, tx: &mut Tx) {
+    #[cfg(not(target_arch = "wasm32"))]
+    if plugin == crate::surfaces::browser::PLUGIN
+        && let Ok(id) = tab.parse::<u64>()
+    {
+        app.workspace_panes.browser.closing_tabs.insert(id);
+    }
     let Some((i, all)) = panels(app, plugin) else { return };
     let Some(k) = owner(&all, tab) else { return };
     let Some(f) = all[k].on_close.clone() else { return };

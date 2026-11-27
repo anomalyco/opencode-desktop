@@ -27,9 +27,12 @@ pub(crate) fn slice_rows(conn: &Connection, shown: &[&str]) -> rusqlite::Result<
         .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?
         .collect::<Result<_, _>>()?;
     for session in shown {
+        // Compared as bytes: a scoped key holds a NUL (`name@<scope>\0<dir>/<session>`), and SQLite's
+        // text `substr` and `length` stop at the first one, so a text compare never found its end.
         let mut stmt = conn.prepare_cached(
             "SELECT name, key, value FROM state WHERE name > 'plugin.' AND name < 'plugin/' AND instr(key, '@') > 0 \
-             AND (substr(key, -length(?1) - 1) = '/' || ?1 OR substr(key, -length(?1) - 1) = '@' || ?1)",
+             AND (substr(CAST(key AS BLOB), -length(CAST(?1 AS BLOB)) - 1) = CAST('/' || ?1 AS BLOB) \
+             OR substr(CAST(key AS BLOB), -length(CAST(?1 AS BLOB)) - 1) = CAST('@' || ?1 AS BLOB))",
         )?;
         let found = stmt.query_map([session], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?;
         for row in found {

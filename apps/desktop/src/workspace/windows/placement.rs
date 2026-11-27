@@ -125,8 +125,26 @@ pub fn fit(f: Frame, displays: &[Display]) -> Option<Frame> {
         return Some(f);
     }
     let primary = displays.iter().find(|d| d.primary).or(displays.first())?;
-    let (w, h) = ((f64::from(DEFAULT_SIZE.0) * primary.scale) as u32, (f64::from(DEFAULT_SIZE.1) * primary.scale) as u32);
+    let (w, h) = default_size(primary);
     let x = primary.position.0 + (primary.size.0 as i32 - w as i32).max(0) / 2;
     let y = primary.position.1 + (primary.size.1 as i32 - h as i32).max(0) / 2;
     Some(Frame { x: Some(x), y: Some(y), width: w, height: h, display: Some(bounds(primary)), ..f })
+}
+
+/// Where a window with nothing saved opens, as Desktop's first window does (a `BrowserWindow`
+/// 1280 × 800 with no position): centred across the primary display, at its top on macOS (AppKit
+/// keeps it under the menu bar), centred down it elsewhere.
+pub fn first(displays: &[Display]) -> Option<Frame> {
+    let primary = displays.iter().find(|d| d.primary).or(displays.first())?;
+    let (w, h) = default_size(primary);
+    let x = primary.position.0 + (primary.size.0 as i32 - w as i32).max(0) / 2;
+    let y = if cfg!(target_os = "macos") { primary.position.1 } else { primary.position.1 + (primary.size.1 as i32 - h as i32).max(0) / 2 };
+    let display = [primary.position.0, primary.position.1, primary.size.0 as i32, primary.size.1 as i32];
+    Some(Frame { x: Some(x), y: Some(y), width: w, height: h, display: Some(display), ..Frame::default() })
+}
+
+/// [`DEFAULT_SIZE`] in `d`'s pixels, no larger than `d`.
+fn default_size(d: &Display) -> (u32, u32) {
+    let px = |v: f32| (f64::from(v) * d.scale) as u32;
+    (px(DEFAULT_SIZE.0).min(d.size.0), px(DEFAULT_SIZE.1).min(d.size.1))
 }

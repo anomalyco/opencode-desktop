@@ -58,11 +58,12 @@ pub static OUTLINE_QUOTE: Icon = Icon {
     body: r#"<path d="M9.5 8.49927C10.8333 8.49927 12.1667 8.49927 13.5 8.49927C13.5 9.74927 13.5 11.2493 13.5 12.4993C12.1667 12.4993 10.8333 12.4993 9.5 12.4993V7C9.5 5 10.5 3.5 13 3.5001" stroke="currentColor"/><path d="M2.5 8.49927C3.83333 8.49927 5.16667 8.49927 6.5 8.49927C6.5 9.74927 6.5 11.2493 6.5 12.4993C5.16667 12.4993 3.83333 12.4993 2.5 12.4993V7C2.5 5 3.5 3.5 6 3.5001" stroke="currentColor"/>"#,
 };
 
-/// Desktop's `speech-bubble`: what a session mention's chip leads with.
+/// Desktop's `comment` (`"speech-bubble"` alias in `packages/ui/src/icons/catalog.ts:221-224, 586`):
+/// what a session mention's chip and `@` suggestion row lead with.
 pub static SESSION: Icon = Icon {
-    name: "speech-bubble",
-    view: 20.0,
-    body: r#"<path d="M18.3334 10.0003C18.3334 5.57324 15.0927 2.91699 10.0001 2.91699C4.90749 2.91699 1.66675 5.57324 1.66675 10.0003C1.66675 11.1497 2.45578 13.1016 2.5771 13.3949C2.5878 13.4207 2.59839 13.4444 2.60802 13.4706C2.69194 13.6996 3.04282 14.9364 1.66675 16.7684C3.5186 17.6538 5.48526 16.1982 5.48526 16.1982C6.84592 16.9202 8.46491 17.0837 10.0001 17.0837C15.0927 17.0837 18.3334 14.4274 18.3334 10.0003Z" stroke="currentColor" stroke-linecap="square"/>"#,
+    name: "comment",
+    view: 16.0,
+    body: r#"<path d="M1.5 2.5V10.5H5.5L8 13.5L10.5 10.5H14.5V2.5H1.5Z" stroke-linecap="round" stroke-linejoin="round" stroke="currentColor"/>"#,
 };
 
 thread_local! {
@@ -212,10 +213,10 @@ pub const ACTIVE_KEY: &str = "find-active";
 /// What a reply's file-naming inline code links to: this, then the code as written.
 pub const CODE_LINK: &str = "opencode-code-path:";
 
-/// Desktop's disclosure triangle (`Collapsible.Arrow`): `fill-triangle-down` at 14 pt, pointing
-/// right while shut, in the colour its arrows inherit.
+/// Desktop's disclosure triangle (`Collapsible.Arrow`, `collapsible.tsx:39`): `fill-triangle-down`
+/// at default 16 pt (`5×6` glyph), pointing right while shut, in the colour its arrows inherit.
 pub fn arrow(p: &Pal, open: bool) -> El {
-    icon(if open { &ic::FILL_TRIANGLE_DOWN } else { &TRIANGLE_RIGHT }, 14.0).key("chevron").color(p.v1_text_base)
+    icon(if open { &ic::FILL_TRIANGLE_DOWN } else { &TRIANGLE_RIGHT }, 16.0).key("chevron").color(p.v1_text_base)
 }
 
 /// `fill-triangle-down` turned a quarter left, as Desktop's CSS turns a shut arrow, drawn so
@@ -251,21 +252,60 @@ pub fn nested(p: &Pal, gap: f32, content: El) -> El {
     col().key("nested").w_full().pt(gap).pl(14.0).child(rail).child(content)
 }
 
-/// Match `i` of a row in plain text, as `text_highlights` paints it.
+/// Interactive nested rail strip (`nested-rail.ts`, `timeline-next.css:130-146`): 14 pt hit strip
+/// holding a 1 pt rail 2 pt in that rests at half `p.border`, brightens to full `p.border` on
+/// hover, and runs `collapse` on click without entering Tab order.
+pub fn nested_rail<S: 'static>(
+    p: &Pal,
+    top: f32,
+    bottom: f32,
+    collapse: impl Fn(&mut S, &mut rune::Tx) + 'static,
+) -> El {
+    let line = el()
+        .key("rail-line")
+        .pin(Some(2.0), Some(0.0), None, Some(0.0))
+        .w(1.0)
+        .fill(p.border)
+        .group_opacity(0.5, 1.0);
+    el().key("rail")
+        .pin(Some(0.0), Some(top), None, Some(bottom))
+        .w(14.0)
+        .hover_group()
+        .hover_motion(INSTANT, INSTANT)
+        .focusable(false)
+        .on_press_tx(collapse)
+        .child(line)
+}
+
+/// Like [`nested`], with an interactive rail strip that brightens on hover and collapses the
+/// open row on click (`nested-rail.ts`, `timeline-next.css:130-146`).
+pub fn nested_collapsible<S: 'static>(
+    p: &Pal,
+    gap: f32,
+    content: El,
+    collapse: impl Fn(&mut S, &mut rune::Tx) + 'static,
+) -> El {
+    let ink = if gap < NESTED_GAP { 6.0 } else { 2.0 };
+    let rail = nested_rail(p, gap + ink, ink, collapse);
+    col().key("nested").w_full().pt(gap).pl(14.0).child(rail).child(content)
+}
+
+/// Match `i` of a row in plain text, as `text_highlights` paints it (`::highlight(timeline-search-hit*)`:
+/// square corners, no horizontal pad, tight vertical bounds matching Blink `index.css:163-181`).
 pub fn text_mark(p: &Pal, r: Range<usize>, i: usize, active: bool) -> TextHighlight {
     if active {
-        TextHighlight::new(r, p.accent).color(p.bg_deep).key(ACTIVE_KEY)
+        TextHighlight::new(r, p.accent).color(p.bg_deep).pad(0.0).radius(0.0).vpad(0.5).key(ACTIVE_KEY)
     } else {
-        TextHighlight::new(r, hit_bg(p)).key(format!("find-hit-{i}"))
+        TextHighlight::new(r, hit_bg(p)).pad(0.0).radius(0.0).vpad(0.5).key(format!("find-hit-{i}"))
     }
 }
 
-/// Match `i` of a row in Markdown, as `markdown_highlights` paints it.
+/// Match `i` of a row in Markdown, as `markdown_highlights` paints it (`::highlight(timeline-search-hit*)`).
 pub fn markdown_mark(p: &Pal, i: usize, active: bool) -> rune_kit::Highlight {
     if active {
-        rune_kit::Highlight::new().bg(p.accent).fg(p.bg_deep).key(ACTIVE_KEY)
+        rune_kit::Highlight::new().bg(p.accent).fg(p.bg_deep).pad(0.0).radius(0.0).vpad(0.5).key(ACTIVE_KEY)
     } else {
-        rune_kit::Highlight::new().bg(hit_bg(p)).key(format!("find-hit-{i}"))
+        rune_kit::Highlight::new().bg(hit_bg(p)).pad(0.0).radius(0.0).vpad(0.5).key(format!("find-hit-{i}"))
     }
 }
 
@@ -297,7 +337,7 @@ pub fn markdown_style(p: &Pal, color: Color, width: f32) -> MarkdownStyle {
         .inline_code_pad(4.0)
         .code_block(p.code_bg, p.border)
         // Kit's default code margins are Desktop's: 12 over a block, 24 under it, so two blocks in a
-        // row stand 24 apart (`markdown.css:420-422`, `pre { margin: 12px 0 24px }`).
+        // row stand 24 apart (`markdown.css:486-488`, `pre { margin: 12px 0 24px }`).
         // Code no token colours: Pierre's `editor.foreground`, the v1 `text-base`.
         .code_block_text(p.syntax.parameter)
         // A fence no highlighter colours takes `.highlights`' muted text (`markdown.css:276`).

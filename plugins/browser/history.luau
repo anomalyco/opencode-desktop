@@ -5,18 +5,19 @@
 
 local history = {}
 
-export type Visit = { url: string, title: string }
+export type Visit = { url: string, title: string, icon: string? }
 export type HistoryPage = { url: string, title: string, score: number }
-export type Suggestion = { url: string, title: string, completion: string? }
+export type Suggestion = { url: string, title: string, icon: string?, completion: string? }
 export type Part = { text: string, match: boolean }
 
 local MAX_VISITS = 30
 local MAX_URL_LENGTH = 2048
 
--- Pages kept in the window's recent list: web pages and workspace files, never blank or internal.
+-- The pages the history records: web pages only, never blank pages, internal URLs, or isolated
+-- workspace/artifact previews (`file://`, `workspace://`, `artifact://`, `oc-preview://`).
 function history.recordable(url: string): boolean
     local lower = string.lower(url)
-    return string.match(lower, "^https?://") ~= nil or string.match(lower, "^file://") ~= nil
+    return string.match(lower, "^https?://") ~= nil
 end
 
 -- Canonical web-page deduplication key matching Rust `history::page::page_key`.
@@ -41,15 +42,21 @@ end
 
 function history.remember(visits: { Visit }, visit: Visit): { Visit }
     local title = visit.title
+    local icon = visit.icon
     for _, v in visits do
-        if v.url == visit.url and title == "" then
-            title = v.title
+        if v.url == visit.url then
+            if title == "" then
+                title = v.title
+            end
+            if (icon == nil or icon == "") and v.icon ~= nil and v.icon ~= "" then
+                icon = v.icon
+            end
         end
     end
-    local out: { Visit } = { { url = visit.url, title = title } }
+    local out: { Visit } = { { url = visit.url, title = title, icon = icon } }
     for _, v in visits do
         if v.url ~= visit.url and #out < MAX_VISITS then
-            table.insert(out, { url = v.url, title = v.title })
+            table.insert(out, { url = v.url, title = v.title, icon = v.icon })
         end
     end
     return out
@@ -164,9 +171,11 @@ function history.suggestMerged(text: string, visits: { Visit }, answer: { Histor
     local leadTrimmed = string.gsub(text, "^%s+", "")
     local listed: { [string]: Visit } = {}
     for _, v in visits do
-        local k = history.pageKey(v.url) or v.url
-        if listed[k] == nil then
-            listed[k] = v
+        if history.recordable(v.url) then
+            local k = history.pageKey(v.url) or v.url
+            if listed[k] == nil then
+                listed[k] = v
+            end
         end
     end
 
@@ -175,12 +184,16 @@ function history.suggestMerged(text: string, visits: { Visit }, answer: { Histor
     local cands: { Cand } = {}
 
     for _, page in answer do
+        if not history.recordable(page.url) then
+            continue
+        end
         local k = history.pageKey(page.url) or page.url
         answered[k] = true
         local known = listed[k]
         local v: Visit = {
             url = page.url,
             title = if page.title ~= "" then page.title elseif known then known.title else "",
+            icon = if known then known.icon else nil,
         }
         local q = matchQuality(words, v.url, v.title)
         if q > 0 then
@@ -189,6 +202,9 @@ function history.suggestMerged(text: string, visits: { Visit }, answer: { Histor
     end
 
     for idx, v in visits do
+        if not history.recordable(v.url) then
+            continue
+        end
         local k = history.pageKey(v.url) or v.url
         if not answered[k] then
             local q = matchQuality(words, v.url, v.title)
@@ -211,6 +227,7 @@ function history.suggestMerged(text: string, visits: { Visit }, answer: { Histor
         table.insert(out, {
             url = v.url,
             title = v.title,
+            icon = v.icon,
             completion = history.completion(leadTrimmed, v.url),
         })
     end

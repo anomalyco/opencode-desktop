@@ -26,7 +26,7 @@ mod widget;
 
 pub use attachment::{Attachment, base64_decode, media_hash, parse_attachment, prompt_extras_generation, set_user_files, user_files};
 pub use background_result::{BackgroundResult, BackgroundResultKind, parse_background_result};
-pub use catalog::{AttachmentInput, Model};
+pub use catalog::{AttachmentInput, Model, Speed};
 pub(crate) use attachment::extras_changed;
 use attachment::parse_attachments;
 pub use compaction::{Compaction, CompactionStatus, background_compaction};
@@ -42,8 +42,8 @@ pub use tool::{shell_message, tool_error, tool_error_metadata, tool_output, tool
 use tool::{keep_tool_error, keep_tool_output, keep_tool_ran, replace_tool_metadata};
 pub use transcript::{Transcript, UNSEEN};
 pub use widget::{WIDGET_CHANGED_EVENT, WidgetCall, WidgetFailure, WidgetState, WidgetStatus, widget_calls, widget_key};
-pub use crate::project::{LocationInfo, ProjectMeta, parse_location, parse_project, parse_worktrees, project_git, project_meta, project_sandboxes, project_sandboxes_version, set_project_sandboxes};
-pub use crate::quote::{CommentOrigin, FileComment, PromptComment, Quote, set_user_comments, user_comments};
+pub use crate::project::{LocationInfo, ProjectMeta, add_project_sandbox, parse_location, parse_managed_worktrees, parse_project, parse_worktrees, project_git, project_meta, project_sandboxes, project_sandboxes_version, set_project_sandboxes};
+pub use crate::quote::{CommentOrigin, FileComment, NoteComment, PromptComment, Quote, set_user_comments, user_comments};
 
 #[derive(Clone, Debug)]
 pub struct Project {
@@ -137,6 +137,11 @@ impl ModelRef {
         }
     }
 
+    /// The catalog's key for it: `provider:id` ([`Model::key`]).
+    pub fn key(&self) -> String {
+        format!("{}:{}", self.provider, self.id)
+    }
+
     /// "claude-opus-5-5" → "Claude Opus 5.5".
     pub fn display(&self) -> String {
         let mut out = Vec::new();
@@ -195,6 +200,32 @@ pub struct SessionInfo {
     pub archived: Option<i64>,
     /// The session's `metadata`, which the server copies onto every child it starts.
     pub metadata: Value,
+    /// Whether a desktop holds the session's browser.
+    pub browser: BrowserGrant,
+}
+
+/// Whether a desktop holds a session's browser: the server writes a grant into the session's
+/// `permissions` (`browser` `*` `allow`) while a desktop is attached to it and revokes it when
+/// that attachment ends (`packages/plugin-browser/src/connection.ts`; event `session.permissions`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum BrowserGrant {
+    /// Details this window has not read from the server (a saved row, a placeholder): they say
+    /// nothing about a grant (`packages/gui-plugins/src/browser/prompt-gate.ts` `unheld`).
+    #[default]
+    Unread,
+    /// A desktop is attached: this window or another.
+    Held,
+    /// No desktop is attached.
+    Free,
+}
+
+impl BrowserGrant {
+    /// What a session's `permissions`, as the server sends them, say: it leaves them out of a
+    /// session that has none.
+    pub fn of(permissions: &Value) -> Self {
+        let grant = |rule: &Value| rule["action"] == "browser" && rule["resource"] == "*" && rule["effect"] == "allow";
+        if permissions.as_array().is_some_and(|rules| rules.iter().any(grant)) { Self::Held } else { Self::Free }
+    }
 }
 
 impl SessionInfo {
@@ -255,12 +286,20 @@ fn user_created_store() -> &'static Mutex<HashMap<String, i64>> {
 /// path attachments, comments), kept only for the messages `keep` names: an app that lets go of a
 /// transcript calls it, so those go too. A message parsed again fills them again.
 pub fn retain_user_messages(keep: &dyn Fn(&str) -> bool) {
-    attachment::retain_user_files(keep);
-    user_created_store().lock().unwrap_or_else(PoisonError::into_inner).retain(|id, _| keep(id));
+    let mut dropped = attachment::retain_user_files(keep);
+    {
+        let mut created = user_created_store().lock().unwrap_or_else(PoisonError::into_inner);
+        let before = created.len();
+        created.retain(|id, _| keep(id));
+        dropped |= created.len() != before;
+    }
     crate::mention::retain_user_messages(keep);
     crate::quote::retain_user_comments(keep);
-    // What was let go of a projection may have read: it projects again.
-    extras_changed();
+    dropped |= inbox::retain_inbox_payloads(keep);
+    if dropped {
+        // What was let go of a projection may have read: it projects again.
+        extras_changed();
+    }
 }
 
 /// When user message `id` was sent (ms), once known: a reply's duration runs from it.

@@ -117,6 +117,10 @@ impl PanelsHost for App {
         crate::keymap::command_chord(self, id)
     }
 
+    fn command_strokes(&self, id: &str) -> Vec<Chord> {
+        crate::keymap::command_strokes(self, id)
+    }
+
     fn resolve_closed_icon(&self, key: &str, name: Option<&str>) -> &'static rune::Icon {
         let Some(name) = name else { return opencode_feature_panels::icon_by_name(None) };
         let plugin = key.split_once(':').map_or("", |(p, _)| p);
@@ -131,7 +135,8 @@ impl PanelsHost for App {
         use rune::Tracked;
         let slots = &self.kernel.slots;
         let mut h = DefaultHasher::new();
-        self.active_session_id().hash(&mut h);
+        // The strip's session and the routed one, which its panels list for.
+        (self.panel_session_id(), self.active_session_id()).hash(&mut h);
         crate::servers::runtime::active(self).hash(&mut h);
         let server_base = match Tracked::untracked(&self.source) {
             crate::Source::Live { server, allow_send, .. } => {
@@ -143,7 +148,7 @@ impl PanelsHost for App {
                 "fixture"
             }
         };
-        if let Some(sid) = self.active_session_id() {
+        if let Some(sid) = self.panel_session_id() {
             let wk = crate::terminal::workspace_key(server_base, sid);
             match slots.untracked(&crate::terminal::TERMINAL).workspaces.get(&wk) {
                 Some(ws) => {
@@ -212,6 +217,10 @@ impl PanelsHost for App {
         crate::plugin_host::panels::open_entry(self, plugin, id, pane, tx);
     }
 
+    fn ensure_panel_plugin(&mut self, plugin: &str) {
+        crate::plugin_host::ensure_plugin_running(self, plugin);
+    }
+
     fn hover_panel_entry(&mut self, plugin: &str, id: &str, tx: &mut Tx) {
         crate::plugin_host::panels::hover_entry(self, plugin, id, tx);
     }
@@ -238,6 +247,17 @@ impl PanelsHost for App {
 
     fn panel_tab_lead_stamp(&self, p: &Pal, plugin: &str, tab: &PanelTabDesc, selected: bool) -> Option<u64> {
         crate::plugin_host::panels::tab_lead_stamp(self, p, plugin, tab, selected)
+    }
+
+    fn panel_tab_extra_w(&self, plugin: &str, tab: &PanelTabDesc) -> f32 {
+        #[cfg(not(target_arch = "wasm32"))]
+        if plugin == crate::surfaces::browser::PLUGIN
+            && tab.id.parse::<u64>().ok().is_some_and(|id| self.browser_tab_asking(id) || self.browser_tab_unseen(id))
+        {
+            return 12.0;
+        }
+        let _ = (plugin, tab);
+        0.0
     }
 
     fn panel_home_pane(&self, plugin: &str) -> Option<SessionPane> {
@@ -273,7 +293,7 @@ impl PanelsHost for App {
     fn on_side_tab_closing(&mut self, session_id: &str, key: &str) {
         if let Some(path) = key.strip_prefix("file:").and_then(crate::files::data::file_tab_path) {
             if let Some(ws) = self.kernel.slots.get_mut(&crate::files::FILES).sessions.get_mut(session_id) {
-                ws.close_preview(&path);
+                ws.close_file(&path);
             }
             crate::files::watch::unwatch(self, session_id, &path);
         }
@@ -302,6 +322,32 @@ impl App {
             Route::Session { id, .. } => Some(id.as_str()),
             _ => None,
         }
+    }
+
+    /// The session whose side panel strip the routed session shows: its root's when a tab holds
+    /// that root, so a subagent's page shows its parent's tabs and a tab picked there is the
+    /// parent's too (official `session-layout.ts` `panelKey`, opencode#65957).
+    pub fn panel_session_id(&self) -> Option<&str> {
+        self.active_session_id().map(|id| self.panel_root(id))
+    }
+
+    /// [`Self::panel_session_id`] for session `sid` of the server the window works against
+    /// (official `host-apis.tsx` `panelSessionID`: the root of the tab that holds it). A session
+    /// whose parents aren't loaded, or whose root has no tab, keeps its own.
+    pub fn panel_root<'a>(&'a self, sid: &'a str) -> &'a str {
+        let server = crate::servers::runtime::active(self);
+        let tab = |id: &str| self.tabs.iter().any(|t| t.id == id && !t.is_draft() && t.server == *server);
+        // A tab's own session, the usual page, with no look at its family.
+        if tab(sid) {
+            return sid;
+        }
+        let root = crate::launch::saved::page_tab::root_of(self, sid);
+        if root != sid && tab(root) { root } else { sid }
+    }
+
+    /// Whether session `sid`'s side panel is the one on the page (`AppEnv::panel_shows`).
+    pub fn panel_shows(&self, sid: &str) -> bool {
+        opencode_kernel::AppEnv::panel_shows(self, sid)
     }
 
     pub fn side_open(&self) -> bool {
@@ -348,6 +394,12 @@ impl App {
         shown_new_tab(self, session_id, pane, pane_active)
     }
 
+    /// A New tab page is drawn in place of the side region's active tab: the tab is still the
+    /// strip's active one, but nothing of it shows, so its own keys have nothing to act on.
+    pub fn new_tab_covers_active(&self) -> bool {
+        self.resolve_side_region().is_some_and(|reg| self.shown_new_tab(&reg.session_id, reg.active_pane, reg.active.as_deref()).is_some())
+    }
+
     pub fn live_new_tabs<'a>(
         &'a self,
         session_id: &str,
@@ -366,7 +418,14 @@ impl App {
     }
 
     pub fn toggle_side_region(&mut self, tx: &mut Tx) {
+        let was_open = self.side_open();
         toggle_side_region(self, tx);
+        if !was_open
+            && self.is_review_active()
+            && let Some(sid) = self.active_session_id().map(str::to_owned)
+        {
+            crate::plugin_host::native::diff::open_review(self, &sid);
+        }
     }
 
     pub fn toggle_bottom_region(&mut self) {
@@ -421,6 +480,11 @@ impl App {
 
     pub fn select_side_tab(&mut self, key: &str, tx: &mut Tx) {
         select_side_tab(self, key, tx);
+        if key == crate::review::REVIEW_KEY
+            && let Some(sid) = self.active_session_id().map(str::to_owned)
+        {
+            crate::plugin_host::native::diff::open_review(self, &sid);
+        }
     }
 
     pub fn move_side_tab(&mut self, key: &str, pane: SessionPane, before: Option<&str>, tx: &mut Tx) {
@@ -436,7 +500,14 @@ impl App {
     }
 
     pub fn reopen_closed_side_tab(&mut self, key: Option<&str>, tx: &mut Tx) -> bool {
-        reopen_closed_side_tab(self, key, tx)
+        let reopened = reopen_closed_side_tab(self, key, tx);
+        if reopened
+            && self.is_review_active()
+            && let Some(sid) = self.active_session_id().map(str::to_owned)
+        {
+            crate::plugin_host::native::diff::open_review(self, &sid);
+        }
+        reopened
     }
 
     pub fn select_adjacent_side_tab(&mut self, offset: i32, tx: &mut Tx) -> bool {

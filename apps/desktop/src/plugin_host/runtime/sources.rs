@@ -114,7 +114,6 @@ mod disk {
         out
     }
 
-    #[cfg(feature = "office")]
     pub(super) fn message(plugin_id: &str, lang: &str, key: &str) -> Option<&'static str> {
         use std::collections::HashMap;
         use std::sync::Mutex;
@@ -222,6 +221,21 @@ pub fn contributions(id: &str) -> &'static [&'static str] {
     }
 }
 
+/// The languages of built-in `id`'s code blocks, lowercased (read at build time). None when this
+/// build doesn't know them: a debug build's built-ins on disk, or languages its source doesn't
+/// give as plain strings.
+pub fn code_languages(id: &str) -> Option<&'static [&'static str]> {
+    #[cfg(disk_builtins)]
+    {
+        let _ = id;
+        None
+    }
+    #[cfg(not(disk_builtins))]
+    {
+        embedded::CODE_LANGUAGES.iter().find(|(p, _)| *p == id).map(|(_, languages)| *languages)
+    }
+}
+
 /// Which watched host signals built-in `id` connects to (`Composer.PickerChanged`, ...: read at
 /// build time); empty for a plugin that isn't built in.
 pub fn signals(id: &str) -> &'static [&'static str] {
@@ -272,7 +286,6 @@ pub fn builtin_ids() -> impl Iterator<Item = &'static str> {
 }
 
 /// Message `key` of built-in `plugin_id` in `lang`, falling back to English.
-#[cfg(feature = "office")]
 pub fn builtin_message(plugin_id: &str, lang: &str, key: &str) -> Option<&'static str> {
     #[cfg(disk_builtins)]
     {

@@ -64,5 +64,6 @@
   "zoom.reset": "Atur ulang zum",
   "zoom.percent": "{{percent}}%",
   "link.copy": "Salin tautan",
-  "history.clear": "Hapus riwayat"
+  "history.clear": "Hapus riwayat",
+  "extensions.compat.feature.management": "Mengelola ekstensi lain"
 }

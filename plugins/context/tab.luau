@@ -54,12 +54,13 @@ end
 -- What Desktop's formatter writes for a figure it doesn't have (`format.ts`).
 local DASH = "\u{2014}"
 local STAT = table.freeze({ gap = 4, w = 0, grow = 1, minW = 0 } :: UiBoxProps)
-local STAT_NAME = table.freeze({ size = 13, weight = "regular" :: FontWeight, lineHeight = 19, color = "text-weak" } :: UiTextProps)
--- Two 19.5 lines on whole pixels: a row is 59 tall, as Desktop's.
+-- `packages/gui-plugins/src/context/tab.tsx:34-35` (`4d4a95a3239c`), `utilities.css:21-37`,
+-- `theme.css:8,12-13,16,19`: `.text-12-regular` & `.text-12-medium` are both `13px`, `line-height: 150%` (`19.5px`).
+local STAT_NAME = table.freeze({ size = 13, weight = "regular" :: FontWeight, lineHeight = 19.5, color = "text-weak" } :: UiTextProps)
 local STAT_VALUE = table.freeze({
     size = 13,
     weight = "medium" :: FontWeight,
-    lineHeight = 20,
+    lineHeight = 19.5,
     color = "text-strong",
     selectable = true,
 } :: UiTextProps)
@@ -84,7 +85,7 @@ local EXPORT = table.freeze({
     hoverTransition = "instant",
     hoverGroup = true,
 } :: UiBoxProps)
-local EXPORT_ICON = table.freeze({ size = 14, color = "text-weak", hoverGroupColor = "text-chrome" } :: UiIconProps)
+local EXPORT_ICON = table.freeze({ size = 16, color = "text-weak", hoverGroupColor = "text-chrome" } :: UiIconProps)
 local EXPORT_TEXT = table.freeze({
     size = 13,
     weight = "medium" :: FontWeight,
@@ -103,7 +104,8 @@ local RAW_ROW = table.freeze({
     role = "button",
     w = "full",
     h = 32,
-    px = 12,
+    -- `accordion-trigger` (`accordion.css:35-46`): 1 pt border + 12 pt inline padding = 13 pt inset.
+    px = 13,
     gap = 8,
     align = "center",
     border = "border-base",
@@ -160,7 +162,7 @@ local RAW_TIME = table.freeze({
     noWrap = true,
     ml = 8,
 } :: UiTextProps)
-local RAW_CHEVRON = table.freeze({ size = 14, color = "text-weak", ml = 4 } :: UiIconProps)
+local RAW_CHEVRON = table.freeze({ size = 16, color = "text-weak", ml = 4 } :: UiIconProps)
 local RAW_JSON = table.freeze({
     size = 12,
     weight = "regular" :: FontWeight,

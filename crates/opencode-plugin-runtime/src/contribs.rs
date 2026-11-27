@@ -184,8 +184,10 @@ return { contract = CONTRACT, defineWindow = define("window"), defineApp = defin
 pub fn register_modules(host: &Host<'_>) -> mlua::Result<Table> {
     let lua = host.lua();
     let hot = lua.create_table()?;
-    let code = PLUGIN_MODULE.replace("CONTRACT", &format!("{:?}", spec::CONTRACT));
-    let plugin: Table = lua.load(code).set_name("=@opencode/plugin").call(hot.clone())?;
+    // The module's text with the contract in it, made once: every VM loads the same bytecode.
+    static CODE: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    let code = CODE.get_or_init(|| PLUGIN_MODULE.replace("CONTRACT", &format!("{:?}", spec::CONTRACT)));
+    let plugin: Table = crate::chunk::load(lua, code).set_name("=@opencode/plugin").call(hot.clone())?;
     host.register_module("@opencode/plugin", plugin)?;
     let ui: Table = lua.named_registry_value::<Table>("_REGISTEREDMODULES")?.raw_get("@rune/ui")?;
     host.register_module("@opencode/ui", ui)?;

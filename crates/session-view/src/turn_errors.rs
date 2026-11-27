@@ -190,6 +190,8 @@ pub fn error<S: TimelineHost>(s: &S, p: &Pal, a: &Assistant) -> El {
             line = text(full).key("words").font(UI).color(p.muted).wrap().w_full()
                 .spans(vec![Span::new(at, full_len(&words, action)).weight(530.0).color(p.text)])
                 .link(Link::new(at..full_len(&words, action), "switch-model").role("button").label(action).hover(LinkPaint::new().underline(p.text)))
+                // A plain `<button>` (`timeline-next/row.tsx:1536`): the arrow.
+                .cursor(rune::Cursor::Default)
                 .on_link(|s: &mut S, _: &str, tx: &mut Tx| {
                     // A button: a middle click on it does nothing.
                     if tx.button() == rune::PointerButton::Middle {
@@ -230,8 +232,12 @@ fn countdown(r: &Retry, now: i64) -> i64 {
 /// place.
 pub fn retry<S: TimelineHost>(s: &S, p: &Pal, r: &Retry) -> El {
     let (message, info) = retry_copy(r, s.now_ms());
+    // `session-retry.tsx:68-78`: the message line shows the help cursor and, in a tooltip above
+    // it, the whole message (the line itself is cut to its width).
+    let what = row().key("what").w_full().hit().cursor(rune::Cursor::Help).help(r.message.clone()).help_above()
+        .child(titled(p, &message, false).cursor(rune::Cursor::Help));
     let body = col().key("body").grow(1.0).shrink().min_w(0.0)
-        .child(row().key("what").w_full().child(titled(p, &message, false)))
+        .child(what)
         .child(text(info).key("info").font(UI).color(p.faint).pt(4.0));
     row().key("retry").w_full().gap(8.0).role("status").child(mark(p)).child(body)
 }
@@ -305,12 +311,22 @@ pub fn notice<S: TimelineHost>(s: &S, p: &Pal, n: &Notice, run: crate::compactio
             let key = format!("ev-{}", n.id);
             let open = s.expanded().contains(&key);
             let events: Vec<_> = crate::activity::events::notice_event(n).into_iter().collect();
-            crate::activity::event_row::view(s, p, session_of(s), &events, open, crate::disclosure::set::<S>(key.clone(), open, String::new()))
+            crate::activity::event_row::view(
+                s,
+                p,
+                session_of(s),
+                &events,
+                open,
+                crate::disclosure::set::<S>(key.clone(), open, String::new()),
+                crate::disclosure::set::<S>(key.clone(), true, String::new()),
+            )
         }
         NoticeKind::Idle { .. } => col(),
         // Finished background Code Mode script (`timeline-next/row.tsx`, anomalyco/opencode#64741):
-        // "Script finished · cm_…" (or failed / cancelled) in its outcome's ink (`p.cancelled`
-        // maps to `yellow-900` in light and `state-fg-warning` in dark, matching `outcomeNoticeColor`).
+        // "Script finished" (or failed / cancelled) in its outcome's ink (`p.cancelled` maps to
+        // `yellow-900` in light and `state-fg-warning` in dark, matching `outcomeNoticeColor`),
+        // then the script's first line as the activity list names it. Official shows the job's
+        // `cm_…` id there, which tells a reader nothing; the id stays out of the row.
         NoticeKind::Job { id, script: Some(outcome), .. } => {
             use opencode_kit::model::Outcome;
             let (label, m, ink) = match outcome {
@@ -318,10 +334,13 @@ pub fn notice<S: TimelineHost>(s: &S, p: &Pal, n: &Notice, run: crate::compactio
                 Outcome::Cancelled => (opencode_i18n::t!("ui.sessionTimeline.notice.cancelled", actor = "Script"), Mark::Stopped, p.cancelled),
                 Outcome::Completed => (opencode_i18n::t!("ui.sessionTimeline.notice.finished", actor = "Script"), Mark::Completed, p.v2.text_code_accent),
             };
-            let words = if id.is_empty() { label.clone() } else { format!("{label} · {id}") };
-            let mut kids = vec![text(label).key("label").font(UI_MED).color(ink).shrink()];
-            if !id.is_empty() {
-                kids.push(faint("value", format!("· {id}")));
+            let command = script_line(s, id);
+            let words = command.as_ref().map_or_else(|| label.clone(), |c| format!("{label} {c}"));
+            // The label keeps its width; a long command gives way, cut by its fade.
+            let mut kids = vec![text(label).key("label").font(UI_MED).color(ink)];
+            if let Some(c) = command {
+                let c = text(c).key("command").dir(rune::Direction::Ltr).font(crate::style::TOOL_CODE.lh(16.0)).color(p.text).truncate_fade();
+                kids.push(readable(p, c).shrink().min_w(0.0));
             }
             line(m, &words, kids)
         }
@@ -349,7 +368,16 @@ pub fn notice<S: TimelineHost>(s: &S, p: &Pal, n: &Notice, run: crate::compactio
         }
         NoticeKind::Model { model, previous } => {
             let variant_only = previous.as_ref().is_some_and(|x| x.provider == model.provider && x.id == model.id);
-            let (label, variant) = if variant_only {
+            // A model's faster and slower speeds are models of their own ("gpt-5.5-fast"), so moving
+            // between them is a change of speed (`timeline-next/row.tsx`, opencode#65749).
+            let speed = previous.as_ref().and_then(|x| s.model_speed_switch(model, x));
+            let (label, variant) = if let Some(speed) = speed {
+                let label = match speed {
+                    Some(speed) => opencode_i18n::t!("ui.sessionTimeline.notice.speedSwitched", speed = speed),
+                    None => opencode_i18n::t!("ui.sessionTimeline.notice.speedStandard").to_owned(),
+                };
+                (label, None)
+            } else if variant_only {
                 let label = if model.variant.is_empty() || model.variant == "default" {
                     opencode_i18n::t!("ui.sessionTimeline.notice.variantDefault").to_owned()
                 } else {
@@ -368,6 +396,27 @@ pub fn notice<S: TimelineHost>(s: &S, p: &Pal, n: &Notice, run: crate::compactio
             crate::compaction::divider_of(s, p, words, run)
         }
     }
+}
+
+/// The first non-blank line of the `execute` call that started script job `id`, on one line, as
+/// the activity list names a running script (`subagents::jobs::scripts`). The notice carries only
+/// the job's id and output; the call that went to the background holds the code, `metadata.jobID`.
+fn script_line<S: TimelineHost>(s: &S, id: &str) -> Option<String> {
+    use opencode_kit::model::{Message, Part};
+    if id.is_empty() {
+        return None;
+    }
+    s.with_transcript(session_of(s), |t| {
+        t.messages.iter().rev().filter_map(|m| match m {
+            Message::Assistant(a) => Some(a),
+            _ => None,
+        }).flat_map(|a| a.parts.iter().rev()).find_map(|p| match p {
+            Part::Tool { name, input, metadata, .. } if name == "execute" && metadata["jobID"].as_str() == Some(id) => {
+                input["code"].as_str()?.lines().map(str::trim).find(|l| !l.is_empty()).map(crate::tools::plain::one_line)
+            }
+            _ => None,
+        })
+    }).flatten()
 }
 
 /// The session a notice row draws in: the open one.

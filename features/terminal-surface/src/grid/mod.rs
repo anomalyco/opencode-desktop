@@ -1,7 +1,10 @@
 //! High-throughput Rune terminal grid renderer (`120 fps`, per-row `RowId` `memo` + `GlyphCache`,
 //! box-drawing vector shapes, selection, interactive scrollback scrollbar, and phase-locked cursor).
 
+mod cell;
+mod edge;
 mod pointer;
+mod quote;
 mod rows;
 
 use std::cell::{Cell, RefCell};
@@ -16,7 +19,9 @@ use opencode_ui::palette::Pal;
 use opencode_ui::style::{UI, UI_SMALL};
 use terminal::{CursorShape, TerminalSnapshot};
 
-use self::pointer::{ViewportInput, attach_viewport_handlers, render_quote_bar, render_scrollbar};
+pub(crate) use self::pointer::poll_edge_scroll;
+pub use self::quote::{QuotePlace, QuoteSource};
+use self::pointer::{ViewportInput, attach_text_drag, attach_viewport_handlers, render_quote_bar, render_scrollbar};
 use self::rows::{build_rows, cell_fg_color};
 use crate::mount::TextDrag;
 use crate::{HoverLink, TERM_FONT, TERM_SIZE, TerminalSurfaceHost, TerminalTab, find, input, links};
@@ -34,11 +39,11 @@ pub const PAD_X: f32 = 14.0;
 pub const PAD_Y: f32 = 12.0;
 pub(super) const SCROLLBAR_W: f32 = 8.0;
 
-/// Desktop's `terminal` icon (`additional-icons.ts`): a prompt in a box.
+/// Desktop's `terminal` icon (`packages/ui/src/icons/catalog.ts:76-78`): 16x16 prompt in a box.
 pub static TERMINAL_ICON: rune::Icon = rune::Icon {
     name: "terminal-tab",
-    view: 20.0,
-    body: r#"<path d="M6.5 8L8.64286 10L6.5 12M10.9286 12H13.5M2 18H18V2H2V18Z" stroke="currentColor" stroke-linecap="square" fill="none"/>"#,
+    view: 16.0,
+    body: r#"<path d="M4.5 11.5L7.5 8.5L4.5 5.5M11.5 11.5H8.5" stroke-linecap="round" stroke-linejoin="round" stroke="currentColor" fill="none"/><path d="M1.5 14.25V1.75C1.5 1.61193 1.61193 1.5 1.75 1.5H14.25C14.3881 1.5 14.5 1.61193 14.5 1.75V14.25C14.5 14.3881 14.3881 14.5 14.25 14.5H1.75C1.61193 14.5 1.5 14.3881 1.5 14.25Z" stroke-linecap="round" stroke="currentColor" fill="none"/>"#,
 };
 
 type MetricCache = HashMap<(u8, u32, u64), (f32, f32, f32)>;
@@ -69,7 +74,7 @@ pub fn set_custom_font(name: &str) {
     let list = (!name.is_empty()).then(|| {
         KEPT.with_borrow_mut(|kept| {
             *kept.entry(name.to_owned()).or_insert_with(|| {
-                Box::leak(format!("{}, JetBrainsMono Nerd Font Mono", css_family(name)).into_boxed_str())
+                Box::leak(format!("{}, OpenMono, OpenMono Icons", css_family(name)).into_boxed_str())
             })
         })
     });
@@ -86,10 +91,10 @@ pub fn terminal_font_style(knobs: &Knobs) -> (u8, TextStyle) {
     let family = match choice {
         _ if custom.is_some() => Family::Named(custom.unwrap_or_default()),
         // By name, so the code font (the mono slot) doesn't change the terminal's.
-        1 => Family::Named("IBM Plex Mono"),
+        1 => Family::Named("IBM Plex Mono, OpenMono, OpenMono Icons"),
         2 => Family::SystemMono,
-        3 => Family::Named("JetBrainsMono Nerd Font Mono"),
-        _ => Family::Named("CommitMono"),
+        3 => Family::Named("OpenMono, OpenMono Icons"),
+        _ => Family::Named("CommitMono, OpenMono, OpenMono Icons"),
     };
     let mut st = TextStyle::new(size, 400.0).lh(lh);
     st.family = family;
@@ -134,11 +139,11 @@ fn measure(choice: u8, style: TextStyle, scale: f32) -> (f32, f32, f32) {
         let advance = rune::text::advance("MMMMMMMMMM", style) / 10.0;
         let advance = if advance > 1.0 { advance } else { (style.size * 0.6).max(6.0) };
         let cw = (advance * scale).round().max(1.0) / scale;
-        // JetBrains Mono's font box (hhea 1020 up, 300 down), each side rounded as the canvas
-        // reports it; another face keeps its line height.
+        // OpenMono's font box (hhea 965 up, 220 down at 1000 UPM, `opencode#64797`), each side
+        // rounded as the canvas reports it; another face keeps its line height.
         let ch = if choice == 3 {
             let px = style.size * scale;
-            ((px * 1.02).round() + (px * 0.3).round()).max(1.0) / scale
+            ((px * 0.965).round() + (px * 0.22).round()).max(1.0) / scale
         } else {
             style.line_px().max(style.size.ceil() + 2.0)
         };
@@ -319,7 +324,19 @@ fn render_viewport<H: TerminalSurfaceHost + 'static>(
 
     let cols = snap.screen_rows.first().map_or(fit_cols, |r| r.cells.len() as u16);
     let rows = build_rows(s.terminal(), &tab.id, snap, p, style, style_key, cell_w, cell_h, scale, slot_rows);
-    let mut canvas_layer = build_canvas_layer(s, p, tab, snap, style, rows, &hovered, cols, cell_w, cell_h, clip_w, avail_h, grid_h, focused);
+    let input = ViewportInput {
+        ws_key: ws_key.to_owned(),
+        tab_id: tab.id.clone(),
+        cell_w,
+        cell_h,
+        cols_cap: snap.cols.max(1),
+        rows_cap: snap.rows.max(1),
+        reports: snap.mouse_tracking,
+        origin: (PAD_X, PAD_Y),
+    };
+    let text_input = ViewportInput { origin: (0.0, 0.0), ..input.clone() };
+    let text_drag = |text: El| attach_text_drag::<H>(text, text_input);
+    let mut canvas_layer = build_canvas_layer(s, p, tab, snap, style, rows, &hovered, cols, cell_w, cell_h, clip_w, avail_h, grid_h, focused, text_drag);
 
     // Quote: a settled selection offers to go into the composer, under its last line (above
     // when that's the screen's bottom), as Desktop's `TerminalQuote` does.
@@ -332,9 +349,16 @@ fn render_viewport<H: TerminalSurfaceHost + 'static>(
         let y = if below + 28.0 > avail_h { (f32::from(last) * cell_h - 34.0).max(0.0) } else { below };
         let x = (f32::from(left) * cell_w).min((clip_w - 90.0).max(0.0));
         canvas_layer = canvas_layer.child(
-            el().key("terminal-quote").absolute(x, y).child(render_quote_bar::<H>(p, ws_key, &tab.id)),
+            el().key("terminal-quote").absolute(x, y).child(render_quote_bar::<H>(p, ws_key, &tab.id, (cell_w, cell_h))),
         );
     }
+    // The quote last taken: where its comment editor measures from, while its rows still hold;
+    // once they don't, its source is gone for good (`quote-machine.ts:258-270`).
+    let mark = tab.quote_source.get().and_then(|source| quote::origin(snap, source, cell_h));
+    if mark.is_none() {
+        tab.quote_source.set(None);
+    }
+    canvas_layer = canvas_layer.children(mark);
 
     let outer = row()
         .key(VIEWPORT_KEY)
@@ -347,18 +371,7 @@ fn render_viewport<H: TerminalSurfaceHost + 'static>(
         .pb(PAD_Y)
         .cursor(if follows { Cursor::Pointer } else { Cursor::Text })
         .pointer_buttons([PointerButton::Middle]);
-    let outer = attach_viewport_handlers::<H>(
-        outer,
-        ViewportInput {
-            ws_key: ws_key.to_owned(),
-            tab_id: tab.id.clone(),
-            cell_w,
-            cell_h,
-            cols_cap: snap.cols.max(1),
-            rows_cap: snap.rows.max(1),
-            reports: snap.mouse_tracking,
-        },
-    );
+    let outer = attach_viewport_handlers::<H>(outer, input);
 
     let scrollbar = if snap.scrollbar.total > snap.scrollbar.len && snap.scrollbar.total > 0 {
         render_scrollbar::<H>(p, ws_key, &tab.id, &snap.scrollbar, body_h)
@@ -389,6 +402,7 @@ fn build_canvas_layer(
     avail_h: f32,
     grid_h: f32,
     focused: bool,
+    text_drag: impl FnOnce(El) -> El,
 ) -> El {
     // The screen is the Tab stop and the name, so a reader lands on its text and its caret (not
     // on a pane that repeats the whole screen); the viewport around it owns the keys.
@@ -397,6 +411,8 @@ fn build_canvas_layer(
         .w(clip_w)
         .h(grid_h)
         .focusable(true)
+        // The caret shows focus, never a ring (`packages/gui-plugins/src/terminal/terminal.tsx`: `outline-none`).
+        .no_focus_ring()
         // A name that holds while a command runs: a shell retitles its window per command, and
         // each change of the focused element's name is said again. The tab shows the shell's.
         .label(opencode_i18n::t!(
@@ -408,6 +424,7 @@ fn build_canvas_layer(
             }
         ))
         .description_static(opencode_i18n::t!("rune.a11y.terminal.leave"));
+    let rows_col = text_drag(rows_col);
     let rows_col = if snap.cursor.visible && snap.cursor.in_viewport {
         rows_col.grid_caret(snap.cursor.col, snap.cursor.row)
     } else {

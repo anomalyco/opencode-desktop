@@ -47,7 +47,7 @@ pub use persist::{draft_document_of, draft_documents, draft_tab_key, poll_restor
 pub use places::{Kept as KeptPlaces, land_place, poll_places, restore_places};
 pub use preview::{Previews, encode as encode_preview, poll_preview, preview_place, stamp as preview_stamp};
 pub use state::{
-    Hydration, InboxUi, OrganizeState, Restore, RestoreRoute, RestoreTab, StorageNotice, draft_key, organize_json,
+    Hydration, InboxUi, OrganizeState, Restore, RestoreRoute, RestoreTab, StorageNotice, WorkingPlacement, draft_key, organize_json,
     parse_organize,
 };
 pub use undo::{Kept as KeptUndo, poll_undo, undo_document};
@@ -57,6 +57,17 @@ use state::Written;
 
 /// The app-wide keys Desktop keeps the sidebar's and the inbox's state in.
 pub const GLOBAL: &str = "opencode.global.dat";
+
+/// The shown session while its transcript is only the boot record's preview: the first frame
+/// draws it, and the server's first page of it ends it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ColdTranscript {
+    pub id: String,
+    /// The session has messages before the preview's first: the timeline lays the preview out as
+    /// it will stand once they land above it (at its end, with the gap a prompt has under a turn),
+    /// so nothing moves when they do.
+    pub older: bool,
+}
 /// Minimum sidebar width restored from global layout (`sidebar.rs`).
 pub const SIDEBAR_MIN: f32 = 136.0;
 /// Maximum sidebar width restored from global layout (`sidebar.rs`).
@@ -87,7 +98,11 @@ pub fn restore_ui(host: &mut dyn RestoreHost, doc: &WindowDoc, server: &str) {
     host.set_home_return_tab(home_return);
 
     let namespace = opencode_storage::window_namespace(host.window_id());
-    let last_project = host.storage_json(&namespace, "tabs.recent").and_then(|r| {
+    let recent = host.storage_json(&namespace, "tabs.recent");
+    // The session that was routed in that tab, said only beside the key it was saved with.
+    let routed = recent.as_ref().filter(|r| doc.recent.is_some() && r["key"].as_str().and_then(TabKey::parse) == doc.recent);
+    host.set_saved_routed_child(routed.and_then(|r| r["routeSessionId"].as_str()).map(str::to_owned));
+    let last_project = recent.and_then(|r| {
         Some((ServerKey::new(r["target"]["server"].as_str()?), r["target"]["directory"].as_str()?.to_owned()))
     });
     host.set_last_project(last_project);
@@ -152,7 +167,8 @@ pub fn restore_ui(host: &mut dyn RestoreHost, doc: &WindowDoc, server: &str) {
                     && !host.has_transcript(id)
                     && preview::take_boot_preview(host, on, id)
                 {
-                    host.set_cold_transcript(Some(id.clone()));
+                    let older = preview::older(host, id);
+                    host.set_cold_transcript(Some(ColdTranscript { id: id.clone(), older }));
                 }
                 host.set_route(route);
             }
@@ -209,6 +225,19 @@ pub fn tell_storage_notice(host: &mut dyn RestoreHost) -> bool {
         Some(StorageNotice::NotSaving { full: true, .. }) => host.toast_fail(t!("rune.storage.diskFull.title"), t!("rune.storage.diskFull.description")),
         Some(StorageNotice::NotSaving { full: false, why }) => {
             host.toast_fail(t!("rune.storage.notSaving.title"), &t!("rune.storage.writeFailed.description", why = toast::plain(&why)));
+        }
+        Some(StorageNotice::SeedDroppedDrafts { count, official_dir }) => {
+            let title = if count == 1 {
+                t!("rune.storage.seedDroppedDrafts.titleOne").to_owned()
+            } else {
+                t!("rune.storage.seedDroppedDrafts.titleMany", count = count)
+            };
+            let desc = if official_dir.is_empty() {
+                t!("rune.storage.seedDroppedDrafts.description").to_owned()
+            } else {
+                t!("rune.storage.seedDroppedDrafts.descriptionPath", path = toast::plain(&official_dir))
+            };
+            host.toast_fail(&title, &desc);
         }
         None => return false,
     }

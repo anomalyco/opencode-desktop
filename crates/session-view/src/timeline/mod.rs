@@ -6,10 +6,9 @@ use rune::{El, GrowthSpec, ScrollSpec, col, edge, el, row, text};
 
 use crate::TimelineHost;
 use crate::compaction::Run;
-use crate::focus::FocusExt;
 use crate::fold::Fold;
 use crate::palette::Pal;
-use crate::style::{UI, activity_ring};
+use crate::style::UI;
 use crate::turns::{self, Block, Entry, Step};
 
 pub mod attachments;
@@ -30,15 +29,20 @@ pub struct RowSpec {
     pub key: String,
     pub content: RowContent,
     pub streaming: bool,
+    /// The room it holds under what it shows, which sets the row below apart (`rhythm`).
+    pub under: f32,
+    /// A divider stands under it, this beside it above: the row holds the room over the
+    /// divider's words too (`dividers`, `compaction::Over`).
+    pub divider: Option<crate::compaction::Beside>,
 }
 
 #[derive(Clone, PartialEq)]
 pub enum RowContent {
-    /// `reply`: the room over it under a reply (0 for none), set by `rhythm`.
-    User { message: usize, tight: bool, above: bool, below: bool, reply: f32, fold: Fold },
+    /// `top`: the room over its bubble (`prompt_images`), which the row above holds (`rhythm`).
+    User { message: usize, above: bool, below: bool, top: f32, fold: Fold },
     /// An undelivered steer: the bubble it becomes once delivered, muted and marked Pending,
     /// under the same row key so delivery keeps it in place.
-    Pending { id: String, tight: bool, above: bool, below: bool, reply: f32, fold: Fold },
+    Pending { id: String, above: bool, below: bool, top: f32, fold: Fold },
     /// A switched agent or model, a move, updated instructions (`turn_errors`), and what sits
     /// beside it should it draw as a divider, and the room over it as a line (`rhythm`).
     Notice(usize, Run, f32),
@@ -72,6 +76,11 @@ pub enum RowContent {
 }
 
 impl RowSpec {
+    /// The room under what the row shows: to the row below, and over a divider's words.
+    fn room_under<S: TimelineHost>(&self, s: &S) -> f32 {
+        self.under + self.divider.map_or(0.0, |beside| crate::compaction::side(s, beside))
+    }
+
     /// A row that folds open and shut under its header, keyed in `expanded` by its row key:
     /// a tool group, or the quiet Compacted divider's summary.
     fn folds(&self) -> bool {
@@ -105,7 +114,8 @@ impl RowSpec {
     /// line at a time: a reply with a fenced block in it, whose diagram, outline or code can
     /// grow by many lines in one build.
     fn wrap_paced<S: TimelineHost>(&self, s: &S, heading: Option<El>, el: El, paced: bool) -> El {
-        let row = col().w_full().max_w(crate::style::content_w()).children(heading).child(el);
+        // The room between two rows is the upper row's, under what it shows (`rhythm`).
+        let row = col().w_full().max_w(crate::style::content_w()).pb(self.room_under(s)).children(heading).child(el);
         let row = if matches!(self.content, RowContent::User { .. } | RowContent::Pending { .. }) && s.smooth_timeline() {
             row.joined_row_face("bubble")
         } else { row };
@@ -137,11 +147,16 @@ impl RowSpec {
     fn text_row<S: TimelineHost>(&self, s: &S, p: &Pal, t: &Transcript, mi: usize, part: usize, body: &str, fade: f32, live: bool, pt: f32, footer: bool, keep_copy: bool) -> El {
         let message = t.messages[mi].id();
         let prompt = prompt_dir(t, mi);
-        let md = |text: &str, fade: f32| markdown_view_find(s, p, &self.key, text, fade, live, Some(message), prompt);
+        let has_turn_footer = !live && turn_footer_text(t, mi, part);
+        let trim_bottom = if has_turn_footer || (!live && footer) { 0.0 } else { rhythm::prose_bottom_trim(body) };
+        let md = |text: &str, fade: f32| {
+            let el = markdown_view_find(s, p, &self.key, text, fade, live, Some(message), prompt);
+            if trim_bottom > 0.0 { el.mb(-trim_bottom) } else { el }
+        };
         // A burst paces in a slice at a time (`line_reveal::Paced`).
         let body = s.line_hold().paced(message, part).filter(|&n| body.is_char_boundary(n)).map_or(body, |n| &body[..n]);
         let words = crate::line_reveal::words(col().w_full().pt(pt), md, body, fade, s.line_hold().shown(message, part));
-        if !live && turn_footer_text(t, mi, part) {
+        if has_turn_footer {
             let words = words.child(turn_footer(s, p, t, mi, part, keep_copy));
             return self.wrap_paced(s, None, words, body.contains("```")).hover_group_focus().hover_motion(crate::style::INSTANT, crate::style::INSTANT);
         }
@@ -163,8 +178,38 @@ impl RowSpec {
                         let dw = if body.contains("mermaid") { crate::genui::width(s).to_bits() } else { 0 };
                         let reveal = crate::line_reveal::reveal(k);
                         let line = (reveal, k.get(&crate::line_reveal::LINE_GROW).to_bits(), crate::line_reveal::feather(k).to_bits(), s.line_hold().shown(&a.id, *part), s.line_hold().paced(&a.id, *part));
-                        // A code block's Copy shows its tick, so the copy in hand rebuilds the row.
-                        let copied = body.contains("```").then(|| crate::copied::current(s));
+                        // A code block's Copy shows its tick, its wrapping follows Settings and any
+                        // per-block toggle, and math (display and inline) follows async completion;
+                        // rows without fences read none of these.
+                        let has_fence = body.contains("```") || body.contains("~~~");
+                        let copied = has_fence.then(|| crate::copied::current(s));
+                        let wrap = has_fence.then(|| {
+                            let default = s.wrap_code_blocks();
+                            let overrides = s
+                                .code_wrap_overrides()
+                                .filter(|m| !m.is_empty())
+                                .map(|m| {
+                                    // Its blocks' toggles: `<row>:<n>`, and in a reply with `ui` blocks
+                                    // or videos `<row>-md-<start>:<n>` / `<row>-v-<start>:<n>`.
+                                    let mut v: Vec<(String, bool)> = m
+                                        .iter()
+                                        .filter(|(k, _)| k.strip_prefix(self.key.as_str()).is_some_and(|rest| rest.starts_with(':') || rest.starts_with("-md-") || rest.starts_with("-v-")))
+                                        .map(|(k, &on)| (k.clone(), on))
+                                        .collect();
+                                    v.sort();
+                                    v
+                                })
+                                .unwrap_or_default();
+                            (default, overrides)
+                        });
+                        // Display or inline math: the row's own version, which moves only when an
+                        // equation it drew while that was still rendering finishes
+                        // (`rune_kit::math::collect`).
+                        let has_math = rune_kit::math::may_have_math(body);
+                        if has_math && let Some(m) = s.math_client() {
+                            m.hold();
+                        }
+                        let math_gen = has_math.then(|| rune_kit::math::version(&self.key));
                         // A picture landing (an image, a link's favicon), the viewer opening one, or
                         // the session's directory its paths read from becoming known rebuilds the row.
                         let footer = footer_text(t, *message, *part);
@@ -187,9 +232,12 @@ impl RowSpec {
                         let videos = (!*live && opencode_kit::path::mentions_video(body)).then(|| (s.media_store().videos.version(), s.active_session_id().and_then(|id| s.session_directory(id))));
                         let scale_bits = crate::scroller::device_scale().to_bits();
                         let look = (p.theme, p.generation, p.dark, opencode_i18n::locale().id(), crate::style::hover_none());
-                        let ver = (&t.session, body.as_str(), *live, pt.to_bits(), fade.to_bits(), look, self.streaming, find_ver, dw, s.diagrams().hidden_in(body), line, (copied, pictures, footer, crate::style::content_w().to_bits(), scale_bits, chips, own, (code, videos)));
+                        let ver = (&t.session, body.as_str(), *live, [pt.to_bits(), self.room_under(s).to_bits()], fade.to_bits(), look, self.streaming, find_ver, dw, s.diagrams().hidden_in(body), line, (copied, wrap, math_gen, pictures, footer, crate::style::content_w().to_bits(), scale_bits, chips, own, (code, videos)));
                         return rune::memo(self.key.clone(), ver, || {
                             ROW_BUILDS.set(ROW_BUILDS.get() + 1);
+                            if has_math {
+                                return rune_kit::math::collect(&self.key, || self.text_row(s, p, t, *message, *part, body, fade, *live, *pt, footer, keep_copy));
+                            }
                             self.text_row(s, p, t, *message, *part, body, fade, *live, *pt, footer, keep_copy)
                         });
                     }
@@ -199,20 +247,20 @@ impl RowSpec {
                 {
                     let fold = crate::disclosure::fold(k).duration.to_bits();
                     let detail = s.timeline_detail();
+                    let script_diffs = s.full_codemode(&t.session);
+                    // A group of thoughts alone is a thought row (`turns::group`), which opens by
+                    // its first thought's key and not by the group's: the row is shut as a
+                    // group and may be open as a thought, so the thoughts' toggles are part of it.
+                    let thoughts = s.expanded().stamp("r-");
                     let look = (p.theme, p.generation, p.dark, opencode_i18n::locale().id(), crate::style::hover_none());
-                    let ver = (&t.session, group_hash(&t.messages[*start..*end]), *block, *live, pt.to_bits(), look, self.streaming, (fold, crate::style::content_w().to_bits(), crate::scroller::device_scale().to_bits(), detail, s.shell_output_version(), crate::style::sticky_top().to_bits(), s.reduced_motion()));
+                    let ver = (&t.session, group_hash(&t.messages[*start..*end], &detail, script_diffs), *block, *live, [pt.to_bits(), self.room_under(s).to_bits()], look, self.streaming, (fold, crate::style::content_w().to_bits(), crate::scroller::device_scale().to_bits(), detail, script_diffs, s.shell_output_version(), crate::style::sticky_top().to_bits(), s.reduced_motion(), thoughts));
                     return rune::memo(self.key.clone(), ver, || {
                         ROW_BUILDS.set(ROW_BUILDS.get() + 1);
-                        let blocks = turns::fold_with(&entries(&t.messages[*start..*end], &detail), *live, &detail);
-                        let el = match blocks.get(*block) {
-                            Some(Block::Group { key, steps, at }) => turns::group(s, p, &t.session, key, steps, at, *start..*end, *live, fade).pt(*pt),
-                            Some(Block::Events { key, steps }) => turns::events_row(s, p, &t.session, key, steps).pt(*pt),
-                            _ => col(),
-                        };
-                        self.wrap(s, el)
+                        let blocks = turns::fold_with_flags(&entries(&t.messages[*start..*end], &detail), *live, &detail, script_diffs);
+                        self.wrap(s, turns::block_row(s, p, &t.session, &blocks, *block, *start..*end, *live, fade, *pt, script_diffs))
                     });
                 }
-                RowContent::User { message, tight, above, below, reply, fold } => {
+                RowContent::User { message, above, below, top, fold } => {
                     if let Message::User { id, text, .. } = &t.messages[*message]
                         && s.user_glow_at(id).is_none()
                         && !s.user_menu_open_on(id)
@@ -225,10 +273,10 @@ impl RowSpec {
                         // A turn's place is only for its heading, which only a reader gets.
                         let (turn, more) = if s.assistive() { (turn_of(t, *message), s.more_above(&t.session)) } else { ((0, 0), false) };
                         let look = (p.theme, p.generation, p.dark, opencode_i18n::locale().id(), crate::style::hover_none());
-                        let ver = (&t.session, id.as_str(), text.as_str(), [*tight, *above, *below, fold.past, s.fold_user_messages(), open, self.streaming, s.smooth_timeline()], (look, fold.viewport.to_bits(), reply.to_bits(), crate::scroller::device_scale().to_bits()), find_ver, s.user_status_version(id), &meta, crate::style::content_w().to_bits(), turn, more, s.assistive());
+                        let ver = (&t.session, id.as_str(), text.as_str(), [*above, *below, fold.past, s.fold_user_messages(), open, self.streaming, s.smooth_timeline()], (look, fold.viewport.to_bits(), [top.to_bits(), self.room_under(s).to_bits()], crate::scroller::device_scale().to_bits()), find_ver, s.user_status_version(id), &meta, crate::style::content_w().to_bits(), turn, more, s.assistive());
                         return rune::memo(self.key.clone(), ver, || {
                             ROW_BUILDS.set(ROW_BUILDS.get() + 1);
-                            let run = Place { tight: *tight, above: *above, below: *below, reply: *reply, fold: *fold };
+                            let run = Place { above: *above, below: *below, top: *top, fold: *fold };
                             self.wrap_turn(s, turn, more, text, user_bubble(s, p, &t.session, id, text, run, 0.0, false, None, &meta))
                         });
                     }
@@ -238,11 +286,11 @@ impl RowSpec {
         }
         ROW_BUILDS.set(ROW_BUILDS.get() + 1);
         let el = match &self.content {
-            RowContent::User { message, tight, above, below, reply, fold } => match &t.messages[*message] {
+            RowContent::User { message, above, below, top, fold } => match &t.messages[*message] {
                 Message::User { id, text, .. } => {
                     let glow = s.user_glow_at(id).map_or(0.0, |at| crate::knobs::glow(k, s.clock() - at));
-                    let run = Place { tight: *tight, above: *above, below: *below, reply: *reply, fold: *fold };
-                    let bubble = user_bubble(s, p, &t.session, id, text, run, glow, false, crate::user_parts::quotes_on_message(s, p, id, text), &prompt_meta(s, t, Some(*message)));
+                    let run = Place { above: *above, below: *below, top: *top, fold: *fold };
+                    let bubble = user_bubble(s, p, &t.session, id, text, run, glow, false, crate::user_parts::quotes_on_message(s, p, id, text, false), &prompt_meta(s, t, Some(*message)));
                     if !s.assistive() {
                         return self.wrap(s, bubble);
                     }
@@ -250,13 +298,13 @@ impl RowSpec {
                 }
                 _ => unreachable!(),
             },
-            RowContent::Pending { id, tight, above, below, reply, fold } => {
+            RowContent::Pending { id, above, below, top, fold } => {
                 let item = s.inbox_for(&t.session).and_then(|i| i.items.iter().find(|i| &i.id == id));
                 match item {
                     Some(item) => {
-                        let cards = crate::user_parts::quotes_on_message(s, p, id, &item.text);
+                        let cards = crate::user_parts::quotes_on_message(s, p, id, &item.text, true);
                         let label = if cards.is_some() { item.text.clone() } else { s.pending_steer_label(item) };
-                        let run = Place { tight: *tight, above: *above, below: *below, reply: *reply, fold: *fold };
+                        let run = Place { above: *above, below: *below, top: *top, fold: *fold };
                         user_bubble(s, p, &t.session, id, &label, run, 0.0, true, cards, &prompt_meta(s, t, None))
                     }
                     None => col(),
@@ -303,7 +351,7 @@ impl RowSpec {
                     }),
                     _ => None,
                 });
-                files.and_then(|f| crate::images::gallery(s, p, &format!("tool-images-{tool}"), f, false, None)).unwrap_or_else(col).pt(8.0)
+                files.and_then(|f| crate::images::gallery(s, p, &format!("tool-images-{tool}"), f, false, 0.0, None)).unwrap_or_else(col).pt(8.0)
             }
             RowContent::TurnText { message, part, live, pt } => match &t.messages[*message] {
                 Message::Assistant(a) => match &a.parts[*part] {
@@ -314,26 +362,21 @@ impl RowSpec {
             },
             RowContent::Turn { start, end, block, live, pt } => {
                 let detail = s.timeline_detail();
-                let blocks = turns::fold_with(&entries(&t.messages[*start..*end], &detail), *live, &detail);
+                let script_diffs = s.full_codemode(&t.session);
+                let blocks = turns::fold_with_flags(&entries(&t.messages[*start..*end], &detail), *live, &detail, script_diffs);
                 match blocks.get(*block) {
-                    Some(Block::Group { key, steps, at }) => turns::group(s, p, &t.session, key, steps, at, *start..*end, *live, fade).pt(*pt),
                     Some(Block::Text { key, body, live, msg, part }) => {
-                        // `t-{message}-{n}`
                         let message = key.strip_prefix("t-").and_then(|k| k.rsplit_once('-')).map(|(id, _)| id);
-                        let text = col().w_full().pt(*pt).child(markdown_view_find(s, p, &self.key, body, fade, *live, message, prompt_dir(t, start + msg)));
-                        if !*live && turn_footer_text(t, start + msg, *part) {
+                        let has_turn_footer = !*live && turn_footer_text(t, start + msg, *part);
+                        let trim_bottom = if has_turn_footer || (!*live && footer_text(t, start + msg, *part)) { 0.0 } else { rhythm::prose_bottom_trim(body) };
+                        let md_el = markdown_view_find(s, p, &self.key, body, fade, *live, message, prompt_dir(t, start + msg));
+                        let text = col().w_full().pt(*pt).child(if trim_bottom > 0.0 { md_el.mb(-trim_bottom) } else { md_el });
+                        if has_turn_footer {
                             return self.wrap(s, text.child(turn_footer(s, p, t, start + msg, *part, latest_copy == Some(start + msg)))).hover_group_focus().hover_motion(crate::style::INSTANT, crate::style::INSTANT);
                         }
                         text
                     }
-                    Some(Block::Events { key, steps }) => turns::events_row(s, p, &t.session, key, steps).pt(*pt),
-                    Some(Block::Subagent { step, .. }) => turns::subagent_row(s, p, &t.session, step).pt(*pt),
-                    Some(Block::Question { id, status, input, metadata }) =>
-                        crate::question_row::view(s, p, &t.session, id, status, input, metadata).pt(*pt),
-                    Some(Block::Thought { step, live: streaming, .. }) => turns::thought(s, p, step, *live && *streaming, fade).pt(*pt),
-                    Some(Block::Calls { kind, steps, .. }) => turns::calls(s, p, &t.session, *kind, steps, *live).pt(*pt),
-                    Some(Block::Widget { message, step, .. }) => turns::widget(s, p, &t.session, message, step, *live).pt(*pt),
-                    None => col(),
+                    _ => turns::block_row(s, p, &t.session, &blocks, *block, *start..*end, *live, fade, *pt, script_diffs),
                 }
             }
         };
@@ -353,9 +396,10 @@ pub fn entries<'a>(messages: &'a [Message], detail: &crate::detail::Detail) -> V
     }).collect()
 }
 
-fn group_hash(messages: &[Message]) -> u64 {
+fn group_hash(messages: &[Message], detail: &crate::detail::Detail, script_diffs: bool) -> u64 {
     use std::hash::{DefaultHasher, Hash, Hasher};
     let mut h = DefaultHasher::new();
+    let edits = script_diffs && detail.placement(crate::detail::Category::Edit) != crate::detail::Placement::Hidden;
     for m in messages {
         if let Message::Notice(n) = m {
             (3u8, &n.id).hash(&mut h);
@@ -369,7 +413,19 @@ fn group_hash(messages: &[Message]) -> u64 {
             (&a.id, a.completed, a.parts.len(), &a.text_phases).hash(&mut h);
             for p in &a.parts {
                 match p {
-                    Part::Tool { id, name, status, .. } => (0u8, id, name, std::mem::discriminant(status)).hash(&mut h),
+                    Part::Tool { id, name, status, metadata, .. } => {
+                        (0u8, id, name, std::mem::discriminant(status)).hash(&mut h);
+                        // A script's changes name the group as they arrive; progress that adds
+                        // none keeps the row.
+                        if edits {
+                            crate::activity::rules::script_changes(name, status, metadata).for_each(|(i, f)| (i, f["file"].as_str()).hash(&mut h));
+                        }
+                        if script_diffs && name == "execute" {
+                            metadata["toolCalls"].as_array().into_iter().flatten().for_each(|c| {
+                                (c["tool"].as_str(), c["status"].as_str(), c["input"]["method"].as_str(), c["input"]["path"].as_str()).hash(&mut h);
+                            });
+                        }
+                    }
                     Part::Reasoning { text, completed, .. } => (1u8, text.len(), completed).hash(&mut h),
                     Part::Text { text } => (2u8, text.len()).hash(&mut h),
                 }
@@ -470,9 +526,9 @@ pub fn timeline<S: TimelineHost>(s: &S, p: &Pal, id: &str, t: Option<&Transcript
     // The pills' lane ends the rows, apart from the projection it doesn't change.
     let specs = Shown {
         rows: t.map(|t| rows(s, t)).unwrap_or_default(),
-        lane: (t.is_some() && lane > 0.0).then(|| std::rc::Rc::new(RowSpec { key: "pill-lane".into(), content: RowContent::Lane(lane), streaming: false })),
+        lane: (t.is_some() && lane > 0.0).then(|| std::rc::Rc::new(RowSpec { key: "pill-lane".into(), content: RowContent::Lane(lane), streaming: false, under: 0.0, divider: None })),
     };
-    let tail_extra = t.map_or(0.0, |t| rhythm::tail_extra(t, &s.timeline_detail(), &specs.rows));
+    let tail_extra = t.map_or(0.0, |t| rhythm::tail_extra(t, &s.timeline_detail(), s.full_codemode(&t.session), &specs.rows));
     let mut stack = col()
         .key("timeline")
         .w_full()
@@ -481,8 +537,11 @@ pub fn timeline<S: TimelineHost>(s: &S, p: &Pal, id: &str, t: Option<&Transcript
         .pt(crate::style::timeline_top())
         .pb(((if crate::style::hover_none() { 104.0 } else { TAIL }) + tail_extra - crate::working::LANE).max(crate::jump::fade(s, 0.0)))
         // One selection across the whole timeline, as a page's: a drag runs from a prompt
-        // through tools and replies, and Cmd+A takes every message on screen.
+        // through tools and replies, Cmd+A takes every message, and caret browsing lets
+        // Shift+Arrow / Arrow / Home / End extend or move it (out of Tab order, no ring).
         .selection_group(true)
+        .caret_browsing(true)
+        .tab_index(-1).no_focus_ring()
         .on_selection_change(S::on_timeline_selection_change)
         // While a panel's spring moves the timeline's edge, rows take the width they land at,
         // so their text wraps once, and glide from where the first in view was
@@ -524,7 +583,11 @@ pub fn timeline<S: TimelineHost>(s: &S, p: &Pal, id: &str, t: Option<&Transcript
                 // Rows build after this returns, maybe beside another timeline's.
                 crate::style::set_sticky_top(sticky);
                 let Some(r) = specs.get(i) else { return col() };
-                marks.row(&r.key, s.with_transcript(&id, |t| r.build(s, &p, t, e.word_fade, latest_copy)).unwrap_or_else(col))
+                // A row that leaves the mounted range takes its focused control with it: the
+                // viewport takes focus then, without scrolling, so the scroll keys keep working
+                // (official `session/timeline/virtualizer.tsx`, opencode#65921), not a control
+                // somewhere else.
+                marks.row(&r.key, s.with_transcript(&id, |t| r.build(s, &p, t, e.word_fade, latest_copy)).unwrap_or_else(col)).focus_return(format!("scroll-{id}"))
             },
         ).virtual_rows_version(version);
     }
@@ -539,25 +602,38 @@ pub fn timeline<S: TimelineHost>(s: &S, p: &Pal, id: &str, t: Option<&Transcript
                     .on_press_tx(move |s:&mut S,tx|{if let Some(part)=s.partial_output(&session){tx.copy(part.to_owned());}})
                     .child(text(copy_label).font(UI).color(p.text))));
         }
-        stack = stack.child(
-            row()
-                .key("loading")
-                .w_full()
-                .max_w(crate::style::content_w())
-                .h(40.0)
-                .gap(8.0)
-                .center()
-                .children(s.loading_error(id).is_none().then(|| activity_ring(p)))
-                .child(text(s.loading_error(id).unwrap_or(opencode_i18n::t!("session.messages.loading"))).font(UI).color(p.faint)),
-        );
+        // Official's session page shows only its header while the messages load: no spinner, no
+        // words, at any delay (`session/screen.tsx:451-454`). A read that failed says why, with Retry.
+        if let Some(why) = s.loading_error(id) {
+            let session = id.to_owned();
+            stack = stack.child(
+                row()
+                    .key("loading")
+                    .w_full()
+                    .max_w(crate::style::content_w())
+                    .h(40.0)
+                    .gap(8.0)
+                    .center()
+                    .child(text(why).font(UI).color(p.faint))
+                    .child(
+                        row().key("loading-retry").role("button").focusable(true).label_static(opencode_i18n::t!("common.retry")).px(8.0).min_h(28.0).center().radius(6.0).hover(p.hover).fill(p.layer2)
+                            .on_press_tx(move |s: &mut S, tx: &mut rune::Tx| s.retry_loading(&session, tx))
+                            .child(text(opencode_i18n::t!("common.retry")).font(UI).color(p.text)),
+                    ),
+            );
+        }
     }
     // Its edges fade only while rows are under them, and never over a stuck group header. Under
     // a session header the top one is Desktop's `session-header-fade`: a 16 pt linear ramp of
     // the page's colour under the header's bottom edge, whole as soon as rows go under it; the
-    // bottom one is Desktop's 20 px smoothstep viewport mask (`packages/app/src/index.css:96-106`).
+    // bottom one is Desktop's 20 px 4-stop piecewise-linear viewport mask (`packages/app/src/index.css:96-107`:
+    // 0 -> 0.16 @ 5px -> 0.50 @ 10px -> 0.84 @ 15px -> 1.0 @ 20px).
+    // Without a session header (narrow windows, `virtualizer.tsx:1182-1208`), official has only
+    // the bottom 20 px fade (`end_only`) and never fades rows under the narrow location bar.
+    let bottom_fade = rune::ScrollFade::strength(20.0).stops(&[(0.25, 0.16), (0.5, 0.5), (0.75, 0.84)]);
     let fade = match header {
-        Some(_) => rune::ScrollFade::strength(16.0).linear().full_at(0.01).below_sticky().with_end(rune::ScrollFade::strength(20.0)),
-        None => rune::ScrollFade::strength(20.0),
+        Some(_) => rune::ScrollFade::strength(16.0).linear().full_at(0.01).below_sticky().with_end(bottom_fade),
+        None => bottom_fade.end_only(),
     };
     let mut scroll = marks.view(col())
         .key(format!("scroll-{id}"))
@@ -566,17 +642,25 @@ pub fn timeline<S: TimelineHost>(s: &S, p: &Pal, id: &str, t: Option<&Transcript
         .w_full()
         .scroll(ScrollSpec { stick_bottom: true })
         .scroll_fade(fade)
-        // A Tab stop that scrolls with the keys, as Desktop's `ScrollView` (`tabIndex={0}` and its
-        // own `onKeyDown`, `scroll-view.tsx:453-551`), ringed inside when the keyboard focuses it
-        // (`.scroll-view__viewport:focus-visible`, `scroll-view.css`). The header's controls follow it.
+        // It scrolls with the keys once a click focuses it but is no Tab stop, as Desktop's
+        // `ScrollView` (`tabIndex={-1}` and its own `onKeyDown`, `scroll-view.tsx`,
+        // opencode#65758), with no ring: the rows inside show focus (opencode#65690).
         .focusable(true)
+        .tab_index(-1)
         .role("region")
         .label_static(opencode_i18n::t!("ui.scrollView.ariaLabel"))
-        .focus_inset(p)
+        .no_focus_ring()
+        .on_key(S::on_timeline_key)
         // `sticky top-0 z-30` (`session-identity-header.tsx:54`). It needs no fill of its own:
         // rows under it clip at its bottom edge, where their fade starts (`below_sticky`), so
         // the panel's corners and ring show as they do without it.
         .children(header.map(|h| h.sticky_top(0.0)))
+        // With older messages still to land above, the rows stand at the viewport's end even while
+        // they are shorter than it (a restored session's saved last turns in a tall window, a
+        // newest page of short messages): where they stay once the rest is above them. Without
+        // this they started at the top and moved down by what the viewport had left (70 pt in a
+        // 1200 px window) when the server's page landed. A whole short session starts at the top.
+        .children(s.more_above(id).then(|| el().key("above").grow(1.0)))
         .child(stack);
     // Near its top, older messages load above what's on screen.
     if let Some(top) = s.watch_scroll_top(id) {
@@ -616,18 +700,18 @@ pub fn row_keys<S: TimelineHost>(s: &S, t: &Transcript) -> Vec<String> {
     rows(s, t).iter().map(|r| r.key.clone()).collect()
 }
 
-/// A prompt's attachments (`attachments`), in a row 8 above its bubble. Returns whether its
-/// bubble sits tight under what's above it. With `older` messages still to land above, the first
-/// prompt keeps the gap it will have under them.
-pub fn prompt_images(out: &mut Vec<RowSpec>, id: &str, older: bool) -> bool {
+/// A prompt's attachments (`attachments`), in a row 8 above its bubble. Returns the room over
+/// its bubble: 4 in a run (`above`), 8 under its pictures or where it starts the session, else
+/// 16 (`rhythm` knows what it stands under). With `older` messages still to land above it
+/// doesn't start the session.
+pub fn prompt_images(out: &mut Vec<RowSpec>, id: &str, older: bool, above: bool) -> f32 {
     let start = out.is_empty() && !older;
     let gallery = attachments::any(id);
-    let tight = start || gallery;
     if gallery {
         let pt = if start { 8.0 } else { 16.0 };
-        out.push(RowSpec { key: format!("ui-{id}"), content: RowContent::UserImages { id: id.to_owned(), pt }, streaming: false });
+        out.push(RowSpec { key: format!("ui-{id}"), content: RowContent::UserImages { id: id.to_owned(), pt }, streaming: false, under: 0.0, divider: None });
     }
-    tight
+    if above { 4.0 } else if start || gallery { 8.0 } else { 16.0 }
 }
 
 /// Space above a turn's row (`rhythm` respaces it under a row it knows), as Desktop spaces assistant parts (`session-timeline-row.tsx:696-700`):
@@ -644,8 +728,8 @@ pub fn part_gap(prev: Option<bool>, tool: bool) -> f32 {
 
 /// A turn's rows, `steps` being its messages `start..end` one for one. `live`: these steps end
 /// the transcript and the last one is still running.
-pub fn turn_rows(out: &mut Vec<RowSpec>, steps: &[Entry], start: usize, end: usize, live: bool, detail: &crate::detail::Detail) {
-    let blocks = turns::fold_with(steps, live, detail);
+pub fn turn_rows(out: &mut Vec<RowSpec>, steps: &[Entry], start: usize, end: usize, live: bool, detail: &crate::detail::Detail, script_diffs: bool) {
+    let blocks = turns::fold_with_flags(steps, live, detail, script_diffs);
     // Whether the row above was a tool; `None` above the turn's first row.
     let mut prev: Option<bool> = None;
     for (i, b) in blocks.into_iter().enumerate() {
@@ -656,24 +740,24 @@ pub fn turn_rows(out: &mut Vec<RowSpec>, steps: &[Entry], start: usize, end: usi
             Block::Group { key, steps, .. } => {
                 // An open group's steps arrive whole: as a streaming row, opening one paced its
                 // height at text-reveal speeds (seconds for a long group) and shutting snapped.
-                out.push(RowSpec { streaming: false, content, key });
+                out.push(RowSpec { streaming: false, content, key, under: 0.0, divider: None });
                 // An image a tool returned shows even while its group is closed.
                 for st in &steps {
                     if let Step::Tool { id, files, .. } = st
                         && crate::images::shows(files)
                     {
                         let content = RowContent::ToolImages { start, end, tool: id.to_string() };
-                        out.push(RowSpec { key: format!("ti-{id}"), content, streaming: false });
+                        out.push(RowSpec { key: format!("ti-{id}"), content, streaming: false, under: 0.0, divider: None });
                     }
                 }
             }
             Block::Text { key, msg, part, live, .. } => {
                 let content = if end - start == steps.len() { RowContent::TurnText { message: start + msg, part, live, pt } } else { content };
-                out.push(RowSpec { content, key, streaming: live });
+                out.push(RowSpec { content, key, streaming: live, under: 0.0, divider: None });
             }
-            Block::Events { key, .. } | Block::Subagent { key, .. } => out.push(RowSpec { key, content, streaming: false }),
-            Block::Question { id, .. } => out.push(RowSpec { key: format!("q-{id}"), content, streaming: false }),
-            Block::Thought { key, .. } | Block::Calls { key, .. } | Block::Widget { key, .. } => out.push(RowSpec { key, content, streaming: false }),
+            Block::Events { key, .. } | Block::Subagent { key, .. } => out.push(RowSpec { key, content, streaming: false, under: 0.0, divider: None }),
+            Block::Question { id, .. } => out.push(RowSpec { key: format!("q-{id}"), content, streaming: false, under: 0.0, divider: None }),
+            Block::Thought { key, .. } | Block::Calls { key, .. } | Block::Widget { key, .. } => out.push(RowSpec { key, content, streaming: false, under: 0.0, divider: None }),
         }
         prev = Some(tool);
     }
@@ -686,10 +770,10 @@ pub fn turn_rows(out: &mut Vec<RowSpec>, steps: &[Entry], start: usize, end: usi
     let message = start + at;
     let pt = if prev.is_some() { 24.0 } else { 0.0 };
     if live && a.retry.is_some() {
-        out.push(RowSpec { key: format!("r-{}", a.id), content: RowContent::Retry { message, pt }, streaming: false });
+        out.push(RowSpec { key: format!("r-{}", a.id), content: RowContent::Retry { message, pt }, streaming: false, under: 0.0, divider: None });
     } else if a.error.is_some() && !a.failure.as_ref().is_some_and(|f| interrupted(&f.kind)) {
         // 24 below what's above it (`pt-6`), until `rhythm` respaces it.
-        out.push(RowSpec { key: format!("e-{}", a.id), content: RowContent::Error { message, pt: 24.0 }, streaming: false });
+        out.push(RowSpec { key: format!("e-{}", a.id), content: RowContent::Error { message, pt: 24.0 }, streaming: false, under: 0.0, divider: None });
     }
 }
 

@@ -152,6 +152,14 @@ pub fn files_main<H: FilesHost + PopupHost + 'static>(
                 .filter(|_| s.files().stage_size.get()[0] > META_MIN_W)
                 .map(|img| picture_meta(p, img.meta())),
         )
+        .children(s.opens_as_page(path).then(|| {
+            let (sid, at) = (session_id.to_owned(), path.to_owned());
+            let label = opencode_i18n::t!("plugin.file.view.openInBrowser");
+            tool::<H>(p, "files-open-browser-btn", &ic::GLOBE, false, label, label, move |s: &mut H, tx: &mut Tx| {
+                tx.instant();
+                s.open_workspace_preview(&sid, &at, tx);
+            })
+        }))
         .children(previewable.then(|| {
             let (glyph, label) = if rendered {
                 (&ic::CODE_LINES, opencode_i18n::t!("plugin.file.view.viewSource"))
@@ -352,8 +360,18 @@ pub fn code_area<H: FilesHost + PopupHost + 'static>(
     if let Some(notes) = notes {
         viewer = viewer.notes(notes);
     }
+    // An artifact view draws its code on `bg-layer-01`, under the rows and past the last
+    // (`--opencode-diffs-bg`, `gui-plugins/src/file/artifact-view.css:3-7`). Plain text and code,
+    // which have no preview to switch to, stay on the code view's own ground with their toolbar
+    // (`[data-source-only]`, opencode#65976).
+    let code_pal = match (artifact, previewable) {
+        (true, true) => Pal { code_bg: p.layer1, bg_base: p.layer1, ..*p },
+        // Under the rows and past the last too, not the panel's base.
+        (true, false) => Pal { bg_base: p.code_bg, ..*p },
+        (false, _) => *p,
+    };
 
-    out.child(over(viewer.build(s, p), bar))
+    out.child(over(viewer.build(s, &code_pal), bar))
 }
 
 fn doc_ref<'a>(host: &'a dyn FilesHost, sid: &str, path: &str) -> &'a CodeDocState {

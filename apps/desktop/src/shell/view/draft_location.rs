@@ -30,7 +30,9 @@ pub(in crate::shell::view) fn location(s: &App, p: &Pal, width: f32) -> El {
     // Desktop's `TRIGGER`: 28 tall, 6 in and 8 from the end, 4 pt corners, muted words that
     // turn base under the pointer with the hover overlay. It opens the location dialog on its
     // projects (`view.tsx:127`).
-    let button = trigger("project", t!("session.new.project.trigger.tooltip"))
+    let button = trigger(p, "project", t!("session.new.project.trigger.tooltip"))
+        .help(t!("session.new.project.trigger.tooltip"))
+        .help_keys(crate::keymap::Bind::SelectProject.keycaps())
         .hover(p.hover)
         .press(p.pressed)
         .on_press_tx(|s: &mut App, tx: &mut Tx| {
@@ -38,27 +40,38 @@ pub(in crate::shell::view) fn location(s: &App, p: &Pal, width: f32) -> El {
             s.open_project_switcher();
         })
         .child(crate::icons::badge(s, p, project, &name))
-        .child(text(name.clone()).font(UI).color(p.muted).group_color(p.text).truncate_fade());
-    let branch = s.sidebar_inbox.branches.get(dir);
+        .child(text(name.clone()).font(UI).color(p.muted).group_color(p.text).truncate_fade())
+        .child(icon(&ic::CHEVRON_DOWN, 16.0).color(p.icon_muted));
+    let server = crate::servers::runtime::active(s);
+    let branch = s.sidebar_inbox.branches.get(server, dir);
+    let settled = !s.live() || s.sidebar_inbox.branches.settled(server, dir);
     // `workspace/selector.tsx`: the checkout branch opens the location dialog. Local is a
     // destination in the dialog, not a second button next to the branch.
     let branch = project.filter(|p| project_git(&p.id) || branch.is_some()).map(|project| {
         if s.draft_creates() {
             return crate::new_worktree::trigger(s, p, branch.unwrap_or_else(|| t!("session.location.noBranch")));
         }
-        let label = s.draft_base().or(branch).unwrap_or_else(|| t!("session.location.noBranch"));
+        // Match official `NewSessionLocation` (`new-session/view.tsx:343-364`, `checkout-machine.ts`):
+        // wait for `/api/vcs` to settle before showing "No branch", painting a 48×8 skeleton pill
+        // only if loading exceeds 250 ms.
+        let label = s.draft_base().or(branch).or_else(|| settled.then(|| t!("session.location.noBranch")));
+        let skeleton = label.is_none() && s.sidebar_inbox.branches.skeleton(server, dir);
+        let a11y = label.unwrap_or_else(|| t!("session.location.worktree"));
         let id = project.id.clone();
-        let help = if used() { t!("session.location.worktree").to_owned() } else {
+        let onboarding = !used();
+        let help = if !onboarding { t!("session.location.worktree").to_owned() } else {
             format!("{}\n{}\n{}", t!("workspace.onboarding.title"), t!("workspace.onboarding.description"), t!("session.location.worktree"))
         };
-        trigger("location-branch", label).max_w(220.0).help(help).help_keys(crate::keymap::Bind::LocationSelect.keycaps())
+        trigger(p, "location-branch", a11y).busy(skeleton).max_w(220.0).help(help).help_keys(crate::keymap::Bind::LocationSelect.keycaps())
             .hover(p.hover)
             .press(p.pressed)
             .on_press_tx(move |s: &mut App, tx: &mut Tx| {
                 s.open_project_worktrees(&id, tx);
             })
             .child(icon(&ic::BRANCH, 16.0).color(p.icon_muted))
-            .child(text(label.to_owned()).font(UI).color(p.faint).group_color(p.text).truncate_fade())
+            .children(label.map(|l| text(l.to_owned()).dir(rune::Direction::Auto).font(UI).color(p.muted).group_color(p.text).truncate_fade()))
+            .children(skeleton.then(|| el().key("branch-skeleton").size(48.0, 8.0).radius(4.0).fill(p.layer2).a11y_hidden()))
+            .children(onboarding.then(|| el().key("workspace-onboarding-dot").size(6.0, 6.0).radius(3.0).fill(p.accent)))
     });
     let pickers = row()
         .key("location-pickers")
@@ -81,8 +94,8 @@ pub(in crate::shell::view) fn location(s: &App, p: &Pal, width: f32) -> El {
 }
 
 /// A picker in the row, before its look: Desktop's `TRIGGER` (`view.tsx:274-275`).
-fn trigger(key: &str, label: &str) -> El {
-    row().key(key).role("button").label(label.to_owned()).hover_group().h(28.0).pl(6.0).pr(8.0).gap(6.0).center_y().radius(4.0).shrink().min_w(0.0)
+fn trigger(p: &Pal, key: &str, label: &str) -> El {
+    row().key(key).role("button").label(label.to_owned()).focus_default(p).hover_group_focus().h(28.0).pl(6.0).pr(8.0).gap(6.0).center_y().radius(4.0).shrink().min_w(0.0)
 }
 
 /// The folder at the row's end, as the server names it (`view.tsx:420-460`): it keeps at

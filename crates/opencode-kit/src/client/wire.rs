@@ -13,7 +13,8 @@ pub enum Incoming {
     Info(SessionInfo),
     LookupMissing(String),
     Inbox { session: String, items: Vec<Value> },
-    Worktrees { project: String, directories: Vec<String> },
+    /// Every worktree, and those of them OpenCode made (`managed`).
+    Worktrees { project: String, directories: Vec<String>, managed: Vec<String> },
     Branches { directory: String, search: String, result: Result<Vec<String>, WireError> },
     InterruptAcknowledged { session: String, interrupted: bool },
     WorktreeCreated { project: String },
@@ -37,11 +38,18 @@ pub enum Incoming {
     /// A prompt write (`Write::Send`, `SendMovingHome`, `SendFromRevert`, `StartAs`) that failed,
     /// with the id the prompt was sent under and its error.
     SendFailed { session: String, id: String, error: WireError },
-    /// A rename, delete or restore this window sent (`client.session.write`'s `data`), and its
-    /// error when it failed.
+    /// A rename, delete, archive or restore this window sent (`client.session.write`'s `data`),
+    /// and its error when it failed.
     SessionWrite { data: Value, error: Option<WireError> },
-    /// A session's open permission requests and forms.
-    Pending { session: String, items: Vec<Pending> },
+    /// A session's open permission requests and forms, reported separately so a transient HTTP
+    /// error on one endpoint never prunes cached items, tagged with the fetch's `epoch` so a
+    /// delayed snapshot never drops a request that arrived over SSE while the GET was in flight.
+    Pending {
+        session: String,
+        epoch: u64,
+        permissions: Result<Vec<Pending>, WireError>,
+        forms: Result<Vec<Pending>, WireError>,
+    },
     /// A session this app just created (its first prompt is already sent).
     Created(SessionInfo),
     /// The event stream is back after a drop: anything may have changed in the gap.
@@ -51,14 +59,26 @@ pub enum Incoming {
     Opened,
     /// The sessions running right now (the reply to `Request::Active`).
     Active(Vec<String>),
+    /// `Request::Active` failed; the app keeps its unsettled-turn fallback and retries with backoff.
+    ActiveFailed(WireError),
     /// The server's project list (`/api/project`).
     Projects(Vec<model::Project>),
+    /// The folder the server was started in, its default location (the reply to
+    /// `Request::DefaultDirectory`).
+    DefaultDirectory(String),
+    /// Resolved UI feature flags for `directory` (the reply to `Request::Flags`).
+    Flags { directory: Option<String>, flags: std::collections::BTreeMap<String, bool> },
     /// A folder resolved and registered as a project (`Write::OpenProject`), with the updated
     /// project list and, when `start_session` was set, the new session opened in it.
     ProjectOpened { location: model::LocationInfo, projects: Vec<model::Project>, session: Option<SessionInfo> },
     /// A `Write::Tracked` write's outcome, under the ticket it was sent with: `Ok(Some(session))`
     /// for a fork (the session it made), `Ok(None)` for any other write, or the raw error.
     Settled { ticket: Ticket, result: Result<Option<SessionInfo>, WireError> },
+    /// Fail-open new-session start gate: emitted on the owning `Server`'s write thread right after
+    /// `POST /api/session` succeeds and before `POST /prompt`. Dropping or sending on `release`
+    /// immediately wakes the worker (which also times out fail-open after `PROMPT_GATE_TIMEOUT_MS`).
+    #[cfg(not(target_arch = "wasm32"))]
+    PromptGate { session: String, directory: String, release: std::sync::mpsc::Sender<()> },
 }
 
 /// Which machine asked for a tracked write, for which session, at which attempt: the write's
@@ -81,6 +101,10 @@ pub enum TicketKind {
     Fork,
     /// A queued or pending prompt's steer, move, removal or undo (`Deliver`, `Cancel`).
     Inbox,
+    /// `Write::View`, reporting a session viewed.
+    View,
+    /// `Write::TakeBack`, after a Stop that came before the model answered.
+    TakeBack,
 }
 
 pub enum Request {
@@ -88,12 +112,18 @@ pub enum Request {
     Sessions,
     /// The server's project list (`/api/project`).
     Projects,
+    /// The server's default location (`GET /api/location` with no directory), replied as
+    /// `Incoming::DefaultDirectory`; a failed read stays quiet.
+    DefaultDirectory,
+    /// Resolved UI feature flags for `directory` (`GET /api/experimental/flag`,
+    /// `packages/protocol/src/groups/flag.ts`), replied as `Incoming::Flags`.
+    Flags { directory: Option<String> },
     /// One session's info (`time.idle`/`time.viewed` after it finishes or someone views it).
     Info(String),
     /// [`Request::Info`] for a session named in a message, which may not exist: replied as
     /// `Incoming::Info`, or `Incoming::LookupMissing` when the server can't give it.
     Lookup(String),
-    Pending(String),
+    Pending { session: String, epoch: u64 },
     /// A session's undelivered items (`Incoming::Inbox`).
     Inbox(String),
     /// Which sessions are running (`/api/session/active`).
@@ -170,6 +200,9 @@ pub enum Write {
     RevertClear(String),
     /// Commits a staged revert (`POST /api/session/:id/revert/commit`).
     RevertCommit(String),
+    /// Takes the unanswered prompt `message` back after a Stop, as Desktop's `revert.takeBack`
+    /// does: waits for the run to settle, stages the revert without its files, commits it.
+    TakeBack { session: String, message: String },
     /// Sends `prompt` while `session` has a staged revert, committing the revert after the agent
     /// switch and before the model switch and admission, as Desktop's `composer/submit.ts` does.
     SendFromRevert { session: String, prompt: Prompt },
@@ -189,4 +222,30 @@ pub enum Write {
     /// worktree it made. `Incoming::WorktreeCreated` follows the worktree, then
     /// `Incoming::Created`; a failure reports `Incoming::SendFailed` with the prompt's id.
     StartInNewWorktree { session: String, project: String, from: String, branch: Option<String>, prompt: Prompt },
+}
+
+impl Write {
+    /// The ordering lane, including writes held for durable storage or tracked by a caller.
+    /// Session-less operations keep their own serial lane.
+    pub(super) fn session(&self) -> Option<&str> {
+        match self {
+            Self::Prompt { session, .. } | Self::Permission { session, .. }
+            | Self::Form { session, .. } | Self::CancelForm { session, .. }
+            | Self::Send { session, .. } | Self::SendMovingHome { session, .. }
+            | Self::StartAs { session, .. } | Self::Cancel { session, .. }
+            | Self::Deliver { session, .. } | Self::Shell { session, .. }
+            | Self::Rename { session, .. } | Self::View { session, .. }
+            | Self::Metadata { session, .. } | Self::Background { session, .. }
+            | Self::RevertStage { session, .. } | Self::SendFromRevert { session, .. }
+            | Self::TakeBack { session, .. }
+            | Self::Fork { session, .. } | Self::StartInNewWorktree { session, .. }
+            | Self::Interrupt(session) | Self::Delete(session) | Self::Archive(session)
+            | Self::Unarchive(session) | Self::Compact(session) | Self::RevertClear(session)
+            | Self::RevertCommit(session) => Some(session),
+            Self::Tracked { write, .. } => write.session(),
+            #[cfg(not(target_arch = "wasm32"))]
+            Self::Gated { write, .. } => write.session(),
+            Self::Create { .. } | Self::Start { .. } | Self::Reload | Self::OpenProject { .. } => None,
+        }
+    }
 }

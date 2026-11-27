@@ -7,7 +7,8 @@ use opencode_kit::model::Pending;
 use rune::{Anim, Color, El, KeyEvent, Shadow, SpringPair, TextStyle, Transition, Tx, row, text};
 
 use crate::composer::ComposerHost;
-use crate::palette::Pal;
+use crate::focus::FocusExt;
+use crate::palette::{Elevate as _, Pal};
 
 pub mod knobs;
 pub mod permission;
@@ -15,7 +16,8 @@ pub mod question;
 
 pub use question::Dock;
 
-pub(crate) const BUTTON: TextStyle = TextStyle::new(13.0, 530.0).lh(20.0).tracking(-0.04);
+// `button.css:21` sets `font-variant-numeric: tabular-nums` on `button-v2` labels.
+pub(crate) const BUTTON: TextStyle = TextStyle::new(13.0, 530.0).lh(20.0).tracking(-0.04).features("\"tnum\"");
 
 /// A host that shows the dock: its open requests and where their replies go.
 pub trait DockHost: ComposerHost {
@@ -33,6 +35,11 @@ pub trait DockHost: ComposerHost {
     /// New question UI) instead of its default Classic one.
     fn dock_new_question_ui(&self) -> bool {
         false
+    }
+    /// The key that moves the question dock on, or submits it on the last question (Desktop's
+    /// Settings › General › Submit question answers with, `general.questionSubmitKey`).
+    fn dock_question_submit(&self) -> question::SubmitKey {
+        question::SubmitKey::Enter
     }
     /// Answers permission `id` with `decision` (`once`, `always`, `reject`).
     fn dock_reply_permission(&mut self, id: &str, decision: &str);
@@ -145,10 +152,10 @@ pub fn button(p: &Pal, key: &str, label: &str, variant: Variant, hint: Option<&s
         Variant::Submit | Variant::Contrast => (p.v2.contrast_hover, p.v2.contrast_pressed),
         Variant::Ghost | Variant::GhostMuted | Variant::Neutral => (p.hover, p.pressed),
     };
-    b = if live { b.hover(hover).press(pressed) } else { b.opacity(dim) };
+    b = if live { b.focus_default(p).hover(hover).press(pressed) } else { b.opacity(dim).disabled(true).focusable(false).hit().cursor(rune::Cursor::NotAllowed) };
     match variant {
         Variant::Ghost | Variant::GhostMuted => {}
-        Variant::Neutral => b = b.box_shadow(Pal::ring_out(p.q.neutral_ring)).shadow(1.0, 1.5, p.q.neutral_shadow),
+        Variant::Neutral => b = b.elevate(opencode_ui::toast::neutral_lift(p)),
         // `--v2-elevation-button-contrast` under the top-lit highlight (`--submit-highlight`,
         // brighter on dark's light Submit fill).
         Variant::Submit | Variant::Contrast => {

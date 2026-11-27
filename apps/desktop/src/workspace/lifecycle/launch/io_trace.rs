@@ -502,12 +502,13 @@ fn wrappers() -> [(&'static str, &'static AtomicUsize, usize); 14] {
 
 /// Points this module's import table entries for [`wrappers`] at the wrappers.
 unsafe fn hook_imports() {
-    use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
     use windows_sys::Win32::System::Memory::{PAGE_READWRITE, VirtualProtect};
-    // SAFETY: the main module's PE image, read by its documented layout (PE32+): e_lfanew at 0x3C,
-    // the import directory at optional header + 120 (NT + 24 + 120), descriptors of 20 bytes.
+    // SAFETY: the PE image this code is in (the exe, or the app's library in a packaged build:
+    // the imports the app calls through are that image's), read by its documented layout (PE32+):
+    // e_lfanew at 0x3C, the import directory at optional header + 120 (NT + 24 + 120),
+    // descriptors of 20 bytes.
     unsafe {
-        let base = GetModuleHandleW(std::ptr::null()) as *const u8;
+        let base = super::image_pages::base() as *const u8;
         let nt = base.add(*(base.add(0x3c) as *const u32) as usize);
         let import_rva = *(nt.add(24 + 120) as *const u32) as usize;
         if import_rva == 0 {

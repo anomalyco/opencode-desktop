@@ -21,16 +21,59 @@ pub struct EventHub {
 
 /// Where a hub's stream goes.
 enum Fan {
-    /// To these subscribers, each woken once per batch.
-    Open(Vec<(Sender<Incoming>, Waker)>),
+    /// To these subscribers, each woken once per batch; `connected` is the open stream's
+    /// `server.connected`, for a subscriber that comes later ([`EventHub::subscribe_where`]).
+    Open { subs: Vec<Sub>, connected: Option<Box<Incoming>> },
     /// Nowhere: the hub dropped, and its threads end.
     Closed,
+}
+
+/// What a subscriber takes of the stream.
+#[derive(Clone, Copy)]
+enum Wants {
+    All,
+    /// Only the events of this type.
+    Type(&'static str),
+    /// Only the events whose type passes.
+    Where(fn(&str) -> bool),
+}
+
+/// One subscriber: its channel, its waker, and what it takes.
+struct Sub {
+    tx: Sender<Incoming>,
+    wake: Waker,
+    only: Wants,
+}
+
+impl Sub {
+    fn wants(&self, m: &Incoming) -> bool {
+        match self.only {
+            Wants::All => true,
+            Wants::Type(ty) => matches!(m, Incoming::Event { ty: t, .. } if t == ty),
+            Wants::Where(f) => matches!(m, Incoming::Event { ty, .. } if f(ty)),
+        }
+    }
+
+    /// Sends what it wants of `batch`, woken once if that's anything; false once it stopped listening.
+    fn send(&self, batch: &[Incoming]) -> bool {
+        let mut sent = false;
+        for m in batch.iter().filter(|m| self.wants(m)) {
+            if self.tx.send(m.clone()).is_err() {
+                return false;
+            }
+            sent = true;
+        }
+        if sent {
+            (self.wake)();
+        }
+        true
+    }
 }
 
 impl EventHub {
     /// Opens `server`'s event stream, dropped and reopened after `idle` of silence.
     pub fn start(server: Server, idle: Duration) -> EventHub {
-        let fan = Arc::new(Mutex::new(Fan::Open(Vec::new())));
+        let fan = Arc::new(Mutex::new(Fan::Open { subs: Vec::new(), connected: None }));
         let (events, inbox) = channel();
         let to = fan.clone();
         let base = server.base.clone();
@@ -68,9 +111,31 @@ impl EventHub {
 
     /// Everything the stream says from now on, with `wake` called once per batch.
     pub fn subscribe(&self, wake: Waker) -> Receiver<Incoming> {
+        self.add(wake, Wants::All)
+    }
+
+    /// Only the stream's events of type `ty` from now on, with `wake` called once per batch that
+    /// has one: for a reader that answers them sooner than a window's next frame. Its main
+    /// subscription still gets them too.
+    pub fn subscribe_to(&self, ty: &'static str, wake: Waker) -> Receiver<Incoming> {
+        self.add(wake, Wants::Type(ty))
+    }
+
+    /// Only the stream's events whose type passes `wants` from now on, starting with the open
+    /// stream's `server.connected` when `wants` takes it: a reader that comes after the stream
+    /// opened still learns the stream's ID.
+    pub fn subscribe_where(&self, wants: fn(&str) -> bool, wake: Waker) -> Receiver<Incoming> {
+        self.add(wake, Wants::Where(wants))
+    }
+
+    fn add(&self, wake: Waker, only: Wants) -> Receiver<Incoming> {
         let (tx, rx) = channel();
-        if let Fan::Open(subs) = &mut *self.fan.lock().unwrap_or_else(|e| e.into_inner()) {
-            subs.push((tx, wake));
+        if let Fan::Open { subs, connected } = &mut *self.fan.lock().unwrap_or_else(|e| e.into_inner()) {
+            let sub = Sub { tx, wake, only };
+            if let (Wants::Where(_), Some(m)) = (only, connected.as_deref()) {
+                sub.send(std::slice::from_ref(m));
+            }
+            subs.push(sub);
         }
         rx
     }
@@ -109,14 +174,18 @@ fn fan_out(inbox: &Receiver<Incoming>, fan: &Mutex<Fan>) {
                 map.insert(HUB_AT.into(), heard.into());
             }
         }
-        let Fan::Open(subs) = &mut *fan.lock().unwrap_or_else(|e| e.into_inner()) else { return };
-        subs.retain(|(tx, wake)| {
-            let alive = batch.iter().all(|m| tx.send(m.clone()).is_ok());
-            if alive {
-                wake();
-            }
-            alive
-        });
+        let Fan::Open { subs, connected } = &mut *fan.lock().unwrap_or_else(|e| e.into_inner()) else { return };
+        batch.iter().for_each(|m| note_connected(connected, m));
+        subs.retain(|sub| sub.send(&batch));
+    }
+}
+
+/// Keeps the open stream's `server.connected`, and forgets it once the stream is down.
+fn note_connected(connected: &mut Option<Box<Incoming>>, m: &Incoming) {
+    match m {
+        Incoming::Event { ty, .. } if ty == "server.connected" => *connected = Some(Box::new(m.clone())),
+        Incoming::StreamDown(_) | Incoming::Unanswered(_) => *connected = None,
+        _ => {}
     }
 }
 
@@ -129,14 +198,9 @@ fn fan_one(mut m: Incoming, fan: &Mutex<Fan>) -> std::ops::ControlFlow<()> {
     {
         map.insert(HUB_AT.into(), (epoch.elapsed().as_micros() as u64).into());
     }
-    let Fan::Open(subs) = &mut *fan.lock().unwrap_or_else(|e| e.into_inner()) else { return std::ops::ControlFlow::Break(()) };
-    subs.retain(|(tx, wake)| {
-        let alive = tx.send(m.clone()).is_ok();
-        if alive {
-            wake();
-        }
-        alive
-    });
+    let Fan::Open { subs, connected } = &mut *fan.lock().unwrap_or_else(|e| e.into_inner()) else { return std::ops::ControlFlow::Break(()) };
+    note_connected(connected, &m);
+    subs.retain(|sub| sub.send(std::slice::from_ref(&m)));
     std::ops::ControlFlow::Continue(())
 }
 

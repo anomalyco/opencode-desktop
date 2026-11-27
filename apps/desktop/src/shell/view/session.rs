@@ -1,5 +1,7 @@
 mod host;
 
+use rune_kit::ScrollBar;
+
 use super::*;
 
 #[allow(unused_imports)]
@@ -40,7 +42,8 @@ pub(super) fn session_body(s: &App, p: &Pal, id: &str, page: El, with_header: bo
     // when the region is reused or held.
     let content_w = session_view::TimelineHost::content_width(s);
     session_view::style::set_content_w(content_w);
-    let timeline = match s.displayed_session(id) {
+    let displayed = s.displayed_session(id);
+    let timeline = match displayed {
         Some(shown) => {
             let child = s.session(id).is_some_and(|i| i.parent.is_some());
             // Pills sit outside `"timeline-area"` so job updates and activity ticks never dirty
@@ -65,6 +68,7 @@ pub(super) fn session_body(s: &App, p: &Pal, id: &str, page: El, with_header: bo
                     s.kernel.slots.untracked(&crate::files::FILES).reply_version(shown),
                     s.kernel.slots.untracked(&crate::subagents::SHELLS).follow.version(),
                     has_pills,
+                    s.opening.as_ref().filter(|o| o.id == shown).and_then(|o| o.error()).map(str::to_owned),
                 ),
             );
             let lane = session_view::jump::lane(has_pills);
@@ -81,12 +85,19 @@ pub(super) fn session_body(s: &App, p: &Pal, id: &str, page: El, with_header: bo
                 session_view::jump::timeline_scroll(s, p, shown, scroll, has_pills)
             });
             // Previous and Next message read the prompt in view from where it lies (`message_nav`).
-            session_view::jump::over_scroll(s, p, shown, scroll_fade, pill_list, top).on_layout_tx(|s: &mut App, r: [f32; 4], tx: &mut Tx| {
+            // Scope scrollbar hover to the timeline area above `composer_dock`, matching
+            // `jump::over` (`jump.rs:308`) and official `screen.tsx:446-455` + `session-composer-region.tsx:52-60`
+            // (where the composer dock is a `z-[70]` sibling above `viewRoot`, not inside it).
+            session_view::jump::over_scroll(s, p, shown, scroll_fade, pill_list, top)
+                .scroll_bar_hover(&format!("scroll-{shown}"))
+                .on_layout_tx(|s: &mut App, r: [f32; 4], tx: &mut Tx| {
                 s.kernel.slots.get_mut(&crate::message_nav::MESSAGE_NAV).view = Some(r);
-                if let Some((id, row, y)) = s.layout.narrow.reading.borrow_mut().take()
+                if let Some((id, row, place_y)) = s.layout.narrow.reading.borrow_mut().take()
                     && s.narrow() && s.active_session_id() == Some(id.as_str()) && !s.timeline_fx.ends.due(&id)
                 {
-                    tx.scroll_key_to(row, y - r[1]);
+                    // Official preserves `scrollTop` across the wide-to-narrow crossing while
+                    // dropping the 48 pt wide header offset (`virtualizer.tsx:155,1206`: 64 -> 16).
+                    tx.scroll_key_to(row, place_y - session_view::style::HEADER_H);
                     return;
                 }
                 tx.live_only();
@@ -148,7 +159,7 @@ pub(crate) fn story_header(s: &App, p: &Pal) -> El {
 
 pub(crate) fn story_composer(s: &App, p: &Pal) -> El {
     let Route::Session { id, .. } = &*s.route else { return composer_dock(s, p) };
-    let pills = pills(s, p, id);
+    let pills = if s.session(id).is_some_and(|i| i.parent.is_some()) { Vec::new() } else { pills(s, p, id) };
     col().key("session")
         .w_full()
         .children((!pills.is_empty()).then(|| col().key("activity").w_full().center().px(DOCK_SIDE).pb(8.0)

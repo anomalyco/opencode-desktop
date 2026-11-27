@@ -67,9 +67,39 @@ fn offline(s:&mut App) {
     s.unsent.note(sent); s.show_outbox();
 }
 
+/// A completed reply followed by a local prompt that has not reached the server.
+fn waiting(s: &mut App) {
+    crate::open_scene(s);
+    s.finish_stream();
+    let Route::Session { id: session, .. } = (*s.route).clone() else { return };
+    s.running.remove(&session);
+    if let Some(t) = s.transcripts.get_mut(&session) {
+        let reply = t.messages.iter().find_map(|m| match m {
+            Message::Assistant(a) => Some(a.clone()),
+            _ => None,
+        });
+        if let Some(mut a) = reply {
+            a.parts = vec![opencode_kit::model::Part::Text { text: "Got it — stopped. The changes are saved locally.".into() }];
+            a.completed = Some(a.created + 1000);
+            t.messages = vec![
+                Message::User { id: "msg_outbox_previous".into(), text: "Stop there for now.".into() },
+                Message::Assistant(a),
+            ];
+        }
+    }
+    let body = "Can we look at the next change?";
+    let mut sent = Sent::new(&session, FIRST, Entry::of(&TextEdit::new(body)), vec![], vec![], false);
+    sent.phase = super::Phase::Waiting { why: String::new() };
+    sent.journaled = true;
+    s.unsent.note(sent);
+    s.show_outbox();
+}
+
 rune_register::register!(crate::scenes::SCENE_LIST: crate::scenes::Scene = [
     ("send-unconfirmed", setup),
     ("outbox-offline", offline),
+    ("outbox-waiting", waiting),
+    ("outbox-waiting-busy", |s| { waiting(s); if let Route::Session { id, .. } = &*s.route { s.running.insert(id.clone()); } }),
     ("outbox-rejected", |s| { offline(s); s.send_failed(FIRST, &opencode_kit::wire_error::WireError::new("POST", "/prompt", opencode_kit::wire_error::WireKind::Status { status: 403, tag: None, message: None })); }),
     ("send-failed", |s| { setup(s); confirmed(s); }),
     ("send-queued-long", queued_long),

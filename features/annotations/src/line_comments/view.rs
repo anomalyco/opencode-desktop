@@ -153,9 +153,38 @@ fn on_cancel(host: &mut dyn LineCommentsHost, spot: &Spot, tx: &mut Tx) {
     line_comment_field(host, spot, FieldEvent::CancelRequested, tx);
 }
 
+fn is_mod_only(mods: rune::Mods) -> bool {
+    (mods.ctrl || mods.cmd) && !mods.alt && !mods.shift
+}
+
+fn delivery_label(host: &dyn LineCommentsHost) -> &'static str {
+    match (host.quote_session_busy(), host.quote_follow_up()) {
+        (false, _) => opencode_i18n::t!("rune.browser.comment.send"),
+        (true, crate::quote::FollowUp::Steer) => opencode_i18n::t!("rune.browser.comment.steer"),
+        (true, crate::quote::FollowUp::Queue) => opencode_i18n::t!("rune.browser.comment.queue"),
+    }
+}
+
+fn mod_enter_keys() -> [String; 2] {
+    let mod_key = if cfg!(target_os = "macos") { "⌘".to_owned() } else { opencode_i18n::t!("common.key.ctrl").to_owned() };
+    [mod_key, "⏎".to_owned()]
+}
+
 fn on_submit(host: &mut dyn LineCommentsHost, spot: &Spot, tx: &mut Tx) {
     let config = line_comment_config(host, spot);
-    line_comment_field(host, spot, FieldEvent::SubmitRequested { config }, tx);
+    let modified = is_mod_only(tx.mods());
+    line_comment_field(host, spot, FieldEvent::Clicked { modified, config }, tx);
+}
+
+fn on_submit_hover(host: &mut dyn LineCommentsHost, spot: &Spot, tx: &mut Tx) {
+    let config = line_comment_config(host, spot);
+    let held = is_mod_only(tx.mods());
+    if host.line_comments().mode(spot).draft().is_some_and(|d| d.field.alternate != held) {
+        line_comment_field(host, spot, FieldEvent::Modifier { held, config }, tx);
+        tx.instant();
+    } else {
+        tx.live_only();
+    }
 }
 
 fn on_card_hover(host: &mut dyn LineCommentsHost, spot: &Spot, range: Range, inside: bool, tx: &mut Tx) {
@@ -236,7 +265,27 @@ fn small_button<H: 'static>(p: &Pal, key: &str, label: &str, variant: Variant, l
 fn editor_v2<H: LineCommentsHost + 'static>(s: &H, p: &Pal, spot: &Spot, draft: &Draft, submit: &str, editing: Option<&str>) -> El {
     let input = field_input::<H>(s, p, spot, draft, V2_TEXT, opencode_i18n::t!("ui.lineComment.contextPlaceholder")).h(64.0);
     let can = !draft.text.text.trim().is_empty();
-    let (cancel, send) = (spot.clone(), spot.clone());
+    let alt = draft.field.alternate;
+    let can_send = s.can_send_comment();
+    let delivery = delivery_label(s);
+    let submit_label = if alt { delivery } else { submit };
+    let submit_live = can && (!alt || can_send);
+    let (cancel, send, hover) = (spot.clone(), spot.clone(), spot.clone());
+    let submit_btn = small_button::<H>(p, "line-comment-submit", submit_label, Variant::Contrast, submit_live, move |s, tx| {
+        on_submit(s, &send, tx);
+    })
+    .help(submit)
+    .help_keys(["⏎".to_owned()])
+    .help_row(delivery)
+    .help_keys(mod_enter_keys())
+    .help_above()
+    .on_hover_change(move |s: &mut H, inside, tx: &mut Tx| {
+        if inside {
+            on_submit_hover(s, &hover, tx);
+        } else {
+            tx.live_only();
+        }
+    });
     let actions = row()
         .key("actions")
         .gap(8.0)
@@ -244,9 +293,7 @@ fn editor_v2<H: LineCommentsHost + 'static>(s: &H, p: &Pal, spot: &Spot, draft: 
         .child(small_button::<H>(p, "line-comment-cancel", opencode_i18n::t!("ui.lineComment.cancel"), Variant::Ghost, true, move |s, tx| {
             on_cancel(s, &cancel, tx);
         }))
-        .child(small_button::<H>(p, "line-comment-submit", submit, Variant::Contrast, can, move |s, tx| {
-            on_submit(s, &send, tx);
-        }));
+        .child(submit_btn);
     col()
         .key(editing.map_or_else(|| "line-comment-draft".to_owned(), |id| format!("line-comment-edit-{id}")))
         .w_full()
@@ -278,7 +325,6 @@ fn card_v2_shell(host: &dyn LineCommentsHost, p: &Pal, spot: &Spot, c: &LineComm
         .elevate(p.raised)
         .hover(p.hover)
         .hover_motion(INSTANT, INSTANT)
-        .cursor(Cursor::Pointer)
         .child(
             col()
                 .key("column")
@@ -317,7 +363,6 @@ fn menu_button(host: &dyn LineCommentsHost, p: &Pal, spot: &Spot, c: &LineCommen
     let trigger = b
         .role("button")
         .label(label)
-        .cursor(Cursor::Pointer)
         .hover(p.hover)
         .press(p.pressed)
         .hover_motion(INSTANT, INSTANT);
@@ -355,7 +400,6 @@ fn card_v1_shell(host: &dyn LineCommentsHost, p: &Pal, spot: &Spot, c: &LineComm
         .radius(8.0)
         .fill(face)
         .box_shadow(Pal::ring_out(ring))
-        .cursor(Cursor::Pointer)
         .child(
             row()
                 .key("head")
@@ -391,7 +435,7 @@ fn v1_action_shell(p: &Pal, border: Color, key: &str, label: &str, primary: bool
         .fill(fill)
         .box_shadow(Pal::ring_in(edge))
         .child(text(label.to_owned()).font(V1_ACTION).color(fg));
-    if live { b.cursor(Cursor::Pointer) } else { b.opacity(0.5) }
+    if live { b } else { b.opacity(0.5) }
 }
 
 /// The inline `LineCommentEditor`: a bordered field on `surface-base`, ringed in the focus blue
@@ -418,18 +462,37 @@ fn editor_v1<H: LineCommentsHost + 'static>(
         .padding(8.0)
         .radius(6.0)
         .fill(field_bg)
-        .box_shadow(rune::Shadow { spread: 1.0, color: border, inset: true, ..rune::Shadow::default() })
+        // Focused, the border turns `border-focus` with a 1 px outline of it just outside: an
+        // outline, not a shadow, still marks focus in a contrast theme (opencode#65100).
+        .box_shadow(rune::Shadow { spread: 1.0, color: if focused { p.v2.border_focus } else { border }, inset: true, ..rune::Shadow::default() })
         .child(field_input::<H>(s, p, spot, draft, V1_FIELD, opencode_i18n::t!("ui.lineComment.placeholder")).h_full())
         .child(grip::<H>(p, spot, height));
     if focused {
-        input = focus_select(p).into_iter().rev().fold(input, El::box_shadow);
+        input = input.outline(1.0, 0.0, p.v2.border_focus);
     }
     let can = !draft.text.text.trim().is_empty();
-    let (cancel, send) = (spot.clone(), spot.clone());
+    let alt = draft.field.alternate;
+    let can_send = s.can_send_comment();
+    let delivery = delivery_label(s);
+    let submit_label = if alt { delivery } else { submit };
+    let submit_live = can && (!alt || can_send);
+    let (cancel, send, hover) = (spot.clone(), spot.clone(), spot.clone());
     let cancel_btn = v1_action_shell(p, border, "line-comment-cancel", opencode_i18n::t!("ui.common.cancel"), false, true)
         .on_press_tx(move |s: &mut H, tx: &mut Tx| on_cancel(s, &cancel, tx));
-    let submit_shell = v1_action_shell(p, border, "line-comment-submit", submit, true, can);
-    let submit_btn = if can {
+    let submit_shell = v1_action_shell(p, border, "line-comment-submit", submit_label, true, submit_live)
+        .help(submit)
+        .help_keys(["⏎".to_owned()])
+        .help_row(delivery)
+        .help_keys(mod_enter_keys())
+        .help_above()
+        .on_hover_change(move |s: &mut H, inside, tx: &mut Tx| {
+            if inside {
+                on_submit_hover(s, &hover, tx);
+            } else {
+                tx.live_only();
+            }
+        });
+    let submit_btn = if submit_live {
         submit_shell.on_press_tx(move |s: &mut H, tx: &mut Tx| on_submit(s, &send, tx))
     } else {
         submit_shell
@@ -482,15 +545,6 @@ fn grip_shell(p: &Pal) -> El {
 fn grip<H: LineCommentsHost + 'static>(p: &Pal, spot: &Spot, height: f32) -> El {
     let spot = spot.clone();
     grip_shell(p).on_drag(move |s: &mut H, d: &mut Drag, tx: &mut Tx| on_grip_drag(s, &spot, height, d, tx))
-}
-
-/// `--shadow-xs-border-select`, in CSS order (the first on top): a 3 px wash over a 1 px ring,
-/// over three soft drops.
-fn focus_select(p: &Pal) -> [rune::Shadow; 5] {
-    let s = |y: f32, blur: f32, spread: f32, color: Color| rune::Shadow { y, blur, spread, color, ..rune::Shadow::default() };
-    let (wash, ring) = if p.dark { (hex("#021858").alpha(0.6), hex("#1456f7").alpha(0.9)) } else { (hex("#d2e1fd").alpha(0.5), hex("#054dfd").alpha(0.99)) };
-    let ink = |a: f32| hex("#131010").alpha(a);
-    [s(0.0, 0.0, 3.0, wash), s(0.0, 0.0, 1.0, ring), s(1.0, 2.0, -1.0, ink(0.25)), s(1.0, 2.0, 0.0, ink(0.08)), s(1.0, 3.0, 0.0, ink(0.12))]
 }
 
 fn hex(s: &str) -> Color {

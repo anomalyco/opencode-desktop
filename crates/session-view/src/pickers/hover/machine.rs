@@ -65,8 +65,9 @@ pub enum Timer {
 /// `DialogFlyoutEvent`, less `placed` and `disposed`.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Event<'a> {
-    /// Arrow keys, typing, a favorite toggled or an effort staged from the keyboard.
-    Keyboard,
+    /// Arrow keys, typing, a favorite toggled or an effort staged from the keyboard, with the row
+    /// then highlighted (Desktop's `keyboard` event with `list.active()`).
+    Keyboard { id: Option<&'a str> },
     Wheel,
     Highlight { id: &'a str, option: Option<usize> },
     RowMoved { id: &'a str, active: Option<&'a str>, point: Point, flyout: Option<Rect> },
@@ -103,12 +104,22 @@ pub fn step(state: &mut State, event: Event<'_>) -> Effects<Effect> {
             *state = State::Keyed { attempt: next, id: id.to_owned(), option };
             cancel()
         }
-        Event::Keyboard => {
+        Event::Keyboard { id: None } => {
             if matches!(state, State::Closed { input: Input::Keyboard, warm: false, .. }) {
                 return Effects::none();
             }
             let effects = cancel();
             *state = State::Closed { attempt: next, input: Input::Keyboard, warm: false };
+            effects
+        }
+        // `claim`: the keyboard drives the flyout from here, beside the highlighted row, keeping
+        // one already there (`select-dialog-machine.ts`, `claim` and `highlight`).
+        Event::Keyboard { id: Some(id) } => {
+            if matches!(state, State::Keyed { id: k, option: None, .. } if k == id) {
+                return Effects::none();
+            }
+            let effects = cancel();
+            *state = State::Keyed { attempt: next, id: id.to_owned(), option: None };
             effects
         }
         Event::Wheel => {
@@ -285,6 +296,11 @@ fn warm(state: &State) -> bool {
 }
 
 /// `selectFlyoutOpenId`: the row whose flyout shows.
+/// `keyboardDriven`: the keys, not the pointer, last moved the highlight.
+pub fn keyboard_driven(state: &State) -> bool {
+    matches!(state, State::Closed { input: Input::Keyboard, .. } | State::Keyed { .. })
+}
+
 pub fn flyout_id(state: &State) -> Option<&str> {
     match state {
         State::Open { id, .. } | State::Keyed { id, .. } | State::Aiming { id, .. } => Some(id),

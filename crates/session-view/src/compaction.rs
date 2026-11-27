@@ -14,8 +14,10 @@ use opencode_kit::model::{Compaction, CompactionStatus, Tokens};
 use rune::{AnimExt, Color, Curve, Cursor, Cycle, Easing, Effect, El, LoopSpec, Spring, SpringPair, Transition, Tx, col, el, row, text};
 
 use rune_knobs::{Group, Knob};
+use unicode_segmentation::UnicodeSegmentation;
 
 use crate::TimelineHost;
+use crate::focus::FocusExt;
 use crate::palette::Pal;
 use crate::style::{BUBBLE, UI, markdown_tinted, readable};
 
@@ -104,23 +106,43 @@ pub enum Beside {
     Divider,
 }
 
-/// What sits above and below a divider.
+/// What sits above and below a divider, and who holds the room over its words.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Run {
     pub above: Beside,
     pub below: Beside,
+    pub over: Over,
 }
 
-/// The room over and under a divider's words at `run`: the turn's usual gap from other rows, and
-/// [`DIVIDER_GAP`] line to line within a stack.
-pub fn space<S: TimelineHost>(s: &S, run: Run) -> (f32, f32) {
-    let half = (s.knobs().get(&DIVIDER_GAP).max(WORDS) - WORDS) / 2.0;
-    let side = |b: Beside| match b {
+/// Who holds the room over a divider's words. The row above holds the room between two rows,
+/// never the lower row (official `timeline-next/spacing.ts` `timelineGaps`, where a divider is a
+/// row like any other; `packages/app/AGENTS.md` "Rows that load above the reader"): a divider
+/// that took it on top would change when the row before it loads, and move what is on screen.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub enum Over {
+    /// The divider: it starts the session, and nothing loads above it.
+    #[default]
+    Own,
+    /// The row above it, under what that row shows.
+    Above,
+    /// Nobody yet: older messages are still to load above it, and the row that lands there will.
+    Waiting,
+}
+
+/// The room a divider stands from `beside`: the turn's usual gap from other rows, none from a
+/// row that brings its own, and [`DIVIDER_GAP`] line to line within a stack.
+pub fn side<S: TimelineHost>(s: &S, beside: Beside) -> f32 {
+    match beside {
         Beside::Other => 16.0,
         Beside::Spaced => 0.0,
-        Beside::Divider => half,
-    };
-    (side(run.above), side(run.below))
+        Beside::Divider => (s.knobs().get(&DIVIDER_GAP).max(WORDS) - WORDS) / 2.0,
+    }
+}
+
+/// The room over and under a divider's words at `run`, in its own row: none over them where
+/// the row above holds it ([`Over`]).
+pub fn space<S: TimelineHost>(s: &S, run: Run) -> (f32, f32) {
+    (if run.over == Over::Own { side(s, run.above) } else { 0.0 }, side(s, run.below))
 }
 
 /// Flat muted hairlines flank the label (OpenCode b181df309d, `timeline-separator.tsx`).
@@ -228,17 +250,25 @@ fn quiet_view<S: TimelineHost>(s: &S, p: &Pal, c: &Compaction, run: Run) -> El {
         .transition(Transition::none());
     if expandable {
         let id = c.id.clone();
-        divider = divider.role("button").hover_group().cursor(Cursor::Pointer).on_press_tx(move |s: &mut S, tx: &mut Tx| press(s, tx, &id));
+        divider = divider.role("button").expanded(open).radius(4.0).focus_default(p).hover_group_focus().cursor(Cursor::Pointer).on_press_tx(move |s: &mut S, tx: &mut Tx| press(s, tx, &id));
     }
     let mut bar = col().key("bar").w_full().child(divider);
+    let mut out = col().w_full();
     if open || shutting {
         // While open it sticks to the timeline's top until the summary scrolls past, so it shuts
         // from anywhere in it; the summary softens into its fill as a tool group's steps do.
         // Shutting from there, the summary slides away under it, never over it.
         let soft = rune::Shadow { y: 10.0, blur: 20.0, color: p.bg_base, ..Default::default() };
         bar = bar.fill(p.bg_base).sticky_top(crate::style::sticky_top()).stuck_shadow(soft);
+        // Stuck, the bar keeps its fill over the room above its words, which the row above
+        // holds: it reaches up into that room, and the row is no taller for it.
+        if run.over == Over::Above {
+            let room = side(s, run.above);
+            bar = bar.pt(room);
+            out = out.mt(-room);
+        }
     }
-    let mut out = col().w_full().child(bar);
+    let mut out = out.child(bar);
     if open || shutting {
         // The summary is finished text: the row's edge reveals it as it folds open, with no
         // word-by-word fade on top.
@@ -317,9 +347,13 @@ fn light<S: TimelineHost>(s: &S, p: &Pal, start: f64, end: bool) -> El {
 /// as wide as the wider so nothing beside it moves. While it runs, a brighter copy warms the
 /// label each time the lights land on it.
 fn quiet_label<S: TimelineHost>(s: &S, p: &Pal, running: bool, open: bool, start: f64) -> El {
-    // The words' shared start stays while the rest rolls: "Compact" with "ing" and "ed".
+    // The words' shared start stays while the rest rolls: "Compact" with "ing" and "ed". They part
+    // between whole characters as read (`splitEnding`, opencode#65644), so a vowel sign stays with
+    // its consonant (Bengali); a space where they part goes with the endings, so it is drawn
+    // whatever the text does with a run's trailing space (Hindi).
     let (running_w, done_w) = (opencode_i18n::t!("ui.messagePart.compaction.running"), opencode_i18n::t!("ui.messagePart.compaction.done"));
-    let shared = running_w.char_indices().zip(done_w.chars()).take_while(|((_, a), b)| a == b).last().map_or(0, |((at, c), _)| at + c.len_utf8());
+    let shared = running_w.grapheme_indices(true).zip(done_w.graphemes(true)).take_while(|((_, a), b)| a == b).last().map_or(0, |((at, g), _)| at + g.len());
+    let shared = running_w[..shared].trim_end().len();
     let (stem, ing, ed) = (&running_w[..shared], &running_w[shared..], &done_w[shared..]);
     let width = |w: &str| rune::text::measure(w, &[], UI, None).0;
     let ending_w = width(ing).max(width(ed)).ceil();

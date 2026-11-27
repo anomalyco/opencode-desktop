@@ -14,6 +14,12 @@
 //! on a server) has none. `--launch-trace-why` prints, for each such frame, the elements that
 //! changed (stderr), so a change nobody sees can be named.
 //!
+//! `--launch-trace-shifts` counts the launch's layout shifts from the first frame on (`shifts`).
+//!
+//! `--launch-trace-hold <ms>` keeps the sleeping built-in plugins from starting for `ms` after the
+//! first turn that would start one ([`held`]): a picture of the window taken in that time shows what
+//! the first frame drew from their records, and one taken after it what they draw themselves.
+//!
 //! `--launch-trace-quit <ms>` quits the app as its Quit command does, `ms` after the window
 //! shows live content (or after the first frame, when no server answers within
 //! [`CONTENT_WAIT`]), so a bench times the quit of a launch that settled.
@@ -43,7 +49,7 @@ struct Boot {
     #[cfg(not(target_arch = "wasm32"))]
     faults: u32,
     /// The time-stamp counter at `at`, to learn its rate for [`process_cpu_ns`].
-    #[cfg(not(target_arch = "wasm32"))]
+    #[cfg(target_os = "windows")]
     tsc: u64,
 }
 
@@ -112,7 +118,7 @@ pub fn begin() {
     BOOT.get_or_init(|| {
         let at = Instant::now();
         let (created, now) = process_clock();
-        Boot { at, since_created: now.saturating_sub(created).saturating_mul(100), created, faults: page_faults(), tsc: tsc() }
+        Boot { at, since_created: now.saturating_sub(created).saturating_mul(100), created, faults: page_faults(), #[cfg(target_os = "windows")] tsc: tsc() }
     });
     mark("main.entered");
     #[cfg(target_os = "windows")]
@@ -126,34 +132,67 @@ pub fn on() -> bool {
     *ON.get_or_init(|| crate::arg("--launch-trace").is_some() || echoes() || quit_after().is_some())
 }
 
-/// `--launch-marks`: each launch milestone printed as a line the moment the app sees it
-/// (`launch-mark <name> <ns since creation> at=<epoch ms>`), for strobe's `launch: { milestones }`.
+/// `--launch-marks`: each launch milestone printed as a line once the app sees it
+/// (`launch-mark <name> <ns since creation> at=<epoch ms, to the microsecond>`), for strobe's
+/// `launch: { milestones }`. A line carries its mark's own time, so the marks from before the
+/// first frame, which go out with it, are timed where they happened.
 fn echoes() -> bool {
     static ECHO: OnceLock<bool> = OnceLock::new();
     *ECHO.get_or_init(|| crate::flag("--launch-marks"))
 }
 
 /// The milestones `--launch-marks` prints.
-const MILESTONES: [&str; 6] = ["frame.first.presented", "text.complete", "input.ready", "server.answered", "content.live", "pixels.stable"];
+/// `content.rows` is the first frame with the open session's messages (the saved copy's, on a
+/// later launch), `sessions.rows` the first with sessions to list, `session.read.received` the
+/// server's answer with the open session's newest page. `server.answered` is the first reads
+/// landing from a server that answered them; when no server could be reached or read, its place
+/// in the list prints `server.failed` instead (`launch::first_reads`), and `content.live` never
+/// follows while the window shows the server as away.
+const MILESTONES: [&str; 11] = [
+    "main.entered",
+    "window.created",
+    "frame.first.presented",
+    "text.complete",
+    "input.ready",
+    "content.rows",
+    "sessions.rows",
+    "server.answered",
+    "content.live",
+    "session.read.received",
+    "pixels.stable",
+];
 
 /// Prints the milestones reached since the last call.
 fn echo() {
+    // One bit per milestone printed.
     static PRINTED: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
     let done = PRINTED.load(Ordering::Relaxed);
-    if !echoes() || done == MILESTONES.len() {
+    if !echoes() || done == (1 << MILESTONES.len()) - 1 {
         return;
     }
     let marks = rune::marks::marks();
+    // Nothing is printed or written before the first frame.
+    if !marks.iter().any(|(n, _)| *n == "frame.first.presented") {
+        return;
+    }
     let mut printed = done;
     let mut lines = String::new();
-    for name in MILESTONES.iter().skip(done) {
-        let found = marks.iter().find(|(n, _)| n == name).map(|(_, t)| *t).or_else(|| if *name == "pixels.stable" { STABLE.get().copied() } else { None });
-        let Some(t) = found else { break };
+    for (i, name) in MILESTONES.iter().enumerate() {
+        if done & (1 << i) != 0 {
+            continue;
+        }
+        let found = marks
+            .iter()
+            .find(|(n, _)| n == name || (*name == "server.answered" && *n == "server.failed"))
+            .map(|(n, t)| (*n, *t))
+            .or_else(|| if *name == "pixels.stable" { STABLE.get().map(|t| (*name, *t)) } else { None });
+        let Some((name, t)) = found else { continue };
         let at = ns(t);
-        // Epoch ms of the mark, for strobe's milestone `at` group: FILETIME is 100 ns since 1601.
-        let epoch_ms = BOOT.get().map_or(0, |b| (b.created.saturating_sub(116_444_736_000_000_000) / 10_000).saturating_add(at / 1_000_000));
-        lines.push_str(&format!("launch-mark {name} {at} at={epoch_ms}\n"));
-        printed += 1;
+        // Epoch microseconds of the mark, printed as ms with three decimals for strobe's milestone
+        // `at` group: FILETIME is 100 ns since 1601.
+        let epoch_us = BOOT.get().map_or(0, |b| (b.created.saturating_sub(116_444_736_000_000_000) / 10).saturating_add(at / 1_000));
+        lines.push_str(&format!("launch-mark {name} {at} at={}.{:03}\n", epoch_us / 1_000, epoch_us % 1_000));
+        printed |= 1 << i;
     }
     PRINTED.store(printed, Ordering::Relaxed);
     if lines.is_empty() {
@@ -164,7 +203,7 @@ fn echo() {
     out.write_all(lines.as_bytes()).ok();
     out.flush().ok();
     // A launch from the Dock, Finder or Explorer has no stdout: the same lines go to
-    // `<logs>/launch-marks.log`. The first milestone is the first frame, so this file is never
+    // `<logs>/launch-marks.log`. The first lines go out with the first frame, so this file is never
     // written before it.
     if let Some(dir) = crate::dirs::logs() {
         std::fs::create_dir_all(&dir).ok();
@@ -191,11 +230,22 @@ pub fn drawn(rt: &rune::Runtime<App>) {
         return;
     }
     let s = &rt.state;
+    super::shifts::drawn(rt, BOOT.get().map_or(0, |b| Instant::now().checked_duration_since(b.at).unwrap_or_default().as_millis()));
     #[cfg(not(target_arch = "wasm32"))]
     let _ = FIRST_IO.get_or_init(|| (io_counters(), crate::flag("--launch-trace-threads").then(threads).unwrap_or_default()));
     let rows = s.painted_session().map_or(0, |(_, rows)| rows);
     if rows > 0 {
         mark("content.rows");
+    }
+    // The first frame with words in the composer: a key a bench posts as the window shows has
+    // landed in it (a restored draft has them from the first frame).
+    if !s.composer.text.is_empty() {
+        mark("composer.text");
+    }
+    // The first frame with sessions to list (Home's rows, the sidebar's): the saved list's on a
+    // later launch, else the server's.
+    if !s.sessions.is_empty() {
+        mark("sessions.rows");
     }
     let shows = rows > 0 || !matches!(*s.route, Route::Session { .. });
     if shows && !crate::launch::waiting(s) && !crate::launch::offline(s) {
@@ -302,7 +352,28 @@ pub fn poll(tx: &mut Tx) {
     }
     if !QUIT_SENT.swap(true, Ordering::Relaxed) {
         mark("quit.requested");
-        tx.quit();
+        // `--launch-trace-relaunch`: the quit is a Restart (an update's relaunch), once: the copy it
+        // starts (`RUNE_RELAUNCH_AFTER`) quits as a traced run does, appending its own line.
+        if crate::flag("--launch-trace-relaunch") && std::env::var_os("RUNE_RELAUNCH_AFTER").is_none() {
+            tx.relaunch();
+        } else {
+            tx.quit();
+        }
+    }
+}
+
+/// `--launch-trace-hold <ms>`: how much longer the sleeping plugins wait, counted from the first
+/// call; `None` once it's over, or without the flag.
+pub fn held() -> Option<Duration> {
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        static HOLD: OnceLock<Option<(std::time::Instant, Duration)>> = OnceLock::new();
+        let (since, hold) = (*HOLD.get_or_init(|| crate::arg("--launch-trace-hold").and_then(|ms| ms.parse().ok()).map(|ms| (std::time::Instant::now(), Duration::from_millis(ms)))))?;
+        hold.checked_sub(since.elapsed()).filter(|left| !left.is_zero())
+    }
+    #[cfg(target_arch = "wasm32")]
+    {
+        None
     }
 }
 
@@ -347,6 +418,7 @@ pub fn finish(windows: usize) {
         "marks_ns": marks,
         "metrics": metrics,
         "notes": notes,
+        "shifts": super::shifts::json(&ns),
         "boot_record": crate::storage::boot_bytes().map(|(all, plugins)| serde_json::json!({ "bytes": all, "plugin_bytes": plugins })),
     });
     use std::io::Write;
@@ -485,7 +557,7 @@ fn tsc() -> u64 {
     unsafe { core::arch::x86_64::_rdtsc() }
 }
 
-#[cfg(all(not(all(target_os = "windows", target_arch = "x86_64")), not(target_arch = "wasm32")))]
+#[cfg(all(target_os = "windows", not(target_arch = "x86_64")))]
 fn tsc() -> u64 {
     0
 }

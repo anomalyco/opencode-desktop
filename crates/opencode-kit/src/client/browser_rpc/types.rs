@@ -17,6 +17,22 @@ pub const CONTROL_EVENT: &str = "rpc.experimental.browser.control";
 /// Protocol version spoken by this client (`Browser.Control` `version: 4`).
 pub const PROTOCOL_VERSION: u32 = 4;
 
+/// Capability advertised in `attached.capabilities` when binary multiplexed WebSocket streaming is enabled
+/// (`packages/plugin-browser/src/tunnel-host.ts:7`).
+pub const STREAM_CAPABILITY: &str = "tunnel.ws.v1";
+
+/// Fixed experimental WebSocket upgrade path (`packages/plugin-browser/src/tunnel-host.ts:8`).
+pub const BROWSER_TUNNEL_PATH: &str = "/api/experimental/browser/tunnel";
+
+/// Binary stream protocol version (`packages/plugin-browser/src/stream-wire.ts:3`).
+pub const STREAM_PROTOCOL_VERSION: u8 = 1;
+
+/// WebSocket close code when the browser attachment is closed normally (`tunnel-host.ts:9`).
+pub const CLOSE_ATTACHMENT_CLOSED: u16 = 4001;
+
+/// WebSocket close code when another desktop window replaced this attachment (`tunnel-host.ts:10`).
+pub const CLOSE_ATTACHMENT_REPLACED: u16 = 4002;
+
 /// Maximum combined bytes for upload/download/capture transfers (`Browser.MAX_FILE_BYTES`, 5 MiB).
 pub const MAX_FILE_BYTES: usize = 5 * 1024 * 1024;
 
@@ -67,6 +83,19 @@ fn fill_random(out: &mut [u8]) {
             chunk.copy_from_slice(&bytes[..chunk.len()]);
         }
     }
+}
+
+/// Cryptographically random lowercase hex bytes (`bytes * 2` hex chars). Fails closed if the
+/// OS CSPRNG (`getrandom::fill`) fails — never falls back to a non-cryptographic hash.
+pub fn try_random_hex(bytes: usize) -> Result<String, String> {
+    let mut buf = vec![0u8; bytes];
+    getrandom::fill(&mut buf)
+        .map_err(|e| format!("OS cryptographic RNG unavailable for browser tunnel credentials: {e}"))?;
+    let mut out = String::with_capacity(bytes * 2);
+    for b in buf {
+        out.push_str(&format!("{b:02x}"));
+    }
+    Ok(out)
 }
 
 /// Cryptographically random RFC 4122 version-4 UUID (`xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx`).
@@ -191,13 +220,39 @@ impl WireFile {
     }
 
     pub fn decode_bytes(&self) -> Result<Vec<u8>, String> {
+        let trimmed = self.data_base64.trim();
+        let max_b64 = MAX_FILE_BYTES.div_ceil(3) * 4 + 4;
+        if trimmed.len() > max_b64 {
+            return Err(format!("File {} exceeds the 5 MiB transfer limit.", self.name));
+        }
         let bytes = base64::engine::general_purpose::STANDARD
-            .decode(self.data_base64.trim())
+            .decode(trimmed)
             .map_err(|e| format!("Invalid base64 payload for {}: {e}", self.name))?;
         if bytes.len() > MAX_FILE_BYTES {
             return Err(format!("File {} exceeds the 5 MiB transfer limit.", self.name));
         }
         Ok(bytes)
+    }
+
+    /// Validates that a batch of wire files respects both the 8-file count cap and the combined
+    /// 5 MiB transfer limit before decoding.
+    pub fn validate_batch(files: &[Self]) -> Result<(), String> {
+        if files.len() > 8 {
+            return Err("Too many files in transfer (maximum 8).".into());
+        }
+        let mut total = 0usize;
+        for f in files {
+            let trimmed = f.data_base64.trim();
+            let est = (trimmed.len() / 4).saturating_mul(3);
+            if est > MAX_FILE_BYTES {
+                return Err(format!("File {} exceeds the 5 MiB transfer limit.", f.name));
+            }
+            total = total.saturating_add(est);
+            if total > MAX_FILE_BYTES + 24 {
+                return Err("Combined transfer files exceed the 5 MiB limit.".into());
+            }
+        }
+        Ok(())
     }
 }
 
@@ -274,7 +329,7 @@ impl Outcome {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ControlFrame {
     Foreign,
-    Attached,
+    Attached { capabilities: Vec<String> },
     Command { request_id: String },
     Cancel { request_id: String },
     Incompatible,
@@ -290,7 +345,17 @@ pub fn decode_control(connection_id: &str, data: &Value) -> ControlFrame {
     match kind {
         Some("attached") => {
             if data.get("version").and_then(Value::as_u64) == Some(u64::from(PROTOCOL_VERSION)) {
-                ControlFrame::Attached
+                let capabilities = data
+                    .get("capabilities")
+                    .and_then(Value::as_array)
+                    .map(|arr| {
+                        arr.iter()
+                            .filter_map(Value::as_str)
+                            .map(str::to_owned)
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                ControlFrame::Attached { capabilities }
             } else {
                 ControlFrame::Incompatible
             }
@@ -335,6 +400,63 @@ impl TunnelTarget {
 pub struct TunnelRead {
     pub data: Vec<u8>,
     pub eof: bool,
+}
+
+/// Short-lived single-use upgrade ticket returned by `experimental.browser/tunnel.ticket`
+/// (`packages/plugin-browser/src/rpc.ts` `TunnelTicket`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TunnelTicket {
+    pub ticket: String,
+    pub expires_in: u64,
+    pub protocol: u8,
+    pub path: String,
+}
+
+/// Explicit non-downgrading failure kind when upgrading or maintaining a binary stream tunnel
+/// (`packages/gui-plugins/src/browser/tunnel-client.ts:18`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TunnelUpgradeFailureKind {
+    Auth,
+    Tls,
+    Blocked,
+    Protocol,
+    Ticket,
+    Transport,
+}
+
+/// Explicit non-downgrading failure raised when a server advertises `tunnel.ws.v1` and the
+/// ticket or WebSocket upgrade fails (`tunnel-client.ts:24-34`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TunnelUpgradeError {
+    pub kind: TunnelUpgradeFailureKind,
+    pub message: String,
+    pub status_code: Option<u16>,
+}
+
+impl TunnelUpgradeError {
+    pub fn new(kind: TunnelUpgradeFailureKind, message: impl Into<String>) -> Self {
+        Self { kind, message: message.into(), status_code: None }
+    }
+
+    pub fn with_status(kind: TunnelUpgradeFailureKind, message: impl Into<String>, status: u16) -> Self {
+        Self { kind, message: message.into(), status_code: Some(status) }
+    }
+}
+
+impl std::fmt::Display for TunnelUpgradeError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.message)
+    }
+}
+
+impl std::error::Error for TunnelUpgradeError {}
+
+/// Terminal closure details of one multiplexed binary WebSocket (`stream-mux.ts:43-47`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct MuxCloseInfo {
+    pub code: u16,
+    pub reason: String,
+    pub replaced: bool,
 }
 
 /// Terminal outcome of one held `experimental.browser/attach` call (`pane-machine.ts:62`).

@@ -23,6 +23,8 @@ export type Env = {
     -- What each chat's Copy buttons copied: the text, so a changed text clears the mark.
     copied: { [string]: { question: string?, answer: string? } },
     retry: (session: string, id: string) -> (),
+    -- The tab got its answer or failure while hidden and has not been shown since.
+    unread: (session: string, id: string) -> boolean,
     refresh: () -> (),
 }
 
@@ -60,11 +62,20 @@ function panel.label(env: Env, view: View, props: PanelTabLabelProps): ui.Node?
     local id = props.instance or ""
     local title = machine.tab(env.state, env.saved(props.sessionId), props.sessionId, id) or env.I18n:T("tab.title")
     -- A label of its own keeps the trigger's ink, selected or not (`flex items-center gap-1.5`).
-    return view:Memo(`btw-label-{id}`, title, function()
-        return ui.row({ shrink = true, minW = 0, gap = 6, align = "center" }, {
+    local unread = env.unread(props.sessionId, id)
+    return view:Memo(`btw-label-{id}`, if unread then `{title}\n` else title, function()
+        local children: { ui.Node } = {
             ui.icon("comment", LABEL_ICON),
             ui.text(title, LABEL_TEXT),
-        })
+        }
+        if unread then
+            -- `size-1.5 shrink-0 rounded-full bg-v2-state-fg-info`, named for a reader.
+            table.insert(
+                children,
+                ui.box({ role = "img", label = env.I18n:T("tab.unread"), w = 6, h = 6, radius = 3, fill = "status-info" })
+            )
+        end
+        return ui.row({ shrink = true, minW = 0, gap = 6, align = "center" }, children)
     end)
 end
 
@@ -83,8 +94,41 @@ local COPY = table.freeze({
 } :: UiBoxProps)
 local COPY_ICON = table.freeze({ size = 14, color = "icon-weak" } :: UiIconProps)
 
+-- `COPY_FEEDBACK_MS`: how long the check and "Copied" stay after a press.
+local COPIED_S = 2
+-- Each mark's press, so a press again restarts its time.
+local presses: { [string]: number } = {}
+
+-- Marks chat `id`'s `field` Copy as having copied `text` for `COPIED_S` (`createCopyFeedback`).
+local function markCopied(env: Env, id: string, field: "question" | "answer", text: string)
+    local m: { question: string?, answer: string? } = env.copied[id] or {}
+    if field == "question" then
+        m.question = text
+    else
+        m.answer = text
+    end
+    env.copied[id] = m
+    local slot = `{id}/{field}`
+    local press = (presses[slot] or 0) + 1
+    presses[slot] = press
+    env.refresh()
+    task.delay(COPIED_S, function()
+        local now = env.copied[id]
+        if presses[slot] ~= press or now == nil then
+            return
+        end
+        if field == "question" then
+            now.question = nil
+        else
+            now.answer = nil
+        end
+        env.refresh()
+    end)
+end
+
 local function copyButton(key: string, copied: boolean, tip: string, onPress: ui.Handler): ui.Node
-    return ui.row(COPY, { key = key, label = tip, help = tip, onPress = onPress }, {
+    -- `forceOpen`: "Copied" stays up while the check shows, though the press hid the tooltip.
+    return ui.row(COPY, { key = key, label = tip, help = tip, helpOpen = copied, onPress = onPress }, {
         ui.icon(if copied then "check" else "outline-copy", COPY_ICON),
     })
 end
@@ -217,10 +261,7 @@ local function prompt(
                     tip,
                     view:Handler(function()
                         env.System:CopyText(question)
-                        local m: { question: string?, answer: string? } = env.copied[id] or {}
-                        m.question = question
-                        env.copied[id] = m
-                        env.refresh()
+                        markCopied(env, id, "question", question)
                     end)
                 ),
             }
@@ -266,10 +307,7 @@ local function answered(
                 I18n:T(if copied then "copied" else "copy"),
                 view:Handler(function()
                     env.System:CopyText(answer)
-                    local m: { question: string?, answer: string? } = env.copied[id] or {}
-                    m.answer = answer
-                    env.copied[id] = m
-                    env.refresh()
+                    markCopied(env, id, "answer", answer)
                 end)
             ),
         }),

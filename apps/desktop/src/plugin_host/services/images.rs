@@ -95,8 +95,10 @@ pub fn load_src(app: &App, plugin: &str, src: &str) -> u32 {
         let url = src.to_owned();
         (format!("web:{src}"), Box::new(move || Some(Source::Web(url))))
     } else if lower.starts_with("data:") {
+        use sha2::{Digest, Sha256};
         let url = src.to_owned();
-        (src.to_owned(), Box::new(move || Some(Source::Data(url))))
+        let digest = Sha256::digest(src.as_bytes());
+        (format!("data:{digest:x}"), Box::new(move || Some(Source::Data(url))))
     } else if src.starts_with('/') && !src.starts_with("//") {
         let server = match &*app.source {
             crate::Source::Live { server, .. } => Some(server.clone()),
@@ -202,7 +204,7 @@ pub fn node(a: &mut NodeArgs) -> Result<El, String> {
         }
         let Some((image, bytes)) = state.and_then(crate::plugin_host::images::shown).filter(|_| loaded) else { return Ok(out) };
         let file = opencode_kit::model::Attachment { mime: load::mime(&bytes).into(), name: label.unwrap_or_else(|| "image".into()), bytes, media: None };
-        Ok(session_view::images::opens::<App>(app, out, el(), format!("plugin-image-{plugin}-{id}"), &file, image, None))
+        Ok(session_view::images::opens::<App>(app, out, el(), session_view::images::Strip::new(format!("plugin-image-{plugin}-{id}"), std::sync::Arc::from([file]), 0), image, None))
     })
     .ok_or_else(|| "ui.image draws only in a window".to_owned())?
 }

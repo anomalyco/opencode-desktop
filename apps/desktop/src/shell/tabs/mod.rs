@@ -8,12 +8,15 @@
 //! process) so the two show the same tabs; without Desktop it starts with none.
 
 pub mod actions;
+pub mod auto_groups;
 pub mod badges;
 pub mod groups;
 pub mod hints;
 pub mod navigation_switch;
+pub mod pin_sync;
 pub mod pins;
 pub mod recently_closed;
+pub mod sections;
 
 use opencode_servers::tabs as doc;
 use opencode_kit::servers::{ServerKey, TabKey};

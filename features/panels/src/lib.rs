@@ -23,7 +23,7 @@ pub mod tabs;
 pub mod view;
 pub mod width;
 
-use opencode_ui::keymap::{Bind, caps as keymap_caps};
+use opencode_ui::keymap::Bind;
 use rune::{El, Icon, Tx};
 use opencode_ui::palette::Pal;
 
@@ -34,7 +34,8 @@ pub use state::{
     BackgroundOpen, BackgroundOpenEvent, CloseTabGuard, CloseTabGuardEffect, CloseTabGuardEvent, EdgeFlight,
     EdgeFlightEffect, EdgeFlightEvent, EmptySpan, FocusMode, NewTabEntry, ResolvedEntry, ResolvedRegion,
     SavedKeyboardFocus, SessionSideState, SideFocus, SideFocusEvent, SideMenu, SideState, StripScroll, Visibility,
-    all_panels, bottom_open, bottom_stored_open, close_side_tab, dismiss_side_new_tab, find_panel, hide_side_tab,
+    adopt_child_strip, all_panels, bottom_open, bottom_stored_open, close_side_tab, dismiss_side_new_tab, find_panel,
+    hide_side_tab,
     keeping_keyboard, live_new_tabs, move_side_tab, open_side_new_tab, open_side_tab, open_side_tab_for_session,
     pane_shown_tab, panes_shown, promote_preview_tab, reopen_closed_side_tab, resolve_side_region, select_side_tab,
     session_side, session_side_mut, show_pane_tab, show_side_tab, shown_new_tab, side_mounted, side_open,
@@ -268,7 +269,7 @@ impl PanelLauncherDesc {
         if let Some(&bind) = self.shortcut.iter().find(|b| !b.keycaps().is_empty()) {
             return bind.keycaps();
         }
-        self.command.and_then(|id| host.command_chord(id)).map_or_else(Vec::new, keymap_caps)
+        self.command.map_or_else(Vec::new, |id| opencode_ui::keymap::sequence::caps(&host.command_strokes(id)))
     }
 }
 

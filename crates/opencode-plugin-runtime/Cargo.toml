@@ -8,6 +8,7 @@ publish = false
 
 [dependencies]
 base64.workspace = true
+harness-log = { path = "../harness-log" }
 mlua.workspace = true
 opencode-i18n = { path = "../opencode-i18n" }
 opencode-kit = { path = "../opencode-kit" }

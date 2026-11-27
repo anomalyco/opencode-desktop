@@ -26,6 +26,72 @@ pub fn new_id() -> String {
     id.strip_prefix("ses_").unwrap_or(&id).to_owned()
 }
 
+/// The windows a launch opens, in order, and whether the profile is new (no list was ever
+/// saved): the ids saved at the last quit, else one new id.
+///
+/// A list saved EMPTY is a profile that lost its windows. The builds of 23 to 25 Nov 2026 wrote
+/// it when the last window closed by its close button or Alt+F4 (the quit hook wrote the list
+/// after the close hook had taken the window off it), and every launch after one opened a new
+/// window and left the last one's rows where they were. Such a launch takes back the window
+/// made last that has tabs ([`orphaned`]); the others are kept as closed windows, to reopen
+/// (`reopen::keep_orphans`), so none stays in the boot record. A profile whose list is not empty
+/// may hold lost windows too (its last quit kept the list): `reopen::sweep_lost` takes those
+/// once the first frame is up.
+pub fn launch_ids() -> (Vec<String>, bool) {
+    let saved = saved_ids();
+    let mut ids = saved.clone().unwrap_or_default();
+    if saved.is_some() && ids.is_empty() {
+        let mut left = orphaned();
+        if let Some(at) = left.iter().position(|(_, tabs)| *tabs > 0) {
+            ids.push(left.remove(at).0);
+            rune::marks::mark("window.adopted");
+        }
+        if !left.is_empty() {
+            super::reopen::keep_orphans(left.into_iter().map(|(id, _)| id).collect(), crate::wall_ms());
+        }
+    }
+    if ids.is_empty() {
+        ids.push(new_id());
+    }
+    if saved.as_ref() != Some(&ids) {
+        save_ids(&ids);
+    }
+    (ids, saved.is_none())
+}
+
+/// Every window the boot packet has rows for, with how many tabs each holds, the one made last
+/// first: an id of ours starts with its time, newest first ([`new_id`]), and one imported from
+/// Desktop (a UUID) is older than any of ours. Only asked when the saved list is empty, so each
+/// is a window no launch opened again: the one made last is the last run's.
+fn orphaned() -> Vec<(String, usize)> {
+    let Some(boot) = crate::storage::boot_packet() else { return Vec::new() };
+    let mut names = boot.window_namespaces();
+    names.sort_unstable();
+    names.dedup();
+    let mut windows: Vec<(String, usize)> = names
+        .into_iter()
+        .filter_map(|name| {
+            let id = name.strip_prefix("opencode.window.")?.strip_suffix(".dat")?;
+            let tabs = boot.state(name, "tabs").and_then(|t| serde_json::from_str::<Vec<Value>>(t).ok()).map_or(0, |t| t.len());
+            Some((id.to_owned(), tabs))
+        })
+        .collect();
+    windows.sort_by_key(|(id, _)| !ours(id));
+    windows
+}
+
+/// Whether this app made window id `id` ([`new_id`]: 12 hex digits of its time, newest first,
+/// then 14 more characters). One imported from Desktop is a UUID.
+pub(super) fn ours(id: &str) -> bool {
+    id.len() == 26 && id.as_bytes()[..12].iter().all(u8::is_ascii_hexdigit)
+}
+
+/// Whether window `id` was made before the id `mark` was: ours sort newest first, and an
+/// imported one is older than any of ours.
+pub(super) fn made_before(id: &str, mark: &str) -> bool {
+    !ours(id) || id > mark
+}
+
 /// Window `w`'s namespace (`opencode.window.<id>.dat`).
 fn namespace(w: &Window) -> String {
     opencode_storage::window_namespace(&w.id)
@@ -52,7 +118,64 @@ pub fn load_frame(id: &str) -> Option<Frame> {
     crate::storage::frame(id)
 }
 
+/// The key of a window's layout reads in its namespace.
+const LAYOUT: &str = "rune.layout";
+
+/// What window `id`'s view last read from layout (`rune::App::layout_seed`): its next launch's
+/// first view is given these rects, so the first frame builds the view once, not twice.
+/// `OPENCODE_RUNE_LAYOUT_SEED=off` gives it none (a bench's arm).
+pub fn load_layout(id: &str) -> Option<rune::LayoutSeed> {
+    if id.is_empty() || rune::env::var("OPENCODE_RUNE_LAYOUT_SEED").is_some_and(|v| v == "off") {
+        return None;
+    }
+    let v = crate::storage::json(&opencode_storage::window_namespace(id), LAYOUT)?;
+    let floats = |v: &Value| v.as_array()?.iter().map(|n| n.as_f64().map(|n| n as f32)).collect::<Option<Vec<f32>>>();
+    let &[w, h, scale, zoom] = floats(v.get("view")?)?.as_slice() else { return None };
+    let rects = v
+        .get("rects")?
+        .as_object()?
+        .iter()
+        .map(|(key, rect)| {
+            if rect.is_null() {
+                return Some((key.clone(), None));
+            }
+            let &[x, y, w, h] = floats(rect)?.as_slice() else { return None };
+            Some((key.clone(), Some([x, y, w, h])))
+        })
+        .collect::<Option<Vec<_>>>()?;
+    Some(rune::LayoutSeed { viewport: [w, h], scale, zoom, rects })
+}
+
+/// Rune hands them over as the window rests, closes or quits, when they changed.
+pub fn save_layout(id: &str, seed: &rune::LayoutSeed) {
+    if id.is_empty() {
+        return;
+    }
+    let rects: serde_json::Map<String, Value> = seed.rects.iter().map(|(key, rect)| (key.clone(), rect.map_or(Value::Null, |r| serde_json::json!(r)))).collect();
+    let value = serde_json::json!({ "view": [seed.viewport[0], seed.viewport[1], seed.scale, seed.zoom], "rects": rects });
+    crate::storage::set_json(&opencode_storage::window_namespace(id), LAYOUT, &value);
+}
+
 /// Written behind, as the window settles after a move and as it closes.
 pub fn save_frame(id: &str, frame: Frame) {
     crate::storage::set_frame(id, frame);
+}
+
+#[cfg(target_os = "linux")]
+const APPEARANCE: &str = "rune.appearance";
+
+/// The desktop's light or dark and reduced motion as the last run saw them
+/// (`rune::last_appearance`). Linux asks the desktop portal for them over D-Bus, and a window's
+/// first frame draws with these instead of waiting for its answer (a portal that never
+/// answered held the first frame for 100 ms).
+#[cfg(target_os = "linux")]
+pub fn load_appearance() -> Option<rune::Appearance> {
+    let v = crate::storage::json("opencode.global.dat", APPEARANCE)?;
+    Some(rune::Appearance { dark: v.get("dark")?.as_bool(), reduced_motion: v.get("reducedMotion")?.as_bool()? })
+}
+
+/// Rune hands over each answer of the portal's that isn't what it last had, on its own thread.
+#[cfg(target_os = "linux")]
+pub fn save_appearance(seen: rune::Appearance) {
+    crate::storage::set_json("opencode.global.dat", APPEARANCE, &serde_json::json!({ "dark": seen.dark, "reducedMotion": seen.reduced_motion }));
 }

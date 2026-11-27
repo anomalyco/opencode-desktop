@@ -227,25 +227,30 @@ fn build_list_frame(p: &Pal, search_input: El, scroll: El) -> El {
         .center_y()
         .child(el().pl(6.0).child(icon(&ic::MAGNIFYING_GLASS, 16.0).color(p.icon_muted)))
         .child(search_input);
-    // `.command-palette-compact`: 6 pt around, 17 below, the hairline 8 pt over the bottom.
+    // `.command-palette-compact` (`commands/dialog.css:145-158`): 6 above, 6 to the 1 pt
+    // `scaleY(0.5)` hairline, 2 below.
     let search = col()
         .key("mcp-search-row")
         .w_full()
         .pt(6.0)
         .px(6.0)
-        .pb(8.0)
+        .pb(2.0)
+        .gap(6.0)
         .child(search_field)
-        .child(el().h(0.5).mt(8.5).mx(-6.0).fill(p.border));
+        .child(rune::hairline(p.border).key("mcp-divider").mx(-6.0));
     col().key("mcp-list").w_full().min_h(0.0).shrink().child(search).child(scroll)
 }
 
 fn build_list_results(p: &Pal, total_servers: usize, rows: Vec<El>) -> El {
-    let mut results = col().key("mcp-results").w_full().px(6.0).pb(6.0).gap(4.0);
+    // `search-list.tsx:335-380`, `search-list.css:105-108, 180-189`: when empty,
+    // `[data-slot="search-list-results"]` is hidden so its padding never sits below
+    // `[data-slot="search-list-empty"]` (`min-height: 120px`); populated rows use
+    // `.command-palette-compact` (`commands/dialog.css:184-190`: `padding: 0 6px 6px`, `gap: 2px`).
     if rows.is_empty() {
         let words = if total_servers > 0 { opencode_i18n::t!("dialog.mcp.search.empty") } else { opencode_i18n::t!("dialog.mcp.empty") };
-        results = results.child(row().key("mcp-empty").w_full().min_h(120.0).center().child(text(words).font(UI).color(p.muted)));
+        return row().key("mcp-empty").w_full().min_h(120.0).center().child(text(words).font(UI).color(p.muted));
     }
-    results.children(rows)
+    col().key("mcp-results").w_full().px(6.0).pb(6.0).gap(2.0).children(rows)
 }
 
 fn server_row_shell(p: &Pal, m: &McpServer, active: bool, tall: bool, trailing: El) -> El {

@@ -115,6 +115,12 @@ pub trait FilesHost: opencode_kernel::AppEnv + opencode_kernel::AppFeedback {
 
     /// Working directory of session `sid`, if loaded.
     fn session_directory(&self, sid: &str) -> Option<&str>;
+    /// Pinned physical local working directory of session `sid` (resolved once on first encounter
+    /// for local servers so symlinked/junction-aliased workspaces work without re-resolving
+    /// aliases later). On remote servers, returns the remote directory unchanged.
+    fn session_physical_directory(&self, sid: &str) -> Option<String> {
+        self.session_directory(sid).map(str::to_owned)
+    }
     /// Project root directory for session `sid` (defaults to [`Self::session_directory`]).
     fn session_project_root(&self, sid: &str) -> Option<&str> {
         self.session_directory(sid)
@@ -128,9 +134,16 @@ pub trait FilesHost: opencode_kernel::AppEnv + opencode_kernel::AppFeedback {
     fn draft_directory(&self) -> &str {
         ""
     }
-    /// User home directory used to expand `~` and format out-of-workspace paths.
-    fn home_directory(&self) -> &str {
-        ""
+    /// Pinned physical local directory of the active draft (resolved once via the process-wide
+    /// pin table on local servers, or `None` if refused).
+    fn draft_physical_directory(&self) -> Option<String> {
+        let dir = self.draft_directory();
+        (!dir.is_empty()).then(|| dir.to_owned())
+    }
+    /// The home folder of the server the window is on, used to expand `~` and format
+    /// out-of-workspace paths; empty while it is not known (`sync.data.path.home`).
+    fn home_directory(&self) -> std::borrow::Cow<'_, str> {
+        "".into()
     }
 
     /// Live OpenCode server handle when connected, or `None` in fixture mode.
@@ -166,7 +179,7 @@ pub trait FilesHost: opencode_kernel::AppEnv + opencode_kernel::AppFeedback {
 
     /// Opens an external web or app URL (`https:`, `mailto:`, etc.).
     fn open_external(&mut self, url: &str, tx: &mut Tx) {
-        drop(tx.open_url(url));
+        harness_log::open_url(tx, url);
     }
     /// Routes a web or app-scheme link clicked in chat or a rendered file through browser URL
     /// policy and `Settings > Browser` (`Open links in OpenCode`).
@@ -178,6 +191,11 @@ pub trait FilesHost: opencode_kernel::AppEnv + opencode_kernel::AppFeedback {
     /// Whether opening files in external local apps is available on this host.
     fn can_open_in(&self) -> bool {
         false
+    }
+    /// Whether revealing local files outside the workspace in the OS file manager is available
+    /// on this host (Windows, macOS, and Linux when connected to a local server).
+    fn can_reveal_outside(&self) -> bool {
+        self.can_open_in()
     }
     /// Current remembered external application summary for the toolbar split button.
     fn open_in_current(&self) -> Option<OpenInCurrent> {
@@ -214,8 +232,9 @@ pub trait FilesHost: opencode_kernel::AppEnv + opencode_kernel::AppFeedback {
     fn open_in_reveal(&mut self, rel: &str) {
         let _ = rel;
     }
-    /// Opens an absolute path outside the workspace in its default OS application.
-    fn open_in_default(&mut self, abs_path: &str) {
+    /// Reveals an absolute local fixed-drive path outside the workspace in the file manager
+    /// (never executes or opens with the default OS application, and never touches UNC paths).
+    fn open_in_reveal_abs(&mut self, abs_path: &str) {
         let _ = abs_path;
     }
 
@@ -298,7 +317,17 @@ pub trait FilesHost: opencode_kernel::AppEnv + opencode_kernel::AppFeedback {
         let _ = path;
         false
     }
-    /// Opens a `file://` URL in a new embedded browser tab for session `sid`.
+    /// Opens workspace-relative `rel_path` as an isolated `oc-preview://` tab for session `sid`.
+    /// Lands at once in an open side region; a closed one flies open (`show_pane_tab`).
+    fn open_workspace_preview(&mut self, sid: &str, rel_path: &str, tx: &mut Tx) {
+        let _ = (sid, rel_path, tx);
+    }
+    /// Opens `href` as an isolated `artifact://` preview tab if it targets an artifact on the active server.
+    fn try_open_artifact_link(&mut self, sid: &str, href: &str) -> bool {
+        let _ = (sid, href);
+        false
+    }
+    /// Opens a URL in a new embedded browser tab for session `sid`.
     fn open_page_tab(&mut self, sid: &str, url: &str) {
         let _ = (sid, url);
     }

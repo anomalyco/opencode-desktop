@@ -2,13 +2,16 @@ use super::*;
 use std::rc::Rc;
 
 use crate::inbox_model::{Entry, InboxStatus, age};
-use crate::inbox_order::{Group, Order};
+use crate::inbox_order::{Folds, Group, Order};
 use crate::popup::{self, Item, Menu};
+use crate::restore::{InboxUi, WorkingPlacement};
+use crate::tabs::pins::{self, PinRef};
 use opencode_i18n::t;
 
 // ---------------------------------------------------------------------------------------------
-// Inbox: Desktop's Inbox layout in the sidebar (`shell/titlebar/inbox.tsx`): Needs attention,
-// Unread and Recent in a scrolling list, and Working pinned below it.
+// Inbox: Desktop's Inbox layout in the sidebar (`shell/titlebar/inbox.tsx`): Drafts, Needs
+// attention, the pinned and the recent sessions and Archived in a scrolling list, and Working
+// on a shelf below it or in the list above Archived.
 
 /// A card's title (`text-[13px] leading-4 font-medium tracking-[-0.04px]`).
 const TITLE: TextStyle = TextStyle::new(13.0, 500.0).lh(16.0).tracking(-0.04);
@@ -32,17 +35,20 @@ pub(crate) fn inbox(s: &App, p: &Pal, inset: (f32, f32)) -> El {
         );
     }
     let order = s.inbox_order();
-    let expanded = s.kernel.slots.get(&crate::restore::RESTORE).inbox.recent_expanded;
-    let items = Rc::new(items(&order, expanded));
+    let ui = s.kernel.slots.get(&crate::restore::RESTORE).inbox;
+    let drafts = Rc::new(draft_ids(s));
+    let items = Rc::new(items(&order, ui, drafts.len()));
     // Only the rows in sight are built (a virtual list), whatever Show more shows: each row is
     // its session, and its card reads the session as it stands. The rows' places stand as the
     // groups' gaps did: 2 between cards, 8 under a header, 10 under a group and 2 between groups.
     let n = items.len();
     // The last group's own 10 of padding under it, then the list's 4.
-    let pb = if matches!(items.last(), Some(Line::Card { .. } | Line::More)) { 14.0 } else { 4.0 };
-    let version = (order.generation, expanded);
+    let pb = if matches!(items.last(), Some(Line::Card { .. } | Line::More | Line::Toggle(_))) { 14.0 } else { 4.0 };
+    let version = (order.generation, ui, drafts.as_slice().to_vec());
     let (keys, built, pal) = (items.clone(), items.clone(), *p);
     let (key_order, built_order) = (order.clone(), order.clone());
+    let (key_drafts, built_drafts) = (drafts.clone(), drafts.clone());
+    let epoch = epoch(&items, &order);
     let list = col()
         .key("content")
         .w_full()
@@ -52,10 +58,10 @@ pub(crate) fn inbox(s: &App, p: &Pal, inset: (f32, f32)) -> El {
             n,
             // Most rows are a card and the 2 above it.
             CARD_H + 2.0,
-            move |_: &App, i| keys[i].key(&key_order).into(),
+            move |_: &App, i| keys[i].key(&key_order, &key_drafts, &epoch).into(),
             move |s: &App, i| {
                 let item = &built[i];
-                el().w_full().pt(space_above(&built, i)).child(item.build(s, &pal, &built_order))
+                el().w_full().pt(space_above(&built, i)).child(item.build(s, &pal, &built_order, &built_drafts))
             },
         )
         .virtual_rows_version(version);
@@ -88,8 +94,30 @@ pub(crate) fn inbox(s: &App, p: &Pal, inset: (f32, f32)) -> El {
                 tx.live_only();
             }
         })
+        // The list's own menu, opened anywhere outside a card (`InboxSessionList`'s `menu`).
+        .on_secondary_press(|s: &mut App, press: rune::PointerPress, tx: &mut Tx| open_list_menu(s, press, tx))
         .child(scroller(p, "inbox-scroll", list).grow(1.0))
-        .children((!order.group(Group::Working).is_empty()).then(|| working(s, p, &order, inset)))
+        .children((ui.working_placement == WorkingPlacement::Shelf && !order.group(Group::Working).is_empty()).then(|| working(s, p, &order, inset)))
+}
+
+/// The list's menu: where Working sessions go (`sidebar.inbox.working.placement`).
+fn open_list_menu(s: &mut App, at: rune::PointerPress, tx: &mut Tx) {
+    let placed = s.kernel.slots.get(&crate::restore::RESTORE).inbox.working_placement;
+    let option = |at: WorkingPlacement, label: &str| Item::new(at.name(), label).radio(placed == at);
+    let places = Menu::new(t!("sidebar.inbox.working.placement"))
+        .item(option(WorkingPlacement::Shelf, t!("sidebar.inbox.working.shelf")))
+        .item(option(WorkingPlacement::Inline, t!("sidebar.inbox.working.inline")));
+    let menu = Menu::new(t!("settings.general.row.interfaceMode.inbox")).submenu("working", t!("sidebar.inbox.working.placement"), places);
+    tx.instant();
+    popup::open(s, menu, at, tx, |s: &mut App, picked, tx| {
+        let at = match picked {
+            Some("shelf") => WorkingPlacement::Shelf,
+            Some("inline") => WorkingPlacement::Inline,
+            _ => return,
+        };
+        tx.instant();
+        s.place_inbox_working(at);
+    });
 }
 
 /// A card's height (`InboxSessionCard`, 54pt): the list's estimate for rows it hasn't laid out.
@@ -99,56 +127,93 @@ const CARD_H: f32 = 54.0;
 #[derive(Clone, Copy, Debug)]
 enum Line {
     Header(Group),
-    /// The card of `order.rows[at]`, `pos` of `size` in its group (A11Y: true for rows not built).
-    Card { at: usize, pos: usize, size: usize },
+    /// Drafts' header (`sidebar.inbox.section.drafts`).
+    Drafts,
+    /// The draft tab `drafts[at]`, `pos` of `size`.
+    Draft { at: usize, pos: usize, size: usize },
+    /// The card of `order.rows[at]` in group `g`, `pos` of `size` there (A11Y: true for rows not built).
+    Card { g: Group, at: usize, pos: usize, size: usize },
     /// Show more / Show less under Recent.
     More,
     Empty,
-    Archived,
+    /// The header of a group that folds: Working in the list, and Archived.
+    Toggle(Group),
 }
 
-/// The list's rows in order: the open session's card when no group shows it, then each group's
-/// header and cards (and Show more under Recent), the empty line, and Archived.
-fn items(order: &Order, expanded: bool) -> Vec<Line> {
+/// The list's rows in order: `drafts` drafts under their header, the open session's card when no
+/// group shows it, Needs attention under its header, the pinned and the recent sessions with no
+/// header (and Show more), Working when it isn't the shelf and Archived, each under a header that
+/// folds, and the empty line.
+fn items(order: &Order, ui: InboxUi, drafts: usize) -> Vec<Line> {
     let mut out = Vec::new();
-    let card = |out: &mut Vec<Line>, shows: &[usize]| {
+    if drafts > 0 {
+        out.push(Line::Drafts);
+        out.extend((0..drafts).map(|at| Line::Draft { at, pos: at + 1, size: drafts }));
+    }
+    let card = |out: &mut Vec<Line>, g: Group, shows: &[usize]| {
         let size = shows.len();
-        out.extend(shows.iter().enumerate().map(|(k, &at)| Line::Card { at, pos: k + 1, size }));
+        out.extend(shows.iter().enumerate().map(|(k, &at)| Line::Card { g, at, pos: k + 1, size }));
     };
-    card(&mut out, &order.shows(Group::Current, expanded));
-    for g in [Group::Needs, Group::Unread, Group::Recent] {
-        let shows = order.shows(g, expanded);
-        if shows.is_empty() {
-            continue;
-        }
-        out.push(Line::Header(g));
-        card(&mut out, &shows);
-        if g == Group::Recent && order.more {
+    let folds = Folds::from(ui);
+    card(&mut out, Group::Current, &order.shows(Group::Current, folds));
+    let needs = order.shows(Group::Needs, folds);
+    if !needs.is_empty() {
+        out.push(Line::Header(Group::Needs));
+        card(&mut out, Group::Needs, &needs);
+    }
+    // `unlabeled`: Recent is named for a reader only, with no header in sight.
+    let recent = order.shows(Group::Recent, folds);
+    if !recent.is_empty() {
+        card(&mut out, Group::Recent, &recent);
+        if order.more {
             out.push(Line::More);
         }
     }
-    if order.is_empty() {
-        out.push(Line::Empty);
+    // Between the active and the archived sessions when Working is not the bottom shelf.
+    if ui.working_placement == WorkingPlacement::Inline && !order.group(Group::Working).is_empty() {
+        out.push(Line::Toggle(Group::Working));
+        if ui.working_expanded {
+            card(&mut out, Group::Working, &order.shows(Group::Working, folds));
+        }
     }
-    if order.archived {
-        out.push(Line::Archived);
+    if !order.group(Group::Archived).is_empty() {
+        out.push(Line::Toggle(Group::Archived));
+        card(&mut out, Group::Archived, &order.shows(Group::Archived, folds));
+    }
+    if order.is_empty() && drafts == 0 {
+        out.push(Line::Empty);
     }
     out
 }
+/// What the list's row keys carry besides their element: the open session while it stands
+/// first as the unheaded current row. A virtual list holds the reader's place when rows come in
+/// above the ones in view, so that row coming in at the top of a list at its top would push
+/// itself out of sight, where Desktop's list (a page at `scrollTop` 0) shows it. With every
+/// row's key new, there's no place to hold and the list stays where it is.
+fn epoch(items: &[Line], order: &Order) -> String {
+    items.iter().find_map(|l| match l {
+        Line::Card { g: Group::Current, at, .. } => Some(order.rows[*at].id.clone()),
+        _ => None,
+    }).unwrap_or_default()
+}
+
 /// The inbox's first or (`last`) last row a key can reach, in the list or, open, the Working
 /// shelf below it: the row to scroll to (the list's own key for one of its rows), and the
 /// element to focus.
 fn end_key(s: &App, last: bool) -> Option<(String, String)> {
     let order = s.inbox_order();
-    let items = items(&order, s.kernel.slots.get(&crate::restore::RESTORE).inbox.recent_expanded);
+    let drafts = draft_ids(s);
+    let ui = s.kernel.slots.get(&crate::restore::RESTORE).inbox;
+    let items = items(&order, ui, drafts.len());
+    let epoch = epoch(&items, &order);
     let reach = |l: &Line| match l {
         Line::Card { at, .. } => Some(order.rows[*at].key.clone()),
+        Line::Draft { .. } => Some(l.element_key(&order, &drafts)),
         Line::More => Some("inbox-more".to_owned()),
-        Line::Archived => Some("inbox-archived-button".to_owned()),
-        Line::Header(_) | Line::Empty => None,
+        Line::Header(_) | Line::Drafts | Line::Empty | Line::Toggle(_) => None,
     }
-    .map(|key| (l.key(&order), key));
-    let shelf = if s.kernel.slots.get(&crate::restore::RESTORE).inbox.working_expanded { order.group(Group::Working) } else { Default::default() };
+    .map(|key| (l.key(&order, &drafts, &epoch), key));
+    let shelf = if ui.working_placement == WorkingPlacement::Shelf && ui.working_expanded { order.group(Group::Working) } else { Default::default() };
     let shelved = |r: &crate::inbox_order::Shown| (r.key.clone(), r.key.clone());
     if last {
         shelf.last().map(shelved).or_else(|| items.iter().rev().find_map(reach))
@@ -156,63 +221,102 @@ fn end_key(s: &App, last: bool) -> Option<(String, String)> {
         items.iter().find_map(reach).or_else(|| shelf.first().map(shelved))
     }
 }
+/// Scrolls the inbox's row of the session keyed `key` (`Entry::key`) into view, just far enough
+/// (`inbox.tsx` `navigate`'s `reveal`: `scrollIntoView({ block: "nearest" })`): a row of the
+/// list by the list's own key for it, built or not, else the card on the Working shelf.
+pub(crate) fn reveal(s: &App, key: &str, tx: &mut Tx) {
+    let order = s.inbox_order();
+    let drafts = draft_ids(s);
+    let ui = s.kernel.slots.get(&crate::restore::RESTORE).inbox;
+    let items = items(&order, ui, drafts.len());
+    let epoch = epoch(&items, &order);
+    let card = format!("ib-{key}");
+    let row = items.iter().find(|l| matches!(l, Line::Card { at, .. } if order.rows[*at].key == card)).map(|l| l.key(&order, &drafts, &epoch));
+    tx.scroll_into_view(row.unwrap_or(card));
+}
+
 /// The room above row `i`, as the groups' gaps and padding laid it out.
 fn space_above(items: &[Line], i: usize) -> f32 {
     let Some(prev) = i.checked_sub(1).map(|j| items[j]) else { return 0.0 };
     match (prev, items[i]) {
-        // Under a group: its 10 of padding and the list's 2.
-        (Line::Card { .. } | Line::More, Line::Header(_) | Line::Archived) => 12.0,
-        (Line::Header(_), _) | (_, Line::More) => 8.0,
+        // Under a group: its 10 of padding and the list's 2. A group shut is its header alone.
+        (Line::Card { .. } | Line::More | Line::Draft { .. } | Line::Toggle(_), Line::Header(_) | Line::Toggle(_)) => 12.0,
+        // Drafts' group ends with its own 10 before the open session's card too.
+        (Line::Draft { .. }, Line::Card { .. }) => 12.0,
+        // Recent has no header: its first card stands a group's room under the cards above it.
+        (Line::Card { g: above, .. }, Line::Card { g, .. }) if above != g => 12.0,
+        (Line::Header(_) | Line::Drafts | Line::Toggle(_), _) | (_, Line::More) => 8.0,
         _ => 2.0,
     }
 }
 
 impl Line {
-    /// The list's key for the row: `line-` and its element's, so a key names one element.
-    fn key(&self, order: &Order) -> String {
-        format!("line-{}", self.element_key(order))
+    /// The list's key for the row: `line-` and its element's, so a key names one element, and
+    /// the list's [`epoch`] when it has one.
+    fn key(&self, order: &Order, drafts: &[String], epoch: &str) -> String {
+        if epoch.is_empty() {
+            return format!("line-{}", self.element_key(order, drafts));
+        }
+        format!("line-{}@{epoch}", self.element_key(order, drafts))
     }
 
-    fn element_key(&self, order: &Order) -> String {
+    fn element_key(&self, order: &Order, drafts: &[String]) -> String {
         match self {
-            Line::Header(g) => format!("inbox-{}-header", group_id(*g)),
+            Line::Header(g) | Line::Toggle(g) => format!("inbox-{}-header", group_id(*g)),
+            Line::Drafts => "inbox-drafts-header".into(),
+            Line::Draft { at, .. } => format!("ib-{}", drafts[*at]),
             Line::Card { at, .. } => order.rows[*at].key.clone(),
             Line::More => "inbox-more".into(),
             Line::Empty => "inbox-empty".into(),
-            Line::Archived => "inbox-archived".into(),
         }
     }
 
-    fn build(&self, s: &App, p: &Pal, order: &Order) -> El {
+    fn build(&self, s: &App, p: &Pal, order: &Order, drafts: &[String]) -> El {
         match *self {
             Line::Header(g) => header(p, group_id(g), group_label(g)),
-            Line::Card { at, pos, size } => match s.inbox_entry_of(&order.rows[at]) {
+            Line::Drafts => header(p, "drafts", t!("sidebar.inbox.section.drafts")),
+            Line::Draft { at, pos, size } => match s.tab(&drafts[at]) {
+                Some(tab) => draft_card(s, p, tab).position_in_set(pos, size),
+                None => el().key(self.element_key(order, drafts)).h(CARD_H),
+            },
+            Line::Toggle(Group::Archived) => {
+                let open = s.kernel.slots.get(&crate::restore::RESTORE).inbox.archived_expanded;
+                toggle_header(s, p, Group::Archived, open, false).on_press_tx(|s: &mut App, tx: &mut Tx| {
+                    tx.instant();
+                    s.toggle_inbox_archived();
+                })
+            }
+            Line::Toggle(_) => working_header(s, p, s.kernel.slots.get(&crate::restore::RESTORE).inbox.working_expanded),
+            Line::Card { at, pos, size, .. } => match s.inbox_entry_of(&order.rows[at]) {
                 Some(e) => card(s, p, &e).position_in_set(pos, size),
                 // Gone since the rows were read: the next reading drops it.
-                None => el().key(self.element_key(order)).h(CARD_H),
+                None => el().key(self.element_key(order, drafts)).h(CARD_H),
             },
             Line::More => {
                 let label = if s.kernel.slots.get(&crate::restore::RESTORE).inbox.recent_expanded { t!("sidebar.inbox.showLess") } else { t!("sidebar.inbox.showMore") };
+                // Focus stays on the button, which goes to the group's end as Show less, and
+                // the list stays where it is (`inbox.tsx`: the same button, its label changed).
                 ghost_button(p, "inbox-more", label).on_press_tx(|s: &mut App, tx: &mut Tx| {
                     tx.instant();
                     let opening = !s.kernel.slots.get(&crate::restore::RESTORE).inbox.recent_expanded;
                     s.toggle_inbox_recent();
-                    // Open, the button goes to the list's end, past the rows built: focus goes on
-                    // to the first row it brought, which stands where the button stood.
+                    // That holds while the button's new place is one the list still builds,
+                    // about two list heights past the view. Further down the list drops the
+                    // row, and its focus would land on the last card built, out of sight, for
+                    // the next Return to open. So past a list height and a half of new rows,
+                    // focus goes to the first row the press brought, where the button stood.
                     let order = s.inbox_order();
-                    if opening && let Some(&at) = order.shows(Group::Recent, true).get(crate::inbox_model::RECENT_LIMIT) {
-                        tx.focus(order.rows[at].key.clone(), false);
+                    let first = order.pinned + crate::inbox_model::RECENT_LIMIT;
+                    let brought = order.group(Group::Recent).len().saturating_sub(first);
+                    let near = brought as f32 * (CARD_H + 2.0) <= 1.5 * s.sidebar_inbox.height;
+                    if opening && !near && let Some(row) = order.group(Group::Recent).get(first) {
+                        tx.focus(row.key.clone(), false);
                     }
                 })
             }
             // `px-1.5 py-2`, a block whose words wrap at the sidebar's width (`inbox.tsx:421`).
-            Line::Empty => col().key("inbox-empty").w_full().px(6.0).py(8.0).child(text(t!("sidebar.inbox.empty")).font(LINE).color(p.faint).wrap().w_full()),
-            Line::Archived => el().key("inbox-archived").w_full().pt(12.0).child(
-                ghost_button(p, "inbox-archived-button", t!("sidebar.inbox.section.archived")).on_press_tx(|s: &mut App, tx: &mut Tx| {
-                    s.close_settings();
-                    s.open_archived_search(tx);
-                }),
-            ),
+            // `inbox.tsx`: `text-[13px] leading-4 text-v2-text-text-faint` (no negative tracking).
+            Line::Empty => col().key("inbox-empty").w_full().px(6.0).py(8.0).child(text(t!("sidebar.inbox.empty")).font(TextStyle::new(13.0, 440.0).lh(16.0)).color(p.faint).wrap().w_full()),
         }
     }
 }
@@ -221,17 +325,17 @@ fn group_id(g: Group) -> &'static str {
     match g {
         Group::Current => "current",
         Group::Needs => "needs",
-        Group::Unread => "unread",
         Group::Recent => "recent",
         Group::Working => "working",
+        Group::Archived => "archived",
     }
 }
 
 fn group_label(g: Group) -> &'static str {
     match g {
         Group::Needs => t!("sidebar.inbox.section.needsAttention"),
-        Group::Unread => t!("sidebar.inbox.section.unread"),
         Group::Working => t!("sidebar.inbox.section.working"),
+        Group::Archived => t!("sidebar.inbox.section.archived"),
         Group::Current | Group::Recent => t!("sidebar.inbox.section.recent"),
     }
 }
@@ -271,17 +375,26 @@ fn header(p: &Pal, id: &str, label: &str) -> El {
     row().key(format!("inbox-{id}-header")).h(24.0).w_full().px(8.0).gap(6.0).center_y().child(text(label).font(HEADER).color(p.muted).truncate())
 }
 
-/// The Working header: a toggle whose chevron turns shut, and whose label shimmers while shut.
+/// The Working header, on the shelf or in the list: its label shimmers while it's shut.
 fn working_header(s: &App, p: &Pal, open: bool) -> El {
-    let label = if open {
-        text(t!("sidebar.inbox.section.working")).key("label").font(HEADER).color(p.muted).group_color(p.text)
+    toggle_header(s, p, Group::Working, open, !open).on_press_tx(|s: &mut App, tx: &mut Tx| {
+        tx.instant();
+        s.toggle_inbox_working();
+    })
+}
+
+/// The header of a group that folds (`SectionHeader` with `onToggle`): a toggle whose chevron
+/// turns shut, and whose label shimmers when `shimmer`.
+fn toggle_header(s: &App, p: &Pal, g: Group, open: bool, shimmer: bool) -> El {
+    let label = if shimmer {
+        session_view::working::shimmer(s, p, group_label(g), HEADER, 0.0)
     } else {
-        session_view::working::shimmer(s, p, t!("sidebar.inbox.section.working"), HEADER, 0.0)
+        text(group_label(g)).key("label").font(HEADER).color(p.muted).group_color(p.text)
     };
     row()
-        .key("inbox-working-header")
+        .key(format!("inbox-{}-header", group_id(g)))
         .role("button")
-        .label_static(t!("sidebar.inbox.section.working"))
+        .label_static(group_label(g))
         .expanded(open)
         .h(24.0)
         .w_full()
@@ -291,10 +404,6 @@ fn working_header(s: &App, p: &Pal, open: bool) -> El {
         .radius(6.0)
         .focus_inset(p)
         .hover_group()
-        .on_press_tx(|s: &mut App, tx: &mut Tx| {
-            tx.instant();
-            s.toggle_inbox_working();
-        })
         .child(label)
         .child(
             icon(&ic::FILL_TRIANGLE_DOWN, 14.0)
@@ -371,6 +480,8 @@ fn card(s: &App, p: &Pal, e: &Entry<'_>) -> El {
     let key = e.key();
     let (id, menu_id) = (key.clone(), key.clone());
     let archived = info.archived.is_some();
+    // `inbox.tsx` `InboxSessionCard`: a pinned session's pin after its title, muted.
+    let pin = pins::state(s).doc.is_pinned(&PinRef::new(e.server.clone(), info.id.clone())).then(|| icon(&PIN, 16.0).key("pin").color(p.icon_muted).label_static(t!("sidebar.recent.pinned")));
     let mut card = col()
         .key(format!("ib-{key}"))
         .role("button")
@@ -394,7 +505,8 @@ fn card(s: &App, p: &Pal, e: &Entry<'_>) -> El {
                 .center_y()
                 .child(el().key("avatar").size(16.0, 16.0).center().child(crate::icons::badge(s, p, project, &name)))
                 // Title and project in their own direction (`inbox.tsx:610`, `:625`).
-                .child(text(title).font(TITLE).color(p.text).grow(1.0).shrink().min_w(0.0).truncate().dir(rune::Direction::Auto)),
+                .child(text(title).font(TITLE).color(p.text).grow(1.0).shrink().min_w(0.0).truncate().dir(rune::Direction::Auto))
+                .children(pin),
         )
         .child(row().key("sub").w_full().h(16.0).pl(24.0).gap(8.0).center_y().children(server).child(place).child(end));
     // The routed session's tab becomes this card as the layout switches, Settings open over it or
@@ -410,35 +522,50 @@ fn card(s: &App, p: &Pal, e: &Entry<'_>) -> El {
     } else {
         card = card.hover(p.hover);
     }
-    if archived && !selected {
+    // An archived session is dimmed, but not while it waits on a person: it stands in Needs
+    // attention then (`inbox.tsx` `InboxSessionCard`, opencode#66327).
+    if archived && !selected && !e.waiting() {
         card = card.opacity(0.5);
     }
     card
 }
 
-/// A card's right-click menu: Archive (or Unarchive), then Delete…, each on the card's server.
+/// A card's right-click menu: Pin (or Unpin), Rename, Export…, the read mark, Archive (or
+/// Unarchive), then Delete…, each on the card's server.
 fn open_menu(s: &mut App, key: &str, archived: bool, at: rune::PointerPress, tx: &mut Tx) {
     let (server, id) = s.inbox_target(key);
+    let pin = PinRef::new(server.clone(), id.clone());
+    let pinned = pins::state(s).doc.is_pinned(&pin);
     let target = crate::session_menu::Target::on(&server, &id, crate::session_menu::Spot::Row);
     let read = crate::servers::runtime::with_server(s, &server, |s| crate::session_menu::lines(s, &target).into_iter().find_map(|line| match line {
         crate::session_menu::Line::Item(i) if matches!(i.id, "read" | "unread") => Some(Item::new(i.id, i.title)),
         _ => None,
     })).flatten();
-    // `inbox.tsx:185-209`: Rename, Export…, the read mark, then Archive and Delete….
-    let menu = Menu::new(t!("command.category.session"))
+    // `inbox.tsx:830-845,989-998` (opencode#66576): Rename, Pin/Unpin, Mark read/unread, ---, Copy >, Export…, ---, Archive/Unarchive, Delete….
+    let copy_sub = crate::servers::runtime::with_server(s, &server, |s| crate::session_menu::copy::submenu(s, &server, &id)).flatten();
+    let mut menu = Menu::new(t!("command.category.session"))
         .item(Item::new("rename", t!("common.rename")))
+        .item(Item::new("pin", if pinned { t!("sidebar.recent.unpin") } else { t!("sidebar.recent.pin") }))
+        .items(read)
+        .separator();
+    if let Some(crate::session_menu::Line::Sub { id: sub_id, title, menu: sub }) = copy_sub {
+        menu = menu.submenu(sub_id, title, sub);
+    }
+    let menu = menu
         .item(Item::new("export", format!("{}\u{2026}", t!("common.export"))).enabled(!s.exporting(&server, &id)))
-        .items(read).separator()
-        .item(if archived { Item::new("unarchive", t!("sidebar.inbox.unarchive")) } else { Item::new("archive", t!("common.archive")) })
         .separator()
+        .item(if archived { Item::new("unarchive", t!("sidebar.inbox.unarchive")) } else { Item::new("archive", t!("common.archive")) })
         .item(Item::new("delete", format!("{}…", t!("common.delete"))));
     let key = key.to_owned();
     tx.instant();
     popup::open(s, menu, at, tx, move |s: &mut App, picked, tx| {
         tx.instant();
         match picked {
+            // Pins are shared with the other sidebar layouts (`usePins`).
+            Some("pin") => pins::update(s, |doc| if pinned { doc.unpin(&pin) } else { doc.pin(pin) }),
             Some("rename") => s.open_rename_dialog(&target),
             Some(action @ ("export" | "read" | "unread")) => crate::session_menu::run(s, &target, action, tx),
+            Some(action) if action.starts_with("copy:") => crate::session_menu::run(s, &target, action, tx),
             Some("archive") => s.on_inbox_row(&key, |s, id| s.archive_session(id, tx)),
             Some("unarchive") => s.on_inbox_row(&key, |s, id| s.unarchive_session(id)),
             Some("delete") => {
@@ -449,6 +576,71 @@ fn open_menu(s: &mut App, key: &str, archived: bool, at: rune::PointerPress, tx:
         }
     });
 }
+
+/// The inbox lists sessions, not tabs, so drafts get their own group (`inbox.tsx` `drafts`,
+/// opencode#65525): the open draft and every other draft tab still holding words, newest first.
+/// Without it a draft left for a session can't be reached again from the inbox.
+fn draft_ids(s: &App) -> Vec<String> {
+    s.tabs
+        .iter()
+        .rev()
+        .filter(|t| t.is_draft() && (matches!(&*s.route, Route::Draft(id) if *id == t.id) || s.draft_text(&t.id).is_some()))
+        .map(|t| t.id.clone())
+        .collect()
+}
+
+/// `InboxDraftCard`: the draft's first line (else "New session") with its project's avatar, and
+/// the project under it; opens the draft, and its right-click menu discards it.
+fn draft_card(s: &App, p: &Pal, tab: &crate::tabs::Tab) -> El {
+    let selected = matches!(&*s.route, Route::Draft(id) if *id == tab.id);
+    let project = (tab.server == crate::servers::runtime::current()).then(|| s.project_at(&tab.directory)).flatten();
+    let name = project_or_dir(project, &tab.directory);
+    let words = s.draft_text(&tab.id).unwrap_or_default();
+    let title = words.trim().lines().next().filter(|l| !l.trim().is_empty()).map_or_else(|| t!("command.session.new").to_owned(), |l| l.trim().to_owned());
+    let (open, menu) = (tab.uid(), tab.uid());
+    let card = col()
+        .key(format!("ib-{}", tab.id))
+        .role("button")
+        .label(title.clone())
+        .w_full()
+        .h(CARD_H)
+        .padding(8.0)
+        .gap(6.0)
+        .radius(6.0)
+        .focus_inset(p)
+        .focusable(true)
+        .focus_selected(selected)
+        .on_press_tx(move |s: &mut App, tx: &mut Tx| s.select_tab(&open, tx))
+        .on_secondary_press(move |s: &mut App, press: rune::PointerPress, tx: &mut Tx| {
+            let uid = menu.clone();
+            tx.instant();
+            popup::open(s, Menu::new(t!("sidebar.inbox.section.drafts")).item(Item::new("discard", t!("sidebar.inbox.discardDraft"))), press, tx, move |s: &mut App, picked, tx| {
+                if picked == Some("discard") {
+                    tx.instant();
+                    s.close_tab(&uid, tx);
+                }
+            });
+        })
+        .child(
+            row()
+                .key("head")
+                .w_full()
+                .h(16.0)
+                .gap(8.0)
+                .center_y()
+                .child(el().key("avatar").size(16.0, 16.0).center().child(crate::icons::badge(s, p, project, &name)))
+                .child(text(title).font(TITLE).color(p.text).grow(1.0).shrink().min_w(0.0).truncate().dir(rune::Direction::Auto)),
+        )
+        .child(row().key("sub").w_full().h(16.0).pl(24.0).center_y().child(text(name).font(LINE).color(p.muted).shrink().min_w(0.0).truncate().dir(rune::Direction::Auto)));
+    if selected { card.fill(p.pressed) } else { card.hover(p.hover) }
+}
+
+/// Desktop's `pin` glyph (`packages/ui/src/icons/catalog.ts`).
+static PIN: Icon = Icon {
+    name: "pin",
+    view: 16.0,
+    body: r#"<path d="M9.5 2.5L13.5 6.5M10.5 3.5L7.5 6.5H5.5L9.5 10.5V8.5L12.5 5.5M7.5 8.5L2.5 13.5" stroke-linecap="round" stroke-linejoin="round" stroke="currentColor"/>"#,
+};
 
 /// Desktop's `server` glyph (`additional-icons.ts`), on a 20 pt grid drawn at 16.
 static SERVER: Icon = Icon {

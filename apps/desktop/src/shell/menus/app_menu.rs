@@ -27,6 +27,8 @@ pub(crate) enum Act {
     NewWindow,
     CloseTab,
     CloseWindow,
+    /// macOS's File › Close All, Close Window's Option alternate.
+    CloseAll,
     /// An Edit item: the key it sends to the focused field.
     Edit(EditKey),
     ToggleSidebar,
@@ -143,6 +145,7 @@ fn glyph_button(s: &App, p: &Pal) -> El {
         .key(KEY)
         .role("button")
         .label_static(opencode_i18n::t!("desktop.menu.ariaLabel"))
+        .expanded(open)
         .size(28.0, 28.0)
         .radius(6.0)
         .focus_inset(p)
@@ -186,9 +189,9 @@ fn menu(s: &App) -> Menu {
             None => menu.separator(),
             Some((title, act, keys)) => menu.item(Item::new(id(m, r), opencode_i18n::I18N.text(*title)).shortcut(label(*keys)).enabled(enabled(s, *act))),
         });
-        let theirs: Vec<_> = plugin_items.iter().filter(|(menu, _, _)| menu.eq_ignore_ascii_case(name)).collect();
+        let theirs: Vec<_> = plugin_items.iter().filter(|(menu, _, _, _)| menu.eq_ignore_ascii_case(name)).collect();
         let sub = if theirs.is_empty() { sub } else { sub.separator() };
-        let sub = theirs.into_iter().fold(sub, |menu, (_, key, title)| menu.item(Item::new(format!("{PLUGIN}{key}"), title.clone())));
+        let sub = theirs.into_iter().fold(sub, |menu, (_, key, title, is_enabled)| menu.item(Item::new(format!("{PLUGIN}{key}"), title.clone()).enabled(*is_enabled)));
         (m, title, sub)
     });
     menus.fold(Menu::new(opencode_i18n::t!("desktop.menu.app")).standard(W).remembers_focus().group(opencode_i18n::t!("desktop.menu.app")), |menu, (m, title, sub)| {
@@ -228,7 +231,7 @@ fn enabled(s: &App, act: Act) -> bool {
 
 pub(crate) fn run(s: &mut App, act: Act, tx: &mut Tx) {
     // An item that acts in the window brings back the last window Close Window hid.
-    let revealed = !matches!(act, Act::CloseWindow | Act::Open(_) | Act::ExportLogs) && s.reveal();
+    let revealed = !matches!(act, Act::CloseWindow | Act::CloseAll | Act::Open(_) | Act::ExportLogs) && s.reveal();
     match act {
         Act::NewSession => s.new_session(tx),
         Act::Settings => {
@@ -243,6 +246,7 @@ pub(crate) fn run(s: &mut App, act: Act, tx: &mut Tx) {
         }
         Act::CloseTab => s.close_tab_key(tx),
         Act::CloseWindow => s.close_window(tx),
+        Act::CloseAll => s.close_all_windows(tx),
         Act::Edit(key) => {
             // Back to the field focused as the menu opened, then the key (`windows-menu.tsx:69`).
             if let Some(field) = s.popup.remembered().map(str::to_owned) {

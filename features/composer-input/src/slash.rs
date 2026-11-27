@@ -33,7 +33,8 @@ pub struct BuiltinSlashCommand {
     pub name: String,
     pub title: String,
     pub description: String,
-    pub chord: Option<Chord>,
+    /// The strokes of its shortcut here: one for a plain shortcut, more for a chord, none unbound.
+    pub keys: Vec<Chord>,
     /// An app or plugin command whose `/name` takes words (`slash.arguments`): picking it types
     /// `/name ` instead of running immediately.
     pub args: bool,
@@ -48,8 +49,8 @@ pub struct Item {
     /// What the query matches besides the name: an app command's title.
     pub title: String,
     pub description: String,
-    /// Its first chord here, the user's own or its default: an app command's, or a plugin's.
-    pub chord: Option<Chord>,
+    /// Its shortcut's strokes here, the user's own or its default: an app command's, or a plugin's.
+    pub keys: Vec<Chord>,
     pub builtin: Option<&'static str>,
     /// An app command whose `/name` takes words (`slash.arguments`): picking it types `/name `.
     pub args: bool,
@@ -144,7 +145,7 @@ pub fn slash_list(host: &dyn SlashHost) -> Vec<Item> {
         name: c.name.clone(),
         title: c.name.clone(),
         description: c.description.clone(),
-        chord: None,
+        keys: Vec::new(),
         builtin: None,
         args: false,
     });
@@ -156,7 +157,7 @@ pub fn slash_list(host: &dyn SlashHost) -> Vec<Item> {
             name: c.name,
             title: c.title,
             description: c.description,
-            chord: c.chord,
+            keys: c.keys,
             builtin: Some(c.id),
             args: c.args,
         })
@@ -303,7 +304,8 @@ fn prepare_commands_view(host: &dyn SlashHost, width: f32, boundary: Option<f32>
             label: format!("/{}", c.name),
             lead: None,
             description: c.description.clone(),
-            trail: c.chord.map(|chord| opencode_ui::keymap::caps(chord).join("+")),
+            // A chord's strokes read with a space between them ("Ctrl+K Ctrl+C").
+            trail: (!c.keys.is_empty()).then(|| c.keys.iter().map(|chord| opencode_ui::keymap::caps(*chord).join("+")).collect::<Vec<_>>().join(" ")),
         })
         .collect();
     let label = opencode_i18n::t!("ui.promptInput.commands");

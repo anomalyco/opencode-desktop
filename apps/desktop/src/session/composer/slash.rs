@@ -46,14 +46,15 @@ impl SlashHost for App {
             .filter_map(|c| {
                 let name = c.slash?;
                 // Desktop's `/new` is `session.new`, which has no keys of its own (`use-session-commands.tsx:446-451`).
-                let chord = (name != "new").then(|| c.effective_chord()).flatten();
+                let keys = if name == "new" { Vec::new() } else { c.strokes() };
                 Some(BuiltinSlashCommand {
                     id: c.id,
                     name: name.into(),
                     title: c.title.into(),
                     description: c.description.into(),
-                    chord,
-                    args: false,
+                    keys,
+                    // `/rename` takes a title (`message-timeline.tsx:306-307`).
+                    args: self.kernel.commands.get(c.id).is_some_and(|e| e.words.is_some()),
                 })
             })
             .collect();
@@ -64,7 +65,7 @@ impl SlashHost for App {
             title: c.title.into(),
             description: c.description.into(),
             // A plugin's keys show too, as Desktop's `/terminal` shows Ctrl+` (`editor.tsx:1400-1402`).
-            chord: crate::keymap::command_chord(self, c.id),
+            keys: crate::keymap::command_strokes(self, c.id),
             args: c.args,
         }));
         own
@@ -77,6 +78,10 @@ impl SlashHost for App {
     }
 
     fn run_slash_command(&mut self, id: &str, args: &str, tx: &mut Tx) {
+        // An app command that takes words, else a plugin's.
+        if let Some(words) = self.kernel.commands.get(id).copied().filter(|e| e.is_enabled(self)).and_then(|e| e.words) {
+            return words(self, args, tx);
+        }
         crate::plugin_host::run_slash(self, id, args, tx);
     }
 

@@ -1,0 +1,7 @@
+{
+  "name": "rune-desktop-perf",
+  "private": true,
+  "devDependencies": {
+    "@hona/strobe": "0.44.1"
+  }
+}

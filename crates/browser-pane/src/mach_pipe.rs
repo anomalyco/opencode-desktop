@@ -14,10 +14,11 @@ pub type MachPort = u32;
 type KernReturn = i32;
 
 const MACH_MSGH_BITS_COMPLEX: u32 = 0x8000_0000;
-const MACH_MSG_TYPE_MOVE_SEND: u8 = 17;
-const MACH_MSG_TYPE_COPY_SEND: u32 = 19;
+const MACH_MSG_TYPE_PORT_SEND: u8 = 17;
+const MACH_MSG_TYPE_COPY_SEND: u8 = 19;
 const MACH_MSG_TYPE_MAKE_SEND: u32 = 20;
 const MACH_MSG_PORT_DESCRIPTOR: u8 = 0;
+const MACH_PORT_DEAD: MachPort = u32::MAX;
 const MACH_PORT_RIGHT_RECEIVE: u32 = 1;
 const MACH_SEND_MSG: i32 = 0x0000_0001;
 const MACH_RCV_MSG: i32 = 0x0000_0002;
@@ -54,6 +55,7 @@ unsafe extern "C" {
         timeout: u32,
         notify: MachPort,
     ) -> KernReturn;
+    fn mach_msg_destroy(msg: *mut MachMsgHeader);
 }
 
 // IOSurface framework C FFI bindings.
@@ -197,11 +199,30 @@ impl MachReceiver {
                     if kr != 0 {
                         continue;
                     }
-                    let port = rmsg.msg.port_desc.name;
-                    if port == 0 {
+                    let is_frame = (rmsg.msg.header.msgh_bits & MACH_MSGH_BITS_COMPLEX) != 0
+                        && rmsg.msg.header.msgh_size >= std::mem::size_of::<FrameSendMsg>() as u32
+                        && rmsg.msg.body.msgh_descriptor_count == 1
+                        && rmsg.msg.port_desc.type_ == MACH_MSG_PORT_DESCRIPTOR
+                        && rmsg.msg.port_desc.disposition == MACH_MSG_TYPE_PORT_SEND
+                        && rmsg.msg.port_desc.name != 0
+                        && rmsg.msg.port_desc.name != MACH_PORT_DEAD;
+                    if !is_frame {
+                        // SAFETY: `mach_msg` returned `KERN_SUCCESS`, so `rmsg.msg.header` starts a
+                        // complete kernel-delivered Mach message inside `rmsg`; `mach_msg_destroy`
+                        // releases any port rights or OOL descriptors in the rejected message.
+                        unsafe {
+                            mach_msg_destroy(&mut rmsg.msg.header);
+                        }
                         continue;
                     }
+                    let port = rmsg.msg.port_desc.name;
+                    // SAFETY: the received message was verified above to be complex with one port
+                    // descriptor carrying a `MACH_MSG_TYPE_PORT_SEND` right, and `port` is neither
+                    // `MACH_PORT_NULL` nor `MACH_PORT_DEAD`; `IOSurfaceLookupFromMachPort` accepts
+                    // any valid Mach send right and returns an owned `IOSurfaceRef` or null.
                     let io_surface = unsafe { IOSurfaceLookupFromMachPort(port) };
+                    // SAFETY: `port` is the single `MACH_MSG_TYPE_PORT_SEND` right transferred into
+                    // this task by the validated port descriptor above and is deallocated once here.
                     unsafe {
                         let _ = mach_port_deallocate(mach_task_self(), port);
                     }
@@ -297,7 +318,7 @@ pub unsafe fn send_iosurface_frame(
     }
     let mut msg = FrameSendMsg {
         header: MachMsgHeader {
-            msgh_bits: MACH_MSGH_BITS_COMPLEX | MACH_MSG_TYPE_COPY_SEND,
+            msgh_bits: MACH_MSGH_BITS_COMPLEX | u32::from(MACH_MSG_TYPE_COPY_SEND),
             msgh_size: std::mem::size_of::<FrameSendMsg>() as u32,
             msgh_remote_port: remote_port,
             msgh_local_port: 0,
@@ -309,7 +330,7 @@ pub unsafe fn send_iosurface_frame(
             name: surface_port,
             pad1: 0,
             pad2: 0,
-            disposition: MACH_MSG_TYPE_MOVE_SEND,
+            disposition: MACH_MSG_TYPE_COPY_SEND,
             type_: MACH_MSG_PORT_DESCRIPTOR,
         },
         tab_id,
@@ -318,7 +339,8 @@ pub unsafe fn send_iosurface_frame(
         height,
     };
     // SAFETY: `FrameSendMsg` is `#[repr(C)]` starting with `header`, `msgh_size` equals its byte
-    // size, and `surface_port` is a valid send right created above.
+    // size, and `surface_port` is a valid send right created above; `MACH_MSG_TYPE_COPY_SEND`
+    // leaves this task's own send right intact regardless of whether or where `mach_msg` fails.
     let kr = unsafe {
         mach_msg(
             &mut msg.header,
@@ -331,11 +353,19 @@ pub unsafe fn send_iosurface_frame(
         )
     };
     if kr != 0 {
+        // SAFETY: if `mach_msg` failed during `ipc_kmsg_send` and pseudo-received the message back
+        // into `msg`, `mach_msg_destroy` releases the extra copied-out send rights; if `mach_msg`
+        // failed earlier, `msg` still carries `MACH_MSG_TYPE_COPY_SEND`, which `mach_msg_destroy`
+        // leaves untouched.
         unsafe {
-            let _ = mach_port_deallocate(mach_task_self(), surface_port);
+            mach_msg_destroy(&mut msg.header);
         }
-        false
-    } else {
-        true
     }
+    // SAFETY: `surface_port` is the single send right created by `IOSurfaceCreateMachPort` above;
+    // because `port_desc` used `MACH_MSG_TYPE_COPY_SEND`, `mach_msg` never consumed it, so
+    // deallocating it once here neither double-releases nor leaks the right.
+    unsafe {
+        let _ = mach_port_deallocate(mach_task_self(), surface_port);
+    }
+    kr == 0
 }

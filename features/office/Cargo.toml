@@ -6,7 +6,14 @@ edition.workspace = true
 license.workspace = true
 publish = false
 
+[features]
+# The engines in a library of their own (`crates/office-library`), loaded when the first file
+# opens, instead of in the exe. The build must then ship that library beside the app.
+library = []
+
 [dependencies]
+browser-policy = { path = "../../crates/browser-policy" }
+harness-log = { path = "../../crates/harness-log" }
 bytemuck = { version = "1", features = ["derive"] }
 office-preview = { path = "../../crates/office-preview" }
 opencode-kernel = { path = "../../crates/opencode-kernel" }

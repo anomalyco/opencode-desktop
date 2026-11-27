@@ -26,6 +26,16 @@ fn chip<H: QuoteHost + 'static>(s: &H, p: &Pal, item: &Pending) -> El {
         let remove = remove_button(p, "comment", 160.0, move |s: &mut H| on_file_card_remove(s, key));
         return el().key(chip_key(key)).hover_group().child(body).child(remove);
     }
+    if let Some(note) = item.comment.note() {
+        let origin = note.origin.clone();
+        let href = note.live_href.clone().or_else(|| note.href.clone()).unwrap_or_default();
+        let mut body = card(p, &item.comment, false, false, false).role("button");
+        if !href.is_empty() {
+            body = body.on_press_tx(move |s: &mut H, tx: &mut Tx| s.open_note_card(&origin, &href, tx));
+        }
+        let remove = remove_button(p, "note", 160.0, move |s: &mut H| on_quote_card_remove(s, key));
+        return el().key(chip_key(key)).hover_group().child(body).child(remove);
+    }
     let active = s.quotes().comment.key() == Some(key);
     let body = card(p, &item.comment, true, active, false)
         .role("button")

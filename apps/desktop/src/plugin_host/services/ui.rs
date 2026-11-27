@@ -76,13 +76,28 @@ pub fn build(lua: &Lua, vmx: &Rc<Vmx>, name: &str, t: &Table) -> mlua::Result<()
             let q = p.clone();
             method(lua, t, "Open", move |lua, link: Value| {
                 let link: spec::Link = decode(lua, link, "Link")?;
-                cx::ask(&q, Request::OpenLink { href: link.href });
+                #[cfg(not(target_arch = "wasm32"))]
+                let (tool_sid, in_flight) = super::super::commands::current_tool_scope(lua);
+                #[cfg(target_arch = "wasm32")]
+                let (tool_sid, in_flight): (Option<Option<String>>, Vec<String>) = (None, Vec::new());
+                let in_tool = tool_sid.is_some() || !in_flight.is_empty();
+                cx::ask(&q, Request::OpenLink { href: link.href, tool_sid, in_tool });
                 Ok(true)
             })?;
             method(lua, t, "Exists", |lua, link: Value| {
                 let link: spec::Link = decode(lua, link, "Link")?;
-                let path = link.href.strip_prefix("file://").unwrap_or(&link.href);
-                Ok(std::path::Path::new(path).exists())
+                if browser_policy::is_raw_unc_href(&link.href) {
+                    return Ok(false);
+                }
+                let path = if browser_policy::is_file_scheme(&link.href) {
+                    let Some(p) = browser_policy::local_file_path(&link.href) else {
+                        return Ok(false);
+                    };
+                    p
+                } else {
+                    link.href
+                };
+                Ok(browser_policy::verify_local_path(&path).is_ok())
             })
         }
         "Commands" => {
@@ -96,6 +111,10 @@ pub fn build(lua: &Lua, vmx: &Rc<Vmx>, name: &str, t: &Table) -> mlua::Result<()
             })?;
             method(lua, t, "Keybind", |_, id: String| {
                 with_app("Commands:Keybind", |app| {
+                    // A chord Settings bound it reads stroke by stroke ("Ctrl+K Ctrl+C", opencode#64395).
+                    if let Some(strokes) = crate::keymap::sequence::first(&id) {
+                        return Ok(Some(crate::keymap::sequence::label(&strokes)));
+                    }
                     let chord = crate::keymap::overrides::command(&id).and_then(|k| k.chords().first().copied()).or_else(|| app.catalog().into_iter().find(|c| c.id == id).and_then(|c| c.chord));
                     Ok(chord.map(crate::keymap::label))
                 })
@@ -240,24 +259,40 @@ fn layout(lua: &Lua, p: &Rc<str>, t: &Table) -> mlua::Result<()> {
         with_app("Layout:PanelSidebar", |app| {
             let s = &app.workspace_panes.panel_sidebar;
             let width = s.width.unwrap_or(crate::plugin_host::native::sidebar::DEFAULT_W);
-            mlua::IntoLua::into_lua(super::map([("opened", Data::Bool(s.opened)), ("width", Data::Number(f64::from(width)))]), lua)
+            mlua::IntoLua::into_lua(super::map([("opened", Data::Bool(s.opened)), ("width", Data::Number(f64::from(width))), ("side", Data::String(s.side.name().into()))]), lua)
         })
     })?;
     method(lua, t, "RegionOpen", |_, session: Option<String>| {
         cx::read(Dep::Browser);
         with_app("Layout:RegionOpen", |app| {
             let session = session.as_deref().or(app.active_session_id()).unwrap_or_default();
-            Ok(app.kernel.slots.get(&crate::panels::SIDE).sessions.get(session).is_some_and(|st| st.visibility.open()))
+            Ok(app.kernel.slots.get(&crate::panels::SIDE).sessions.get(app.panel_root(session)).is_some_and(|st| st.visibility.open()))
         })
     })?;
     method(lua, t, "RegionFocused", |_, ()| {
         with_app("Layout:RegionFocused", |app| Ok(app.kernel.slots.get(&crate::panels::SIDE).focus.is_focused() && !app.composer.focused && !app.popup.holds_focus()))
+    })?;
+    let q = p.clone();
+    method(lua, t, "Focus", move |_, key: String| {
+        cx::ask(&q, Request::Focus(key));
+        Ok(())
     })?;
     method(lua, t, "TogglePanelSidebar", |_, ()| {
         with_app("Layout:TogglePanelSidebar", |app| {
             app.later(Box::new(|s: &mut App, tx: &mut rune::Tx| {
                 tx.instant();
                 s.workspace_panes.panel_sidebar.toggle();
+                crate::plugin_host::bump();
+            }));
+            Ok(())
+        })
+    })?;
+    // `PanelSidebar.move` (`packages/plugin/src/gui/solid.ts`): one edge for every side panel.
+    method(lua, t, "MovePanelSidebar", |_, side: String| {
+        with_app("Layout:MovePanelSidebar", |app| {
+            app.later(Box::new(move |s: &mut App, tx: &mut rune::Tx| {
+                tx.instant();
+                s.workspace_panes.panel_sidebar.move_to(crate::plugin_host::native::sidebar::Side::parse(&side));
                 crate::plugin_host::bump();
             }));
             Ok(())
@@ -300,15 +335,15 @@ fn open_menu(lua: &Lua, p: &Rc<str>, a: MultiValue, done: Completer) -> mlua::Re
                 spec::MenuEntryKind::Group => menu.group(e.title.as_deref().unwrap_or_default()),
                 spec::MenuEntryKind::Item => {
                     let mut item = crate::popup::Item::new(e.id.as_deref().unwrap_or_default(), e.title.as_deref().unwrap_or_default());
-                    let chord = match (&e.keys, &e.keybind) {
-                        (Some(keys), _) => keys.parse::<rune::Keybind>().ok().and_then(|k| k.chords().first().copied()),
-                        (None, Some(id)) => crate::keymap::command_chord(app, id),
-                        _ => None,
+                    let strokes = match (&e.keys, &e.keybind) {
+                        (Some(keys), _) => keys.parse::<rune::Keybind>().ok().and_then(|k| k.chords().first().copied()).into_iter().collect(),
+                        (None, Some(id)) => crate::keymap::command_strokes(app, id),
+                        _ => Vec::new(),
                     };
                     // Desktop's menus show a shortcut as neutral `Keybind` chips, a plus or minus at a
-                    // letter key's width (`fullWidth`).
-                    if let Some(chord) = chord {
-                        let caps = crate::keymap::caps(chord).into_iter().map(|c| match c.as_str() {
+                    // letter key's width (`fullWidth`); a chord shows one chip per stroke.
+                    if !strokes.is_empty() {
+                        let caps = crate::keymap::sequence::caps(&strokes).into_iter().map(|c| match c.as_str() {
                             "+" => "＋".to_owned(),
                             "-" => "－".to_owned(),
                             _ => c,

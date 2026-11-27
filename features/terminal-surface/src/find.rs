@@ -12,7 +12,7 @@ use terminal::TerminalSnapshot;
 
 use crate::{TerminalSurfaceHost, TerminalTab, ops};
 
-const COUNT: TextStyle = TextStyle::new(11.0, 440.0).lh(16.0).features("tnum");
+const COUNT: TextStyle = TextStyle::new(11.0, 440.0).lh(16.0).features("\"tnum\"");
 
 /// Opens terminal `tid`'s find bar with the keyboard in it, holding the selection as its query
 /// when there's a short one.

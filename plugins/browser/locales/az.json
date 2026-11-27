@@ -64,5 +64,6 @@
   "zoom.reset": "Miqyası sıfırla",
   "zoom.percent": "{{percent}}%",
   "link.copy": "Linki kopyala",
-  "history.clear": "Tarixçəni təmizlə"
+  "history.clear": "Tarixçəni təmizlə",
+  "extensions.compat.feature.management": "Digər uzantıların idarə edilməsi"
 }

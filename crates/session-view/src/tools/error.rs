@@ -6,6 +6,7 @@ use rune::{El, Tx, col, el, row, text};
 
 use super::{Call, directory, field, file_name, files_count, path};
 use crate::TimelineHost;
+use crate::focus::FocusExt;
 use crate::palette::Pal;
 use crate::style::{INSTANT, TOOL_CODE, UI, UI_MED, arrow, readable};
 
@@ -35,9 +36,9 @@ pub fn card_with<S: TimelineHost>(s: &S, p: &Pal, session: &str, c: &Call, defau
         let room = super::lists::column(session) - 14.0 - 16.0 - rune::text::measure(&title, &[], UI, None).0 - 16.0 - 20.0;
         t.contains('\n') || rune::text::measure(t, &[], sub_font, None).0 + tag > room
     });
-    // A failed call reads like the other rows (`timeline-next/tools/error-card.tsx`): the tool
-    // muted, its subject bright, then a Failed tag, open or shut; opening it shows the error.
-    let mut words = row().key("words").gap(8.0).center_y().shrink().min_w(0.0).child(text(title.clone()).key("title").font(UI).color(p.muted));
+    // A failed call reads like the other rows (`timeline-next/tools/error-card.tsx`,
+    // `basic-tool.css:229`): the tool muted, its subject bright, then a Failed tag, 6 apart.
+    let mut words = row().key("words").gap(6.0).center_y().shrink().min_w(0.0).child(text(title.clone()).key("title").font(UI).color(p.muted));
     if let Some(t) = sub.as_deref().filter(|_| !(open && clipped)) {
         let first = t.lines().next().unwrap_or("").to_owned();
         words = words.child(readable(p, text(first).key("subtitle").font(sub_font).color(p.text).truncate_fade()).shrink().min_w(0.0));
@@ -52,8 +53,11 @@ pub fn card_with<S: TimelineHost>(s: &S, p: &Pal, session: &str, c: &Call, defau
         .min_w(0.0)
         .role("button")
         .label(opencode_i18n::t!("rune.tool.failed", tool = title))
+        .expanded(open)
+        .radius(4.0)
+        .focus_default(p)
         .hover_motion(INSTANT, INSTANT)
-        .on_press_tx(crate::disclosure::set::<S>(k, open, id))
+        .on_press_tx(crate::disclosure::set::<S>(k.clone(), open, id.clone()))
         .child(words)
         .child(el().key("arrow").size(14.0, 14.0).ml(6.0).center().child(arrow(p, open).color(p.faint)));
     let mut line = row().key("line").w_full().min_h(line_h).gap(2.0).center_y().child(button);
@@ -61,7 +65,7 @@ pub fn card_with<S: TimelineHost>(s: &S, p: &Pal, session: &str, c: &Call, defau
         line = line.child(row().key("actions").child(action));
     }
     // Its Copy fades in and out over 0.15 s ease (`tool-error-card.css:132-140`).
-    let card = col().key("error-card").w_full().hover_group().hover_motion(crate::style::HOVER_FADE, crate::style::HOVER_FADE).child(line);
+    let card = col().key("error-card").w_full().hover_group_focus().hover_motion(crate::style::HOVER_FADE, crate::style::HOVER_FADE).child(line);
     if !open {
         return card;
     }
@@ -74,13 +78,14 @@ pub fn card_with<S: TimelineHost>(s: &S, p: &Pal, session: &str, c: &Call, defau
         .role("button")
         .label(label)
         .help(label)
+        .help_open(done)
         .size(24.0, 24.0)
         .center()
         .radius(6.0)
+        .focus_default(p)
         .hover(p.hover)
         .press(p.pressed)
         .hover_motion(INSTANT, INSTANT)
-        .group_opacity(0.0, 1.0)
         .on_press_tx({
             let copy_key = copy_key.clone();
             move |s: &mut S, tx: &mut Tx| {
@@ -89,6 +94,7 @@ pub fn card_with<S: TimelineHost>(s: &S, p: &Pal, session: &str, c: &Call, defau
             }
         })
         .child(crate::copied::glyph_of(s, &copy_key, 16.0, p.text, &rune_theme_opencode::icons::COPY));
+    let copy = crate::style::hover_reveal(copy);
     // `tool-error-card.css:151-172`: a selection in the content is state-bg-danger under text-base,
     // the window active or not.
     let picked = rune::SelectionStyle::new(p.danger_bg).ink(p.text).inactive(p.danger_bg, Some(p.text));
@@ -100,8 +106,8 @@ pub fn card_with<S: TimelineHost>(s: &S, p: &Pal, session: &str, c: &Call, defau
         content = content.child(crate::scroller::scroller("subtitle-full").build::<S>(p, full, words));
     }
     content = content.child(readable(p, text(cleaned).font(UI.lh(20.0)).color(p.danger).wrap_anywhere()).selection_style(picked).w_full()).child(copy.pin(None, Some(0.0), Some(0.0), None));
-    // The error hangs from the nested line like any other row's content.
-    card.child(crate::disclosure::reveal(s.knobs(), crate::style::nested(p, crate::style::NESTED_GAP, content)))
+    // The error hangs from the nested line like any other row's content; clicking the rail collapses it.
+    card.child(crate::disclosure::reveal(s.knobs(), crate::style::nested_collapsible(p, crate::style::NESTED_GAP, content, crate::disclosure::set::<S>(k, true, id))))
 }
 
 /// The width the shut card of `c` takes whole: the warning mark, the name, the subtitle's first

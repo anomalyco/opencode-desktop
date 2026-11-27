@@ -64,5 +64,6 @@
   "zoom.reset": "Нулиране на мащаба",
   "zoom.percent": "{{percent}}%",
   "link.copy": "Копиране на връзката",
-  "history.clear": "Изчистване на историята"
+  "history.clear": "Изчистване на историята",
+  "extensions.compat.feature.management": "Управление на други разширения"
 }

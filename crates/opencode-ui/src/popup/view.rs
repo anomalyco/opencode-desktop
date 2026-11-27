@@ -9,8 +9,8 @@ use super::keys::key;
 use super::menu::{Entry, Glyph, Look, Menu, hug_width, key_at, row_key};
 use super::rows::{self, CHEVRON, detail_row, diff_note};
 use super::search::{SEARCH_H, search_field};
-use super::state::{choose, choose_at, close, hover_focus, moved, open_sub_at};
-use super::{CARD, CONTEXT_MIN_W, GAP, GROUP, GROUP_H, PRESS_ON_DOWN, PopupHost, SURFACE, focus, standard};
+use super::state::{choose, choose_at, close, hover_focus, left, moved, open_sub_at};
+use super::{CARD, CONTEXT_MIN_W, GAP, GROUP, GROUP_H, PRESS_ON_DOWN, PopupHost, SELECT, SURFACE, focus, standard};
 
 /// The drawn menu and the scrim under it that dismisses it, for the window's top layer.
 pub fn view<S: PopupHost + 'static>(s: &S, p: &Pal) -> Vec<El> {
@@ -48,13 +48,21 @@ pub fn view<S: PopupHost + 'static>(s: &S, p: &Pal) -> Vec<El> {
             }
         }
     }
-    let scrim = scrim::<S>();
+    // Desktop's context menu is not modal (Kobalte `ContextMenu`: `body` keeps `pointer-events: auto`), so
+    // what the pointer rests on beside it stays hovered: a tab keeps its close button under its own menu.
+    let scrim = scrim::<S>(matches!(shown.anchor, PopupAnchor::Point(..)) && !shown.menu.pointer_trigger);
+    // The pointer's spot is physical, so it stays unmirrored in a right-to-left window.
+    let rtl = opencode_i18n::direction() == opencode_i18n::Direction::Rtl;
     let (anchor, point, align, side) = match &shown.anchor {
         PopupAnchor::Key(key) => (key.clone(), None, shown.menu.align, shown.menu.side),
-        &PopupAnchor::Point(x, y) if shown.menu.pointer_trigger => ("popup-point".to_owned(), Some(el().key("popup-point").absolute(x, y).size(1.0, 1.0)), Align::Start, Side::Bottom),
+        &PopupAnchor::Point(x, y) if shown.menu.pointer_trigger => ("popup-point".to_owned(), Some(el().key("popup-point").absolute(x, y).unmirrored().size(1.0, 1.0)), Align::Start, Side::Bottom),
         // Kobalte's context menu opens `right-start` of the pointer, 2 off it and shifted 2 down
-        // (`gutter: 2, shift: 2`, `context-menu-root.tsx`).
-        &PopupAnchor::Point(x, y) => ("popup-point".to_owned(), Some(el().key("popup-point").absolute(x, y + 2.0).size(0.0, 0.0)), Align::Start, Side::Right),
+        // (`gutter: 2, shift: 2`, `context-menu-root.tsx`). Floating UI's `right` is physical in a
+        // right-to-left page too, and Rune swaps an anchored side there, so ask for `Left`.
+        &PopupAnchor::Point(x, y) => {
+            let side = if rtl { Side::Left } else { Side::Right };
+            ("popup-point".to_owned(), Some(el().key("popup-point").absolute(x, y + 2.0).unmirrored().size(0.0, 0.0)), Align::Start, side)
+        }
     };
     let at_point = point.is_some();
     let gap = if at_point { GAP } else { shown.menu.gap.unwrap_or(4.0) };
@@ -86,7 +94,10 @@ pub fn view<S: PopupHost + 'static>(s: &S, p: &Pal) -> Vec<El> {
     // A right-click menu is at least Desktop's context-menu width; one from a control hugs its rows.
     let menu = drawn(s, p, listed, active, shown.subs.first().map(|o| o.at), search_placeholder);
     let menu = if at_point { menu.min_w(CONTEXT_MIN_W.max(shown.menu.min_w)) } else { menu };
-    let menu = if shown.menu.card && !at_point { menu.offset(-4.0, 0.0).offset_motion(rune::Anim::INSTANT) } else { menu };
+    // `shift={-4}` is Floating UI's cross-axis offset, which it negates for a top or bottom
+    // placement in a right-to-left page: the card then sits 4 past its trigger's right edge.
+    let shift = if opencode_i18n::direction() == opencode_i18n::Direction::Rtl { 4.0 } else { -4.0 };
+    let menu = if shown.menu.card && !at_point { menu.offset(shift, 0.0).offset_motion(rune::Anim::INSTANT) } else { menu };
     layer.push(popover::place(s.knobs(), menu, &anchor, side, align, gap));
     // Each open submenu beside its row, 4 off it (`Menu.Sub gutter={4}`) unless it says.
     let mut parent = listed;
@@ -129,7 +140,7 @@ fn build<S: PopupHost + 'static>(
         1 => sub.to_owned(),
         _ => format!("{sub}-{level}"),
     };
-    let mut list = popover::List::new(&name("popup-rows", "popup-sub-rows"), if menu.card { CARD } else { MENU });
+    let mut list = popover::List::new(&name("popup-rows", "popup-sub-rows"), if menu.card { CARD } else if menu.select { SELECT } else { MENU });
     if let (Some(s), Some(placeholder)) = (s, search_placeholder) {
         list.other(search_field(s, p, placeholder), SEARCH_H);
     }
@@ -139,16 +150,17 @@ fn build<S: PopupHost + 'static>(
             Entry::Item(i) if i.detail => list.other(detail_row(p, &row_key(&i.id), i), MENU.row_h),
             Entry::Item(i) => {
                 let o = Opt::new(row_key(&i.id), i.title.clone())
-                    .role(role)
+                    .role(if i.radio { "menuitemradio" } else { role })
                     .active(active == Some(n))
                     .checked(i.checked)
                     .danger(i.danger)
-                    .disabled(!i.enabled);
-                let ink = if !i.enabled { p.faint } else if i.danger { p.danger } else { p.text };
-                // The location card's rows draw Desktop's `Icon` at its own 16.
+                    .disabled(!i.enabled)
+                    .medium(i.medium);
+                let ink = if i.danger { p.danger } else { p.text };
+                // Menu items draw Desktop's `<Icon>` at its default `size="normal"` (16 pt, `icon.tsx:59`).
                 let o = match i.glyph {
                     Some(Glyph::Ink(g)) if menu.card => o.lead(icon(g, 16.0).color(p.icon_muted)),
-                    Some(Glyph::Ink(g)) => o.lead(icon(g, 14.0).color(ink)),
+                    Some(Glyph::Ink(g)) => o.lead(icon(g, 16.0).color(ink)),
                     Some(Glyph::Weak(g)) => o.lead(icon(g, 14.0).color(crate::palette::token(p.dark, "icon-weak-base").unwrap_or(p.icon_faint))),
                     Some(Glyph::App(id)) => match rune_theme_opencode::app_icons::named(id, p.dark) {
                         Some(g) => o.lead(icon(g, 16.0)),
@@ -161,6 +173,10 @@ fn build<S: PopupHost + 'static>(
                             None => rows::status_mark(p, ind),
                         };
                         o.lead(row().size(16.0, 16.0).center().child(mark))
+                    }
+                    Some(Glyph::Swatch(light, dark)) => {
+                        let [fill, edge] = if p.dark { dark } else { light };
+                        o.lead(el().size(10.0, 10.0).radius(2.0).fill(fill).box_shadow(Pal::ring_in(edge)).a11y_hidden())
                     }
                     None => o,
                 };
@@ -181,7 +197,7 @@ fn build<S: PopupHost + 'static>(
                 };
                 // A server row keeps its check's column when unchecked, as a radio item's indicator does.
                 let o = if matches!(i.glyph, Some(Glyph::Status(_))) && !i.checked { o.trailing(el().size(16.0, 16.0)) } else { o };
-                let look = if menu.card { CARD } else { menu.item_inset.map_or(MENU, |pad| popover::Look { pad_l: pad, ..MENU }) };
+                let look = if menu.card { CARD } else if menu.select { SELECT } else { popover::Look { pad_l: menu.item_inset.unwrap_or(MENU.pad_l), pad_r: menu.item_end.unwrap_or(MENU.pad_r), ..MENU } };
                 let o = match i.diff {
                     Some((a, d)) => o.after(diff_note(p, a, d)),
                     None => o,
@@ -206,9 +222,9 @@ fn build<S: PopupHost + 'static>(
                 // In the location card the rows' own 2 pt gaps are that room (rows 33 apart across
                 // it), and the line is `border-base` scaled to a hairline in its 1 pt box.
                 let line = if menu.card {
-                    // The transformed CSS rule covers half of its snapped row. Drawing a
-                    // half-height fill snaps it back to a whole, full-strength device row.
-                    el().key(format!("popup-sep-{n}")).h(1.0).mx(-MENU.inset).fill(p.border.alpha(p.border.a * 0.5))
+                    // `session-identity-header.css:19-25` (`4d4a95a3239c`): `width: calc(100% + 4px);
+                    // margin: 0 -2px; background: var(--v2-border-border-base); transform: scaleY(0.5);`
+                    rune::hairline(p.border).key(format!("popup-sep-{n}")).mx(-MENU.inset)
                 } else {
                     col().key(format!("popup-sep-{n}")).py(2.0).mx(-MENU.inset).child(el().key("line").h(1.0).w_full().fill(p.border_muted))
                 };
@@ -230,20 +246,23 @@ fn build<S: PopupHost + 'static>(
             Entry::Sub(sub) => {
                 let o = Opt::new(row_key(&sub.id), sub.title.clone())
                     .role("menuitem")
-                    .active(active == Some(n) || open == Some(n))
+                    .active(sub.enabled && (active == Some(n) || open == Some(n)))
+                    .disabled(!sub.enabled)
+                    .middle_split(sub.split_at)
                     .trailing(icon(&CHEVRON, 16.0).key("chevron").color(p.icon_muted).mirror_in_rtl());
                 let o = match sub.glyph.and_then(Glyph::mono) {
                     Some(g) => o.lead(icon(g, 16.0).color(p.icon_muted)),
                     None => o,
                 };
-                let look = if menu.card { CARD } else { MENU };
-                list.row(takes_focus(popover::option_tx::<S>(
+                let look = if menu.card { CARD } else if menu.select { SELECT } else { popover::Look { pad_r: menu.item_end.unwrap_or(MENU.pad_r), ..MENU } };
+                let row = popover::option_tx::<S>(
                     p,
                     look,
                     o,
                     move |s, tx| hover_focus(s, level, n, tx),
                     move |s, tx| open_sub_at(s, level, n, false, tx),
-                )));
+                );
+                list.row(if sub.enabled { takes_focus(row) } else { row });
             }
         }
     }
@@ -251,11 +270,14 @@ fn build<S: PopupHost + 'static>(
         .min_w(menu.min_w)
         .on_pointer_move_local(|s: &mut S, e: rune::PointerEvent, tx: &mut Tx| moved(s, [e.window_x, e.window_y], tx));
     // An open menu holds focus (`menu-v2-content`, tabindex -1) and takes the keys from there.
-    let holds_focus = search_placeholder.is_none();
+    // A menu under an editing field holds it too ([`super::open_with_field`]); a search field keeps it.
+    let holds_focus = search_placeholder.is_none() || s.is_some_and(|s| s.popup().holds_focus());
     let surface = match s {
         Some(_) if holds_focus => surface.focusable(true).tab_index(-1).no_focus_ring().on_key(|s: &mut S, ev, tx: &mut Tx| key(s, ev, tx)),
         _ => surface,
     };
+    // A menu under an editing field is a Kobalte menu: the row the pointer lit goes dark as it leaves.
+    let surface = if !nested && s.is_some_and(|s| s.popup().edits()) { surface.on_hover_change(|s: &mut S, inside, tx: &mut Tx| if !inside { left(s, tx) }) } else { surface };
     // A submenu is as wide as its widest row (`w-max`), its rows laid out apart from it.
     let width = menu.width.or_else(|| nested.then(|| hug_width(menu).max(menu.min_w)));
     let surface = match width {
@@ -276,7 +298,7 @@ pub(super) fn takes_focus(row: El) -> El {
 }
 
 /// A window-sized dismiss layer under the popup (`popover::scrim` generalized over [`PopupHost`]).
-fn scrim<S: PopupHost + 'static>() -> El {
+fn scrim<S: PopupHost + 'static>(hover_passes: bool) -> El {
     // A press outside focuses the scroll region it lands on ("scrollable content"), as one
     // outside Desktop's context menu does; a dropdown then hands focus back to its trigger.
     // Kobalte's menus dismiss on a press outside as the button goes down; a tap on the release.
@@ -292,5 +314,6 @@ fn scrim<S: PopupHost + 'static>() -> El {
         })
         .press_focuses_below()
         .on_secondary_press(|s: &mut S, _: rune::PointerPress, tx: &mut Tx| close(s, None, focus::Reason::Outside, tx));
+    let base = if hover_passes { base.hover_passes_below() } else { base };
     if PRESS_ON_DOWN { base.press_on_down() } else { base }
 }

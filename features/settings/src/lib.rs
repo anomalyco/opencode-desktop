@@ -12,6 +12,7 @@
 
 pub mod host;
 mod interface_mode;
+mod mode_card;
 mod navigation_mode;
 pub mod jobs;
 pub mod pages;
@@ -34,7 +35,7 @@ pub use host::{
     build_version, configure,
 };
 pub use jobs::{SettingsJob, SettingsReply, SettingsRequest, apply_reply, execute_request};
-pub use prefs::{BackgroundActivity, Choice, Destination, FollowUp, Navigation, Organize, SOUNDS, Sounds, TimelineWidth, TitlebarPosition};
+pub use prefs::{BackgroundActivity, Choice, FollowUp, Navigation, Organize, QuestionSubmitKey, SOUNDS, Sounds, StartIn, TabGrouping, TimelineWidth, TitlebarPosition, Worktree};
 pub use types::{
     CODE_FONTS, DockPlacement, Font, NotifyKind, NotifyKinds, ReduceMotion, Scheme, TERMINAL_FONTS, TabLayout, TerminalMarkShell, TextRenderer, UI_FONTS, ZOOM_LEVELS, ZOOM_MAX, ZOOM_MIN,
     css_family, custom_name, font_index, step_zoom,
@@ -46,6 +47,8 @@ pub const OVERLAY_ID: &str = "dialog.settings";
 pub const PROVIDER_REMOVAL_OVERLAY_ID: &str = "dialog.settings.provider_removal";
 /// Overlay stack identifier for Settings › Worktrees' delete confirmation.
 pub const WORKTREE_DELETE_OVERLAY_ID: &str = "dialog.settings.worktree_delete";
+/// Overlay stack identifier for Settings › About's third-party notices dialog.
+pub const ABOUT_NOTICES_OVERLAY_ID: &str = "dialog.settings.about_notices";
 
 /// Whether the Settings screen is open in this window (separate from persisted [`Settings`]).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -102,6 +105,9 @@ pub struct Settings {
     pub tab_layout: TabLayout,
     /// The navigation prototype's Tabs or List (`appearance.navigation`, #64668).
     pub navigation: Navigation,
+    /// The navigation prototype's Group tabs (`appearance.tabGrouping`, anomalyco/opencode#66350).
+    /// The shell reads [`Settings::tab_grouping`].
+    pub tab_grouping: TabGrouping,
     /// One side panel open state for every session tab instead of one per tab (`general.sharedSidePanel`, #64950).
     pub shared_side_panel: bool,
     /// Questions take the keyboard-first dock instead of Classic (Desktop's `general.newQuestionUI`,
@@ -111,6 +117,12 @@ pub struct Settings {
     /// defaulting to `false` across all packaged builds (`local`, `dev`, `beta`, `prod`) to match
     /// upstream `settings/model.tsx:460-463` (`import.meta.env.DEV && VITE_OPENCODE_TEST_FIXTURES !== "1"`).
     pub tab_groups: Option<bool>,
+    /// Experimental › Sidebar sections (Rune's own, `rune.settings`): multi-select on side tabs,
+    /// batch actions and minimal collapsible section headers. `None` until toggled; off by default.
+    pub sidebar_sections: Option<bool>,
+    /// Experimental › Sync pinned sessions (Rune's own, `rune.settings`): which sessions are
+    /// pinned follows each server's `pins` space. `None` until toggled; off by default.
+    pub pin_sync: Option<bool>,
     /// Ease a live delivery into place: the Pending label, the tray's room and joined prompts.
     pub smooth_timeline: bool,
     /// macOS: Option in the terminal is Meta (Esc and the key, for a shell's word motions) instead
@@ -122,12 +134,17 @@ pub struct Settings {
     /// The display language Settings picked (Desktop's `language` store), an `opencode_i18n`
     /// locale id; `None` follows the system's languages.
     pub language: Option<String>,
-    /// Where a new session starts (`workspaces.defaultDestination`).
-    pub default_destination: Destination,
-    /// Where each project's last session started (`workspaces.lastUsed`): `"local"` or `"workspace"`.
+    /// Where a new session starts (`workspaces.startIn`).
+    pub start_in: StartIn,
+    /// Which checkout of the current project a new session uses (`workspaces.worktree`).
+    pub worktree: Worktree,
+    /// Where each project's last session started (`workspaces.lastUsed`): `"default"` (its main
+    /// checkout or an existing worktree) or `"workspace"` (a new worktree).
     pub last_used: BTreeMap<String, String>,
     /// What Enter does while the agent works (`general.followUpBehavior`).
     pub follow_up: FollowUp,
+    /// The key that moves a question dock on or submits it (`general.questionSubmitKey`).
+    pub question_submit: QuestionSubmitKey,
     /// Ctrl-scroll and trackpad pinches zoom the window (Desktop's `pinchZoom`); off by default.
     pub pinch_zoom: bool,
     /// Underline misspelt words while typing (Desktop's `spellcheck`); on by default.
@@ -157,6 +174,7 @@ pub struct Settings {
     pub timeline_width: TimelineWidth,
     pub background_activity: BackgroundActivity,
     pub turn_diffs: bool,
+    pub wrap_code_blocks: bool,
 }
 
 impl Default for Settings {
@@ -183,16 +201,21 @@ impl Default for Settings {
             record_glitches: true,
             tab_layout: TabLayout::default(),
             navigation: Navigation::default(),
+            tab_grouping: TabGrouping::default(),
             shared_side_panel: false,
             new_question_ui: false,
             tab_groups: None,
+            sidebar_sections: None,
+            pin_sync: None,
             smooth_timeline: false,
             terminal_option_meta: false,
             terminal_marks: Vec::new(),
             language: None,
-            default_destination: Destination::default(),
+            start_in: StartIn::default(),
+            worktree: Worktree::default(),
             last_used: BTreeMap::new(),
             follow_up: FollowUp::default(),
+            question_submit: QuestionSubmitKey::default(),
             pinch_zoom: false,
             spellcheck: true,
             spellcheck_languages: Vec::new(),
@@ -208,6 +231,7 @@ impl Default for Settings {
             timeline_width: TimelineWidth::default(),
             background_activity: BackgroundActivity::default(),
             turn_diffs: false,
+            wrap_code_blocks: false,
         }
     }
 }
@@ -218,7 +242,23 @@ impl Settings {
         if let (Some(on), Some(m)) = (self.tab_groups, v.as_object_mut()) {
             m.insert("tabGroups".into(), json!(on));
         }
+        if let (Some(on), Some(m)) = (self.sidebar_sections, v.as_object_mut()) {
+            m.insert("sidebarSections".into(), json!(on));
+        }
+        if let (Some(on), Some(m)) = (self.pin_sync, v.as_object_mut()) {
+            m.insert("pinSync".into(), json!(on));
+        }
         v
+    }
+
+    /// Experimental › Sidebar sections: off unless turned on.
+    pub fn sidebar_sections(&self) -> bool {
+        self.sidebar_sections.unwrap_or(false)
+    }
+
+    /// Experimental › Sync pinned sessions: off unless turned on.
+    pub fn pin_sync(&self) -> bool {
+        self.pin_sync.unwrap_or(false)
     }
 
     /// Experimental › Tab groups (`general.tabGroups`, #64407): opt-in (`false` by default) in
@@ -245,13 +285,15 @@ impl Settings {
             "developer": { "rewind": self.record_glitches },
             "tabLayout": self.tab_layout.name(),
             "navigation": self.navigation.name(),
+            "tabGrouping": self.tab_grouping.name(),
             "sharedSidePanel": self.shared_side_panel,
             "newQuestionUI": self.new_question_ui,
             "smoothTimeline": self.smooth_timeline,
             "terminal": { "optionAsMeta": self.terminal_option_meta, "marks": self.terminal_marks },
             "language": self.language,
-            "workspaces": { "defaultDestination": self.default_destination.name(), "lastUsed": self.last_used },
+            "workspaces": { "startIn": self.start_in.name(), "worktree": self.worktree.name(), "lastUsed": self.last_used },
             "followUpBehavior": self.follow_up.name(),
+            "questionSubmitKey": self.question_submit.name(),
             "pinchZoom": self.pinch_zoom,
             "spellcheck": self.spellcheck,
             "spellcheckLanguages": self.spellcheck_languages,
@@ -266,6 +308,7 @@ impl Settings {
             "timelineWidth": self.timeline_width.name(),
             "backgroundActivity": self.background_activity.name(),
             "showTurnDiffs": self.turn_diffs,
+            "wrapCodeBlocks": self.wrap_code_blocks,
         })
     }
 
@@ -287,18 +330,28 @@ impl Settings {
             text_renderer: TextRenderer::parse(v["textRenderer"].as_str()),
             terminal_font: v["terminalFont"].as_u64().map_or(3, |i| (i as usize).min(TERMINAL_FONTS.len() - 1)),
             ui_font: font_index(&UI_FONTS, v["uiFont"].as_str()),
-            code_font: font_index(&CODE_FONTS, v["codeFont"].as_str()),
+            // Previous versions wrote the old default names into `settings.json` even when
+            // untouched; migrate them to the new default OpenMono (`opencode#64797`).
+            code_font: font_index(&CODE_FONTS, v["codeFont"].as_str().filter(|&s| s != "IBM Plex Mono")),
             ui_font_name: custom_name(&UI_FONTS, v["uiFont"].as_str()),
-            code_font_name: custom_name(&CODE_FONTS, v["codeFont"].as_str()),
-            terminal_font_name: v["terminalFontName"].as_str().map(str::trim).unwrap_or("").to_owned(),
+            code_font_name: custom_name(&CODE_FONTS, v["codeFont"].as_str().filter(|&s| s != "IBM Plex Mono")),
+            terminal_font_name: v["terminalFontName"]
+                .as_str()
+                .map(str::trim)
+                .filter(|&s| s != "JetBrainsMono Nerd Font Mono")
+                .unwrap_or("")
+                .to_owned(),
             record_glitches: v["developer"]["rewind"].as_bool().unwrap_or(true),
             // Files from before the setting read as Desktop's default; Desktop nests it under
             // `appearance`, which here is the colour scheme.
             tab_layout: TabLayout::parse(v["tabLayout"].as_str().or_else(|| v["appearance"]["tabLayout"].as_str())),
             navigation: Navigation::parse(v["navigation"].as_str().or_else(|| v["appearance"]["navigation"].as_str())),
+            tab_grouping: TabGrouping::parse(v["tabGrouping"].as_str().or_else(|| v["appearance"]["tabGrouping"].as_str())),
             shared_side_panel: v["sharedSidePanel"].as_bool().unwrap_or(false),
             new_question_ui: v["newQuestionUI"].as_bool().unwrap_or(false),
             tab_groups: v["tabGroups"].as_bool(),
+            sidebar_sections: v["sidebarSections"].as_bool(),
+            pin_sync: v["pinSync"].as_bool(),
             smooth_timeline: v["smoothTimeline"].as_bool().unwrap_or(false),
             terminal_option_meta: v["terminal"]["optionAsMeta"].as_bool().unwrap_or(false),
             terminal_marks: v["terminal"]["marks"]
@@ -309,16 +362,26 @@ impl Settings {
                 .as_str()
                 .filter(|l| opencode_i18n::locales().iter().any(|locale| locale.id() == *l))
                 .map(str::to_owned),
-            default_destination: Destination::parse(v["workspaces"]["defaultDestination"].as_str()),
+            start_in: StartIn::parse(v["workspaces"]["startIn"].as_str()),
+            worktree: match v["workspaces"]["worktree"].as_str() {
+                Some(name) => Worktree::parse(Some(name)),
+                None => Worktree::migrate(v["workspaces"]["defaultDestination"].as_str()),
+            },
+            // Older files wrote the main checkout as `"local"`.
             last_used: v["workspaces"]["lastUsed"]
                 .as_object()
                 .map(|m| {
                     m.iter()
-                        .filter_map(|(k, v)| Some((k.clone(), v.as_str().filter(|v| matches!(*v, "local" | "workspace"))?.to_owned())))
+                        .filter_map(|(k, v)| match v.as_str()? {
+                            "default" | "local" => Some((k.clone(), "default".to_owned())),
+                            "workspace" => Some((k.clone(), "workspace".to_owned())),
+                            _ => None,
+                        })
                         .collect()
                 })
                 .unwrap_or_default(),
             follow_up: FollowUp::parse(v["followUpBehavior"].as_str()),
+            question_submit: QuestionSubmitKey::parse(v["questionSubmitKey"].as_str()),
             pinch_zoom: v["pinchZoom"].as_bool().unwrap_or(d.pinch_zoom),
             spellcheck: v["spellcheck"].as_bool().unwrap_or(d.spellcheck),
             mobile_diff_wrap: v["mobileDiffWrap"].as_bool().unwrap_or(d.mobile_diff_wrap),
@@ -339,6 +402,7 @@ impl Settings {
             timeline_width: TimelineWidth::parse(v["timelineWidth"].as_str()),
             background_activity: BackgroundActivity::parse(v["backgroundActivity"].as_str()),
             turn_diffs: v["showTurnDiffs"].as_bool().unwrap_or(false),
+            wrap_code_blocks: v["wrapCodeBlocks"].as_bool().unwrap_or(false),
         }
     }
 
@@ -350,6 +414,12 @@ impl Settings {
     /// The navigation prototype's List, else Tabs (`navigation`, `settings/model.tsx`).
     pub fn navigation(&self) -> Navigation {
         if self.navigation_prototype() { self.navigation } else { Navigation::Tabs }
+    }
+
+    /// How open tabs are grouped: only under Consolidated, else not at all (`tabGrouping`,
+    /// `settings/model.tsx:538-540`).
+    pub fn tab_grouping(&self) -> TabGrouping {
+        if self.navigation_prototype() { self.tab_grouping } else { TabGrouping::None }
     }
 
     /// The shell layout (`tabLayout`, `settings/model.tsx`): List always uses the sidebar, and the
@@ -458,7 +528,9 @@ pub fn close_settings(host: &mut dyn SettingsHost) {
     let was_open = host.settings_open();
     host.set_settings_open(false);
     search::clear(host);
-    host.settings_pages_mut().shortcuts.capture = None;
+    host.settings_pages_mut().shortcuts.capture = pages::shortcuts::Capture::Idle;
+    host.settings_pages_mut().models_reveal = pages::models::Reveal::Idle;
+    host.settings_pages_mut().console_expanded = false;
     host.settings_pages_mut().blur_fields();
     if was_open {
         host.on_overlay_closed(OVERLAY_ID);
@@ -515,7 +587,7 @@ pub fn settings_key(host: &mut dyn SettingsHost, ev: &KeyEvent, tx: &mut Tx) -> 
     if !host.settings_open() {
         return false;
     }
-    if pages::shortcuts::key(host, ev, tx) || search::key(host, ev, tx) {
+    if pages::shortcuts::key(host, ev, tx) || pages::filter_page_key(host, ev, tx) || search::key(host, ev, tx) {
         return true;
     }
     if ev.key == Key::Escape {
@@ -555,6 +627,7 @@ pub fn toggle_settings(host: &mut dyn SettingsHost, tx: &mut Tx) {
 pub fn poll(host: &mut dyn SettingsHost, now: f64, tx: &mut Tx) -> bool {
     let mut changed = false;
     changed |= search::poll(host, tx);
+    changed |= pages::models::poll(host, tx);
     pages::servers::unavailable::poll(host, tx);
     changed |= pages::worktrees::poll(host, tx);
     changed |= pages::project::poll(host, tx);
@@ -671,11 +744,10 @@ pub fn about(p: &Pal, words: &str) -> El {
 pub fn link<H: SettingsHost + 'static>(p: &Pal, key: &str, words: &str, url: &'static str) -> El {
     text(words.to_owned())
         .key(key.to_owned())
-        .role("link")
-        .label(words.to_owned())
         .font(BODY)
         .color(p.accent)
-        .on_press_tx(move |s: &mut H, tx: &mut Tx| open_external(s, url, tx))
+        .link(rune::Link::new(0..words.len(), url).role("link").label(words.to_owned()).hover(rune::LinkPaint::new().color(p.accent_hover)))
+        .on_link(|s: &mut H, href: &str, tx: &mut Tx| open_external(s, href, tx))
 }
 
 pub(crate) fn open_external(host: &mut dyn SettingsHost, url: &str, tx: &mut Tx) {
@@ -694,6 +766,20 @@ pub(crate) fn neutral_lift(p: &Pal) -> [Shadow; 4] {
     let (y, blur) = if p.dark { (1.0, 2.0) } else { (1.0, 1.5) };
     let top = if p.dark { Shadow { y: -0.5, color: Color::WHITE.alpha(0.1), ..Shadow::default() } } else { Shadow::default() };
     [Shadow { y, blur, color: p.q.neutral_shadow, ..Shadow::default() }, Pal::ring_out(p.q.neutral_ring), top, Shadow::default()]
+}
+
+/// `--v2-elevation-input` (`packages/ui/src/styles/tokens/theme.css:115-117, 235-238`): identical
+/// to `neutral_lift` in light; in dark, zero drop shadow, a 16% light 0.5px ring, and a 6% light top edge.
+pub(crate) fn input_lift(p: &Pal) -> [Shadow; 4] {
+    if !p.dark {
+        return neutral_lift(p);
+    }
+    [
+        Shadow::default(),
+        Pal::ring_out(Color::WHITE.alpha(0x29 as f32 / 255.0)),
+        Shadow { y: -0.5, color: Color::WHITE.alpha(0x0f as f32 / 255.0), ..Shadow::default() },
+        Shadow::default(),
+    ]
 }
 
 pub(crate) fn ui_direction() -> Direction {

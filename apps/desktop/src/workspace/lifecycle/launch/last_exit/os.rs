@@ -40,7 +40,7 @@ impl EncodedPaths {
             use std::os::unix::ffi::OsStrExt as _;
             let c = |p: &Path| {
                 std::ffi::CString::new(p.as_os_str().as_bytes())
-                    .unwrap_or_else(|_| std::ffi::CString::new("").unwrap())
+                    .unwrap_or_default()
             };
             Self { record_c: c(&record), skip_c: c(&skip), record, skip }
         }
@@ -290,6 +290,9 @@ unsafe extern "system" fn unhandled_filter(info: *const ExceptionPointers) -> i3
                 _ => TAG_FATAL,
             };
             record_fault(tag, FLAG_OS_EXCEPTION, code, 0, avail, true);
+            // Where it happened, as `library+offset` (`place`): the record above holds the code only.
+            // SAFETY: `rec` is the non-null `EXCEPTION_RECORD` Windows passed this filter.
+            unsafe { super::place::write(rec.cast()) };
             let prev = PREV_FILTER.load(Ordering::Acquire);
             if prev.is_null() {
                 // End at once with `code` rather than unwinding/detaching DLLs or spawning WerFault on an exhausted stack.
@@ -375,7 +378,7 @@ pub(super) fn open_file(path: &Path) -> std::io::Result<std::fs::File> {
 
 #[cfg(unix)]
 pub(super) fn open_file(path: &Path) -> std::io::Result<std::fs::File> {
-    std::fs::OpenOptions::new().read(true).write(true).create(true).open(path)
+    std::fs::OpenOptions::new().read(true).write(true).create(true).truncate(false).open(path)
 }
 
 #[cfg(windows)]

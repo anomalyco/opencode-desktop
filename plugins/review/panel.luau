@@ -154,6 +154,11 @@ end
 function panel.title(env: Env, view: View, sid: string, key: string): ui.Node
     local doc = panel.doc(env, sid)
     local sources = doc:Sources()
+    -- No source to name yet (`ReviewTitle`, `parts.tsx`: nothing until `canReview` and an option):
+    -- the session isn't listed, so its saved source can't be read.
+    if #sources == 0 then
+        return ui.row({ key = `{key}-held`, h = 24 }, {})
+    end
     local current = doc:Source()
     local label = ui.text(sourceLabel(env, current), { size = 13, weight = "medium", lineHeight = 16, tracking = -0.04, color = "text-chrome", fadeOut = true })
     if #sources <= 1 then
@@ -277,7 +282,7 @@ local function noGit(env: Env): ui.Node
 end
 
 -- The sidebar: its header (source, totals, Open in without changes), the filter and the tree.
-local function sidebar(env: Env, view: View, sid: string, doc: DiffDocument, marks: { [string]: ChangeKind }, active: string?, treeVer: number): ui.Node
+local function sidebar(env: Env, view: View, sid: string, doc: DiffDocument, marks: { [string]: ChangeKind }, active: string?, treeVer: number, side: PanelSidebarSide): ui.Node
     local totals = doc:Totals()
     local status = doc:Status()
     local query = env.filter:Text()
@@ -287,27 +292,48 @@ local function sidebar(env: Env, view: View, sid: string, doc: DiffDocument, mar
             panel.title(env, view, sid, "review-mode-btn"),
         })
     end)
-    local headerEnd: { ui.Node } = { counts(totals.added, totals.removed) }
+    local headerEnd: { ui.Node } = {}
+    if totals.added + totals.removed > 0 then
+        table.insert(headerEnd, counts(totals.added, totals.removed))
+    end
     if totals.files == 0 then
         table.insert(headerEnd, ui.openInButton({ key = "review-open-in", path = "" }))
     end
-    -- `session-review-v2-sidebar-header`: 48 tall, 46 in past the toggle, 16 from the end.
-    local header = ui.row({ key = "review-sidebar-header", w = "full", h = 48, pl = 46, pr = 16, gap = 8, align = "center" }, {
-        titleNode,
-        ui.spacer(),
-        ui.row({ gap = 8, align = "center" }, headerEnd),
-    })
+    local headerItems: { ui.Node } = { titleNode }
+    if #headerEnd > 0 then
+        table.insert(headerItems, ui.row({ gap = 8, align = "center" }, headerEnd))
+    end
+    -- `session-review-v2-sidebar-header`: 48 tall, 46 in past the toggle, 16 from the end; with the
+    -- sidebar on the end edge the toggle is at its end (`data-sidebar-side="end"`: `8px 46px`).
+    local atEnd = side == "end"
+    local header = ui.row({ key = "review-sidebar-header", w = "full", h = 48, pl = if atEnd then 8 else 46, pr = if atEnd then 46 else 16, gap = 8, align = "center", justify = "between" }, headerItems)
     local filter = view:Memo("review-filter-slot", `{env.filter:Version()}:{look}`, function()
         return ui.col({ w = "full" }, {
             ui.field({ key = "review-filter", editor = env.filter, variant = "filter", placeholder = env.I18n:T("ui.sessionReviewV2.filterFiles") }),
         })
     end)
     local listVer = if query == "" then treeVer else doc:Version()
-    local list = view:Memo("review-tree-slot", `{sid}:{status}:{query}:{active or ""}:{listVer}:{look}`, function()
-        if status == "loading" then
-            return ui.col({ key = "review-tree-loading", w = "full", grow = 1, px = 10, pt = 12 }, {
-                ui.text(env.I18n:T("ui.sessionReview.image.loading"), { size = 12, lineHeight = 16, color = "text-muted" }),
+    local list = view:Memo("review-tree-slot", `{sid}:{status}:{totals.files}:{query}:{active or ""}:{listVer}:{look}`, function()
+        -- `session-review-v2-sidebar-viewport` (`padding: 4px 8px 12px`) + `px-2 py-2 text-12-regular text-text-weak`
+        -- (`panel.tsx:448-462`; `.text-12-regular` resolves via `utilities.css:21-28` + `theme.css:8,16` to `--font-size-small: 13px`, `--line-height-large: 150%` = `19.5px`).
+        local function sidebarMessage(key: string, words: string, isStatus: boolean): ui.Node
+            return ui.col({ key = key, role = if isStatus then "status" else nil, w = "full", grow = 1, px = 16, pt = 12, pb = 20 }, {
+                ui.text(words, { size = 13, weight = "regular", lineHeight = 19.5, color = "text-weak", wrap = true }),
             })
+        end
+        -- Keep the loaded file tree during background refreshes and transient disconnects/errors,
+        -- matching the main pane (`panel.luau:437-444`) and official `review/machine.ts:150-153, 171-172, 220-225, 238-240`.
+        if totals.files == 0 then
+            if status == "loading" then
+                return sidebarMessage("review-tree-loading", env.I18n:T("ui.sessionReview.image.loading"), false)
+            end
+            if status == "offline" then
+                return sidebarMessage("review-tree-offline", env.I18n:T("offline"), false)
+            end
+            if status == "error" then
+                return sidebarMessage("review-tree-error", env.I18n:T("load.failed"), false)
+            end
+            return sidebarMessage("review-tree-empty", env.I18n:T("sidebar.noChanges"), true)
         end
         return ui.col({ w = "full", grow = 1, minH = 0 }, {
             ui.fileTree({
@@ -330,7 +356,7 @@ end
 
 -- The toolbar: with the sidebar shut its title, totals and the file's place; the file arrows;
 -- then Open in, the line folding and the layout, 12 apart.
-local function toolbar(env: Env, view: View, sid: string, doc: DiffDocument, order: { string }, active: string?, opened: boolean, treeVer: number): ui.Node
+local function toolbar(env: Env, view: View, sid: string, doc: DiffDocument, order: { string }, active: string?, opened: boolean, treeVer: number, side: PanelSidebarSide): ui.Node
     local index = 0
     for i, path in order do
         if path == active then
@@ -345,7 +371,7 @@ local function toolbar(env: Env, view: View, sid: string, doc: DiffDocument, ord
         local totals = doc:Totals()
         shutMeta = `{doc:Source()}:{#doc:Sources()}:{totals.added}:{totals.removed}`
     end
-    return view:Memo("review-toolbar-slot", `{sid}:{active or ""}:{#order}:{index}:{treeVer}:{tostring(opened)}:{expandMode}:{diffStyle}:{shutMeta}:{look}`, function()
+    return view:Memo("review-toolbar-slot", `{sid}:{active or ""}:{#order}:{index}:{treeVer}:{tostring(opened)}:{side}:{expandMode}:{diffStyle}:{shutMeta}:{look}`, function()
         local start: { ui.Node } = {}
         if not opened then
             local totals = doc:Totals()
@@ -392,9 +418,11 @@ local function toolbar(env: Env, view: View, sid: string, doc: DiffDocument, ord
                 panel.setStyle(env, (event.value or "split") :: DiffStyle)
             end),
         }))
-        -- 48 tall with its rule inside (`session-review-v2-toolbar`: `h-12`, border-box).
+        -- 48 tall with its rule inside (`session-review-v2-toolbar`: `h-12`, border-box). Shut, it
+        -- leaves the toggle 46: at its start, or at its end with the sidebar on the end edge.
+        local shutEnd = not opened and side == "end"
         return ui.col({ w = "full", h = 48 }, {
-            ui.row({ key = "review-toolbar", w = "full", grow = 1, minH = 0, pl = if opened then 8 else 46, pr = 12, gap = 8, align = "center", fill = "bg-base" }, {
+            ui.row({ key = "review-toolbar", w = "full", grow = 1, minH = 0, pl = if opened or shutEnd then 8 else 46, pr = if shutEnd then 46 else 12, gap = 8, align = "center", fill = "bg-base" }, {
                 ui.row({ key = "review-toolbar-start", align = "center", shrink = true, minW = 0 }, start),
                 ui.spacer(),
                 ui.row({ key = "review-toolbar-segments", gap = 12, align = "center" }, segments),
@@ -416,7 +444,7 @@ function panel.wide(env: Env, view: View, props: PanelProps): ui.Node
     local main: { ui.Node } = {}
     local hasRows = doc:Totals().files > 0
     if hasRows or not bar.opened then
-        table.insert(main, toolbar(env, view, sid, doc, order, active, bar.opened, cur.treeVersion))
+        table.insert(main, toolbar(env, view, sid, doc, order, active, bar.opened, cur.treeVersion, bar.side))
     end
     if status == "loading" and #order == 0 then
         table.insert(main, loading(env))
@@ -437,7 +465,7 @@ function panel.wide(env: Env, view: View, props: PanelProps): ui.Node
     end
     local maxW = math.clamp(props.width * 0.6, 200, 480)
     return ui.panelSidebar({ id = "review", maxWidth = maxW }, {
-        if bar.opened then sidebar(env, view, sid, doc, cur.marks, active, cur.treeVersion) else ui.col({}, {}),
+        if bar.opened then sidebar(env, view, sid, doc, cur.marks, active, cur.treeVersion, bar.side) else ui.col({}, {}),
         ui.col({ w = "full", h = "full" }, main),
     })
 end

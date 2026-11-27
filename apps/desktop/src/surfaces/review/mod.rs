@@ -47,6 +47,10 @@ impl ReviewHost for App {
         Some(&self.fixture_run.fixture)
     }
 
+    fn saved_mode(&self, sid: &str) -> Option<ChangeMode> {
+        crate::plugin_host::native::diff::stored_review_mode(self, sid)
+    }
+
     fn review_shown(&self) -> bool {
         App::review_shown(self)
     }
@@ -131,6 +135,18 @@ impl App {
 
     pub fn ensure_session_review(&mut self, session_id: &str) {
         ensure_session(self, session_id);
+    }
+
+    pub fn prefetch_review_vcs(&mut self, directory: &str) {
+        prefetch_vcs(self, directory);
+    }
+
+    pub fn refresh_review_on_open(&mut self, session_id: &str) {
+        refresh_on_open(self, session_id);
+    }
+
+    pub fn note_review_branch_updated(&mut self, directory: &str, branch: Option<String>) {
+        note_branch_updated(self, directory, branch);
     }
 
     /// Compares `mode` in the routed session's review.

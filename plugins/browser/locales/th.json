@@ -64,5 +64,6 @@
   "zoom.reset": "รีเซ็ตการซูม",
   "zoom.percent": "{{percent}}%",
   "link.copy": "คัดลอกลิงก์",
-  "history.clear": "ล้างประวัติ"
+  "history.clear": "ล้างประวัติ",
+  "extensions.compat.feature.management": "จัดการส่วนขยายอื่น ๆ"
 }

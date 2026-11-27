@@ -48,7 +48,21 @@ pub fn read_cef_string_list(list: &CefStringList) -> Vec<String> {
 
 struct HeldMenu {
     id: u64,
+    src_url: Option<String>,
+    target: crate::extensions::context_menus::MenuTarget,
+    /// The menu was for an editable field: only then do Spellcheck / Languages run.
+    editable: bool,
+    /// The frame the menu opened in (CEF's identifier, which is the DevTools frame id).
+    frame_id: Option<String>,
     callback: RunContextMenuCallback,
+}
+
+/// What the engine still does after a menu command ran.
+pub enum MenuFollowUp {
+    /// An extension's item: the engine tells the extension (`contextMenus.onClicked`).
+    Extension { ext_id: String, item_id: String, target: crate::extensions::context_menus::MenuTarget },
+    /// Copy image: the engine reads and re-encodes the image (`menu_extras.rs`).
+    CopyImage { url: String, frame_id: Option<String> },
 }
 
 /// Per-tab held CEF context menu callback (at most one active at a time).
@@ -64,15 +78,19 @@ impl TabMenuState {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn execute(
         &self,
+        tab_id: u64,
+        tab_gen: u64,
         id: u64,
         action: Option<ContextMenuCommand>,
         browser: &Browser,
         host: &BrowserHost,
-        file_roots: &[String],
-        is_preview: bool,
-    ) {
+        _file_roots: &[String],
+        block_downloads: bool,
+        downloads: &crate::downloads::Downloads,
+    ) -> Option<MenuFollowUp> {
         let matched = {
             let mut slot = self.held.lock().unwrap();
             if slot.as_ref().is_some_and(|h| h.id == id) {
@@ -81,14 +99,30 @@ impl TabMenuState {
                 None
             }
         };
-        if let Some(held) = matched {
-            // Always cancel CEF's native menu runner; we execute the chosen action directly.
-            held.callback.cancel();
-        } else {
-            return;
-        }
-        let Some(cmd) = action else { return };
+        // Always cancel CEF's native menu runner; we execute the chosen action directly.
+        let held = matched?;
+        held.callback.cancel();
+        let held_src_url = held.src_url;
+        let cmd = action?;
         match cmd {
+            // `src_url` is held only for an image with contents, outside preview tabs.
+            ContextMenuCommand::CopyImage => {
+                return held_src_url.map(|url| MenuFollowUp::CopyImage { url, frame_id: held.frame_id });
+            }
+            ContextMenuCommand::ToggleSpellcheck => {
+                if held.editable
+                    && let Some(ctx) = host.request_context()
+                {
+                    crate::menu_extras::toggle_spellcheck(&ctx);
+                }
+            }
+            ContextMenuCommand::ToggleLanguage { value } => {
+                if held.editable
+                    && let Some(ctx) = host.request_context()
+                {
+                    crate::menu_extras::toggle_language(&ctx, &value);
+                }
+            }
             ContextMenuCommand::Back => browser.go_back(),
             ContextMenuCommand::Forward => browser.go_forward(),
             ContextMenuCommand::Reload => browser.reload(),
@@ -119,10 +153,11 @@ impl TabMenuState {
                 }
             }
             ContextMenuCommand::SaveImage { url } => {
-                if !is_preview
-                    && (browser_policy::destination_origin(&url).is_some()
-                        || browser_policy::file_url_within(&url, file_roots))
+                if !block_downloads
+                    && held_src_url.as_deref() == Some(url.as_str())
+                    && browser_policy::download_url_allowed(&url)
                 {
+                    downloads.mark_pending_save_image(tab_id, tab_gen, &url);
                     host.start_download(Some(&CefString::from(url.as_str())));
                 }
             }
@@ -132,13 +167,17 @@ impl TabMenuState {
             ContextMenuCommand::AddToDictionary { word } => {
                 host.add_word_to_dictionary(Some(&CefString::from(word.as_str())));
             }
+            ContextMenuCommand::ExtensionItem { ext_id, item_id } => {
+                return Some(MenuFollowUp::Extension { ext_id, item_id, target: held.target });
+            }
         }
+        None
     }
 }
 
 fn allowed_menu_url(
     raw: &str,
-    roots: &[String],
+    _roots: &[String],
     preview: Option<&Arc<crate::preview::PreviewGrant>>,
 ) -> Option<String> {
     let trimmed = raw.trim();
@@ -153,21 +192,19 @@ fn allowed_menu_url(
             .is_some()
             .then(|| trimmed.to_owned());
     }
-    if browser_policy::destination_origin(trimmed).is_some()
-        || browser_policy::file_url_within(trimmed, roots)
-    {
-        Some(trimmed.to_owned())
-    } else {
-        None
-    }
+    browser_policy::destination_origin(trimmed)
+        .is_some()
+        .then(|| trimmed.to_owned())
 }
 
 wrap_context_menu_handler! {
     pub struct TabContextMenuHandler {
         tab_id: u64,
         shared: PromptShared,
+        prompts: Arc<crate::prompts::TabPrompts>,
         file_roots: Arc<Mutex<Vec<String>>>,
         preview: Option<Arc<crate::preview::PreviewGrant>>,
+        ext_menus: Option<Arc<Mutex<crate::extensions::context_menus::ExtensionContextMenuCatalog>>>,
         menu_state: Arc<TabMenuState>,
         out_tx: Output,
     }
@@ -190,14 +227,16 @@ wrap_context_menu_handler! {
 
         fn run_context_menu(
             &self,
-            _browser: Option<&mut Browser>,
-            _frame: Option<&mut Frame>,
+            browser: Option<&mut Browser>,
+            frame: Option<&mut Frame>,
             params: Option<&mut ContextMenuParams>,
             _model: Option<&mut MenuModel>,
             callback: Option<&mut RunContextMenuCallback>,
         ) -> ::std::os::raw::c_int {
             let Some(callback) = callback else { return 1 };
-            if !self.shared.enabled.load(Ordering::Relaxed) {
+            // The agent's right-click (or a page's menu off the agent's input) never opens the app's
+            // menu over the person's window: only after their own press or key (`chromium.ts:2500-2501`).
+            if !self.shared.enabled.load(Ordering::Relaxed) || self.prompts.menu_suppressed.load(Ordering::Acquire) {
                 callback.cancel();
                 return 1;
             }
@@ -218,40 +257,97 @@ wrap_context_menu_handler! {
             let suggestions = if !misspelled_raw.is_empty()
                 && params.dictionary_suggestions(Some(&mut sugg_list)) != 0
             {
-                sugg_list.into_iter().take(5).collect()
+                sugg_list
+                    .into_iter()
+                    .take(5)
+                    .map(|s| crate::prompts::sanitize_wire_line(&s, 128))
+                    .collect()
             } else {
                 Vec::new()
             };
             let edit = params.edit_state_flags().as_ref().0 as u32;
-            let is_image = *params.media_type().as_ref()
-                == sys::cef_context_menu_media_type_t::CM_MEDIATYPE_IMAGE;
+            let media_enum = *params.media_type().as_ref();
+            let is_image = media_enum == sys::cef_context_menu_media_type_t::CM_MEDIATYPE_IMAGE;
+            let media_type = match media_enum {
+                sys::cef_context_menu_media_type_t::CM_MEDIATYPE_IMAGE => Some("image".to_owned()),
+                sys::cef_context_menu_media_type_t::CM_MEDIATYPE_VIDEO => Some("video".to_owned()),
+                sys::cef_context_menu_media_type_t::CM_MEDIATYPE_AUDIO => Some("audio".to_owned()),
+                _ => None,
+            };
             let id = self.shared.next_id();
+            let clean_page_url = crate::prompts::sanitize_wire_line(&page_url, 4096);
+            let clean_frame_url = crate::prompts::sanitize_wire_line(&frame_url, 4096);
+            let link_url = allowed_menu_url(&raw_link, &roots, self.preview.as_ref())
+                .filter(|u| u.len() <= crate::prompts::MAX_POPUP_URL_BYTES);
+            let src_url = if is_image && self.preview.is_none() {
+                allowed_menu_url(&raw_src, &roots, None)
+                    .filter(|u| u.len() <= crate::prompts::MAX_POPUP_URL_BYTES)
+            } else {
+                None
+            };
+            let ext_src_url = if self.preview.is_none() {
+                allowed_menu_url(&raw_src, &roots, None)
+                    .filter(|u| u.len() <= crate::prompts::MAX_POPUP_URL_BYTES)
+            } else {
+                None
+            };
+            let is_editable = params.is_editable() != 0;
+            let (spellcheck, languages, dictionaries) = browser
+                .as_ref()
+                .filter(|_| is_editable)
+                .and_then(|b| b.host())
+                .and_then(|h| h.request_context())
+                .map(|ctx| crate::menu_extras::spellcheck_state(&ctx))
+                .unwrap_or_default();
+            let sel_capped: String = selection_text.chars().take(512).collect();
+            let target = crate::extensions::context_menus::MenuTarget {
+                page_url: clean_page_url.clone(),
+                frame_url: clean_frame_url.clone(),
+                link_url: link_url.clone(),
+                src_url: ext_src_url,
+                media_type,
+                is_editable,
+                selection_text: sel_capped.clone(),
+            };
+            let extensions = if self.preview.is_none()
+                && !self.prompts.agent_driven.load(Ordering::Acquire)
+                && let Some(catalog) = &self.ext_menus
+            {
+                catalog.lock().unwrap().build_groups(&target)
+            } else {
+                Vec::new()
+            };
             let menu = PageContextMenu {
                 id,
                 x: params.xcoord(),
                 y: params.ycoord(),
-                page_url,
-                frame_url,
-                link_url: allowed_menu_url(&raw_link, &roots, self.preview.as_ref()),
+                page_url: clean_page_url,
+                frame_url: clean_frame_url,
+                link_url,
                 // Never expose `src_url` / `SaveImage` on preview tabs (`notes/review-rd281.md` #5).
-                src_url: if is_image && self.preview.is_none() {
-                    allowed_menu_url(&raw_src, &roots, None)
-                } else {
-                    None
-                },
+                src_url,
                 is_image,
                 has_image_contents: params.has_image_contents() != 0,
-                is_editable: params.is_editable() != 0,
-                selection_text: selection_text.chars().take(512).collect(),
+                is_editable,
+                selection_text: sel_capped,
                 can_cut: (edit & sys::cef_context_menu_edit_state_flags_t::CM_EDITFLAG_CAN_CUT.0 as u32) != 0,
                 can_copy: (edit & sys::cef_context_menu_edit_state_flags_t::CM_EDITFLAG_CAN_COPY.0 as u32) != 0,
                 can_paste: (edit & sys::cef_context_menu_edit_state_flags_t::CM_EDITFLAG_CAN_PASTE.0 as u32) != 0,
                 can_select_all: (edit & sys::cef_context_menu_edit_state_flags_t::CM_EDITFLAG_CAN_SELECT_ALL.0 as u32) != 0,
-                misspelled_word: (!misspelled_raw.is_empty()).then_some(misspelled_raw),
+                misspelled_word: (!misspelled_raw.is_empty())
+                    .then(|| crate::prompts::sanitize_wire_line(&misspelled_raw, 256)),
                 suggestions,
+                extensions,
+                spellcheck,
+                languages,
+                dictionaries,
             };
             if let Some(prev) = self.menu_state.held.lock().unwrap().replace(HeldMenu {
                 id,
+                src_url: menu.src_url.clone().filter(|_| menu.has_image_contents),
+                target,
+                editable: is_editable,
+                frame_id: frame.map(|f| CefString::from(&f.identifier()).to_string()).filter(|s| !s.is_empty()),
                 callback: callback.clone(),
             }) {
                 prev.callback.cancel();

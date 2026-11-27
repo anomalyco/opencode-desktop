@@ -8,6 +8,7 @@ use rune::{Color, El, Tx, col, el, icon, row, text};
 use rune_theme_opencode::icons as ic;
 use opencode_ui::palette::Pal;
 use opencode_ui::style::{INSTANT, UI};
+use opencode_ui::tab::TabExt;
 
 use crate::{TerminalSurfaceHost, grid, ops, side_ops};
 
@@ -34,10 +35,11 @@ pub fn view<H: TerminalSurfaceHost + 'static>(s: &H, p: &Pal, sid: &str) -> El {
         row().key("narrow-terminal-tabs").gap(8.0).center_y().min_w(0.0).scroll_x(),
         |strip, t| {
             let on = active.as_deref() == Some(t.id.as_str());
-            let (pick, close, wk_pick, wk_close) = (t.id.clone(), t.id.clone(), wk.clone(), wk.clone());
+            let (pick, close, mid, wk_pick, wk_close, wk_mid) = (t.id.clone(), t.id.clone(), t.id.clone(), wk.clone(), wk.clone(), wk.clone());
             let close_btn = close_button_shell(p)
                 .on_press_tx(move |s: &mut H, tx: &mut Tx| close_tab(s, &wk_close, &close, tx));
             let tab = tab_shell(p, &t.id, t.display_title(), on, close_btn)
+                .closable_tab(move |s: &mut H, tx: &mut Tx| close_tab(s, &wk_mid, &mid, tx))
                 .on_press_tx(move |s: &mut H, tx: &mut Tx| pick_tab(s, &wk_pick, &pick, tx));
             strip.child(tab)
         },

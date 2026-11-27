@@ -100,6 +100,10 @@ impl Config {
         self.status_errors = on;
         self
     }
+    /// HTTPS enforcement is left to the browser on `wasm32`.
+    pub fn https_only(self, _: bool) -> Self {
+        self
+    }
     /// A page's requests follow redirects whatever they ask (a cross-origin one fails CORS).
     pub fn max_redirects(self, _: u32) -> Self {
         self

@@ -64,5 +64,6 @@
   "zoom.reset": "ຣີເຊັດການຊູມ",
   "zoom.percent": "{{percent}}%",
   "link.copy": "ສຳເນົາລິ້ງ",
-  "history.clear": "ລ້າງປະຫວັດ"
+  "history.clear": "ລ້າງປະຫວັດ",
+  "extensions.compat.feature.management": "ການຈັດການສ່ວນຂະຫຍາຍອື່ນໆ"
 }

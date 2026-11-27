@@ -65,5 +65,6 @@
   "zoom.reset": "Réinitialiser le zoom",
   "zoom.percent": "{{percent}} %",
   "link.copy": "Copier le lien",
-  "history.clear": "Effacer l’historique"
+  "history.clear": "Effacer l’historique",
+  "extensions.compat.feature.management": "Gérer d'autres extensions"
 }

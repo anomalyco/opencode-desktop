@@ -155,6 +155,62 @@ pub fn visible_uids(s: &App) -> Option<Vec<String>> {
     Some(out)
 }
 
+/// Next visible tab UID when closing `uid` while grouped side tabs are active (`closeTab`,
+/// `tab-groups-ui.tsx:396-415`, #65165). Keeps collapsed groups closed instead of stepping into a
+/// hidden tab-order neighbour and auto-expanding its group.
+pub fn next_visible_after_closing(s: &App, uid: &str) -> Option<String> {
+    let visible = visible_uids(s)?;
+    let at = visible.iter().position(|u| u == uid)?;
+    visible.get(at + 1).or_else(|| at.checked_sub(1).and_then(|p| visible.get(p))).cloned()
+}
+
+fn project_seed<'a>(s: &'a App, t: &'a Tab) -> &'a str {
+    let (project, dir) = if t.is_draft() {
+        (s.project_at(&t.directory), t.directory.as_str())
+    } else if t.server != *crate::servers::runtime::active(s) {
+        (s.checkout.project(&t.server, &t.id), t.directory.as_str())
+    } else {
+        let info = s.session(&t.id);
+        let dir = info.map_or(t.directory.as_str(), |i| i.directory.as_str());
+        let project = info.and_then(|i| s.project_for_session(i)).or_else(|| s.project_at(dir));
+        (project, dir)
+    };
+    project.map(|p| p.id.as_str()).or_else(|| (!dir.is_empty()).then_some(dir)).unwrap_or("other")
+}
+
+fn has_unremembered_auto_group(s: &App) -> bool {
+    let st = s.kernel.slots.untracked(&TAB_GROUPS);
+    if !st.filter.text.trim().is_empty() {
+        return false;
+    }
+    let mode = model::effective_mode(st.doc.mode, servers(s));
+    let known = |prefix: &str, seed: &str| {
+        st.doc.group_order.iter().any(|k| k.strip_prefix(prefix) == Some(seed))
+            && st.doc.colors.keys().any(|k| k.strip_prefix(prefix) == Some(seed))
+    };
+    match mode {
+        Mode::None => false,
+        Mode::Server => s.tabs.iter().any(|t| !known("server:", t.server.as_str())),
+        Mode::Project => s.tabs.iter().any(|t| !known("project:", project_seed(s, t))),
+    }
+}
+
+/// Records the position and default color of any newly visible automatic group (`rememberAutoGroups`,
+/// #65165), using an allocation-free fast check so steady-state frames do no work.
+pub fn remember_auto(s: &mut App) -> bool {
+    if !on(s) || !has_unremembered_auto_group(s) {
+        return false;
+    }
+    let items = metas(s);
+    let remembered = groups(s, &items).and_then(|gs| model::remember_auto_groups(&gs, &s.kernel.slots.untracked(&TAB_GROUPS).doc));
+    let Some((group_order, colors)) = remembered else { return false };
+    update(s, |d| {
+        d.group_order = group_order;
+        d.colors = colors;
+    });
+    true
+}
+
 pub fn reorder(s: &mut App, keys: &[String]) {
     let rank: HashMap<&str, usize> = keys.iter().enumerate().map(|(i, k)| (k.as_str(), i)).collect();
     let mut tabs: Vec<Tab> = s.tabs.to_vec();
@@ -232,6 +288,9 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
         if on(s) {
             expand_current(s, current.as_deref());
         }
+        changed = true;
+    }
+    if remember_auto(s) {
         changed = true;
     }
     changed
@@ -322,6 +381,8 @@ pub fn set_mode(s: &mut App, mode: Mode) {
     update(s, |d| d.mode = mode);
     if mode == Mode::None {
         canonicalize_now(s);
+    } else {
+        remember_auto(s);
     }
 }
 

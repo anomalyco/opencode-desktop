@@ -5,6 +5,7 @@
 
 use std::collections::HashMap;
 
+use opencode_kit::servers::ServerKey;
 use rune::Tx;
 use rune_theme_opencode::icons as ic;
 
@@ -14,13 +15,24 @@ use crate::jobs::Apply;
 use crate::popup::{self, Item, Menu};
 use opencode_i18n::t;
 
+fn branch_key(server: &ServerKey, dir: &str) -> (ServerKey, String) {
+    (server.clone(), opencode_servers::home::same_directory_key(dir))
+}
+
 /// Each folder's branch, once read (`None` for a folder that isn't on one), and the recovery
 /// dialog for a new worktree the session didn't move into.
 #[derive(Default)]
 pub struct Location {
-    branches: HashMap<String, Option<String>>,
+    branches: HashMap<(ServerKey, String), Option<String>>,
     changes: Changes,
     pub(super) recovery: Option<super::move_recovery::Recovery>,
+}
+
+/// Keeps cached location-card branches current when `vcs.branch.updated` arrives.
+pub(crate) fn branch_updated(s: &mut App, server: &ServerKey, dir: &str, branch: Option<String>) {
+    if let Some(slot) = s.location.branches.get_mut(&branch_key(server, dir)) {
+        *slot = branch;
+    }
 }
 
 /// The location menu's working-tree count is ungrouped, independent of the Review tab's scope.
@@ -42,10 +54,11 @@ pub(super) fn open_card(s: &mut App, tx: &mut Tx) {
     }
     let crate::Route::Session { id, .. } = &*s.route else { return };
     let Some(info) = s.session(id).cloned() else { return };
+    let session_dir = s.queue.starts.directory(&info.id).unwrap_or(&info.directory).to_owned();
     // The changes row keeps the session's changes fresh while the card shows, and Move session
     // to lists the project's worktrees as they are now.
     if s.live() {
-        let dir = info.directory.clone();
+        let dir = session_dir.clone();
         s.location.changes = Changes::Reading(dir.clone());
         s.job(move |srv| {
             let path = format!("/api/vcs/diff?mode=working&location%5Bdirectory%5D={}", crate::switcher::encode(&dir));
@@ -66,17 +79,21 @@ pub(super) fn open_card(s: &mut App, tx: &mut Tx) {
     }
     s.list_worktrees(&info.project);
     show(s, &info, tx);
-    let root = s.project(&info.project).map(|p| p.directory.clone());
-    for dir in std::iter::once(info.directory.clone()).chain(root) {
-        if s.location.branches.contains_key(&dir) {
+    let server = crate::servers::runtime::active(s).clone();
+    let root = s.project(&info.project).or_else(|| s.project_at(&session_dir)).map(|p| p.directory.clone());
+    for dir in std::iter::once(session_dir).chain(root) {
+        let key = branch_key(&server, &dir);
+        if s.location.branches.contains_key(&key) {
             continue;
         }
+        let srv_key = server.clone();
         s.job(move |srv| {
             let path = format!("/api/vcs?location%5Bdirectory%5D={}", crate::switcher::encode(&dir));
             let branch = srv.get(&path).ok().map(|v| v["data"]["branch"]["current"].as_str().or_else(|| v["branch"]["current"].as_str()).map(str::to_owned));
             Box::new(move |s: &mut App, tx: &mut Tx| {
                 let Some(branch) = branch else { return };
-                s.location.branches.insert(dir, branch);
+                s.sidebar_inbox.branches.updated(&srv_key, &dir, branch.clone());
+                s.location.branches.insert(branch_key(&srv_key, &dir), branch);
                 reshow(s, tx);
             }) as Apply
         });
@@ -95,16 +112,18 @@ fn reshow(s: &mut App, tx: &mut Tx) {
 }
 
 fn show(s: &mut App, info: &opencode_kit::model::SessionInfo, tx: &mut Tx) {
-    let project = s.project(&info.project).cloned();
-    let name = project.as_ref().map_or_else(|| crate::view::project_or_dir(None, &info.directory), |p| p.name.clone());
-    let dir = info.directory.clone();
+    let server = crate::servers::runtime::active(s);
+    let dir = s.queue.starts.directory(&info.id).unwrap_or(&info.directory).to_owned();
+    let dir_key = branch_key(server, &dir);
+    let project = s.project(&info.project).or_else(|| s.project_at(&dir)).cloned();
+    let name = project.as_ref().map_or_else(|| crate::view::project_or_dir(None, &dir), |p| p.name.clone());
     let sid = info.id.clone();
-    let git = project.as_ref().is_some_and(|p| opencode_kit::model::project_git(&p.id)) || s.location.branches.get(&dir).is_some_and(Option::is_some);
+    let git = project.as_ref().is_some_and(|p| opencode_kit::model::project_git(&p.id)) || s.location.branches.get(&dir_key).is_some_and(Option::is_some);
     let worktree = super::location::worktree_name(project.as_ref(), &dir);
     let child = info.parent.is_some();
 
     let mut menu = Menu::new(name.clone()).width(320.0).card();
-    let mut head = Item::new("project", name.clone()).enabled(project.is_some());
+    let mut head = Item::new("project", name.clone()).medium().enabled(project.is_some());
     if let Some(p) = &project {
         head = head.project(p.directory.clone());
     }
@@ -122,7 +141,7 @@ fn show(s: &mut App, info: &opencode_kit::model::SessionInfo, tx: &mut Tx) {
         };
     }
 
-    let branch = s.location.branches.get(&dir).cloned().flatten();
+    let branch = s.location.branches.get(&dir_key).cloned().flatten();
     if git {
         menu = match &branch {
             Some(b) => {
@@ -134,7 +153,10 @@ fn show(s: &mut App, info: &opencode_kit::model::SessionInfo, tx: &mut Tx) {
                 menu.submenu_icon("branch", b.clone(), &ic::BRANCH, sub)
             }
             None => {
-                let base = project.as_ref().filter(|p| p.directory != dir).and_then(|p| s.location.branches.get(&p.directory).cloned().flatten());
+                let base = project
+                    .as_ref()
+                    .filter(|p| opencode_servers::home::same_directory_key(&p.directory) != dir_key.1)
+                    .and_then(|p| s.location.branches.get(&branch_key(server, &p.directory)).cloned().flatten());
                 let line = match base {
                     Some(base) => format!("{} \u{b7} {}", t!("plugin.details.noBranch"), t!("plugin.details.basedOn", branch = base)),
                     None => t!("plugin.details.noBranch").to_owned(),
@@ -163,7 +185,7 @@ fn show(s: &mut App, info: &opencode_kit::model::SessionInfo, tx: &mut Tx) {
     if let Some((_, label)) = crate::open_in::current_non_finder(s) {
         folder = folder.item(Item::new("open-in", t!("plugin.file.open.ariaLabel", app = label)).icon(&ic::OUTLINE_ARROW_UP_RIGHT));
     }
-    menu = menu.submenu_icon("path", elide_middle(&dir, PATH_W), &ic::FOLDER, folder);
+    menu = menu.submenu_path("path", dir.clone(), &ic::FOLDER, folder);
     menu = menu.separator().item(Item::new("settings", t!("dialog.project.edit.title")).icon(&ic::SETTINGS_GEAR).enabled(project.is_some()));
 
     let project_id = project.as_ref().map(|p| p.id.clone());
@@ -182,7 +204,7 @@ fn show(s: &mut App, info: &opencode_kit::model::SessionInfo, tx: &mut Tx) {
         Some("changes") => s.show_review(&sid, tx),
         Some("copy-path") => copied(s, &dir, tx),
         Some("reveal") => {
-            if let Err(e) = reveal(&dir) {
+            if let Err(e) = reveal_target(s, &dir).and_then(|t| reveal(&t)) {
                 crate::status_toast::fail(s, t!("common.requestFailed"), e);
             }
         }
@@ -275,31 +297,6 @@ fn move_session(s: &mut App, sid: &str, dir: &str, project: Option<&str>, root: 
     });
 }
 
-/// The folder row's room for its path in the 320 card: less the card's inset, the row's
-/// padding, the glyph, the chevron and their gaps.
-const PATH_W: f32 = 320.0 - 4.0 - 8.0 - 8.0 - 16.0 - 8.0 - 8.0 - 16.0;
-
-/// `path` cut in the middle to fit `max` (the folder row's `bdi`): the parent folders shrink
-/// behind an ellipsis, the last folder stays whole.
-fn elide_middle(path: &str, max: f32) -> String {
-    let style = rune::TextStyle::new(13.0, 440.0).lh(16.0).tracking(-0.04);
-    let w = |s: &str| rune::text::measure(s, &[], style, None).0;
-    if w(path) <= max {
-        return path.to_owned();
-    }
-    let cut = path.rfind(['/', '\\']).unwrap_or(0);
-    let (head, tail) = path.split_at(cut);
-    let mut head: Vec<char> = head.chars().collect();
-    while !head.is_empty() {
-        head.pop();
-        let candidate = format!("{}…{tail}", head.iter().collect::<String>());
-        if w(&candidate) <= max {
-            return candidate;
-        }
-    }
-    tail.to_owned()
-}
-
 fn copied(s: &mut App, value: &str, tx: &mut Tx) {
     tx.copy(value.to_owned());
     crate::status_toast::succeed(s, t!("common.copied"), value);
@@ -319,16 +316,38 @@ pub(crate) fn reveal_label() -> &'static str {
     opencode_i18n::t!("session.header.reveal.containingFolder")
 }
 
-/// Shows folder `dir` in the system's file manager; a headless run opens nothing.
+/// Error string returned by [`reveal`] when a verified local path does not exist on disk,
+/// so callers never need to touch `Path::exists()` on a refused UNC/mapped/reparse path.
+pub(crate) const MISSING_DIR_ERR: &str = "Path doesn't exist";
+
+/// The folder Reveal shows for workspace `dir`: its root as pinned at start-up (the real folder
+/// behind a symlink or junction). A root that couldn't be pinned then says so, and that its links
+/// are refused until the app restarts; a missing folder still reaches `reveal`'s own message.
+pub(crate) fn reveal_target(s: &App, dir: &str) -> Result<String, String> {
+    if !s.can_reveal_outside() {
+        return Ok(dir.to_owned());
+    }
+    match s.pinned_local_root(dir) {
+        Some(root) => Ok(root),
+        None if !std::path::Path::new(dir).exists() => Ok(dir.to_owned()),
+        None => Err(t!("rune.files.root.refused").to_owned()),
+    }
+}
+
+/// Shows folder `dir` in the system's file manager; a headless run opens nothing. Verifies local
+/// fixed drive / `MNT_LOCAL`, non-`subst`-UNC, zero symlinks/reparse points, directory kind, and
+/// non-bundle on macOS BEFORE touching disk, then reveals via `browser_policy::reveal_in_file_manager`
+/// (never spawns bare `explorer.exe <path>` or `/usr/bin/open <path>`).
 pub(crate) fn reveal(dir: &str) -> Result<(), String> {
     if crate::headless() {
         return Ok(());
     }
-    #[cfg(target_os = "windows")]
-    let mut cmd = std::process::Command::new("explorer.exe");
-    #[cfg(target_os = "macos")]
-    let mut cmd = std::process::Command::new("/usr/bin/open");
-    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
-    let mut cmd = std::process::Command::new("xdg-open");
-    cmd.arg(dir).spawn().map(|_| ()).map_err(|e| e.to_string())
+    let verified = browser_policy::verify_local_path(dir).map_err(|e| match e {
+        browser_policy::LocalPathError::NotFound => MISSING_DIR_ERR.to_owned(),
+        other => other.to_string(),
+    })?;
+    if !verified.is_dir || browser_policy::is_macos_bundle(&verified.path) {
+        return Err("Path is not a local folder".into());
+    }
+    harness_log::reveal(&verified.path).map(|_| ()).map_err(|e| e.to_string())
 }

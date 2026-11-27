@@ -61,9 +61,36 @@ pub fn model_trigger<S: PickerHost>(s: &S, p: &Pal, provider: Option<&str>, mode
 /// list on a press.
 fn wrap<S: PickerHost>(s: &S, p: &Pal, kind: Kind, button: El) -> El {
     // A new label resizes it and moves its neighbours in the choice, with no glide.
+    let open_here = s.pickers().open() == Some(kind);
     let mut button = button.label(kind.choose_label()).motion(Spring::NONE);
-    if s.pickers().open() == Some(kind) && kind != Kind::Model {
+    if kind != Kind::Model {
+        button = button.expanded(open_here);
+    }
+    if open_here && kind != Kind::Model {
         button = button.fill(p.pressed).hover(Color::TRANSPARENT);
+    }
+    // Official wraps toolbar pickers in `<Tooltip placement="top">` with their shortcut keycaps,
+    // inactive while the menu is open or in narrow mobile drawers (`editor.tsx:498-524,1158-1166`).
+    if !open_here && !(crate::style::narrow() && kind != Kind::Project) {
+        button = button.help(kind.choose_label()).help_above();
+        if let Some(bind) = match kind {
+            Kind::Agent => Some(opencode_ui::keymap::Bind::Agent),
+            Kind::Model => Some(opencode_ui::keymap::Bind::Model),
+            Kind::Effort => Some(opencode_ui::keymap::Bind::Variant),
+            Kind::Speed | Kind::Project => None,
+        } {
+            button = button.help_keys(bind.keycaps());
+        }
+        // The speed's command has no key until Settings > Shortcuts gives it one
+        // (`composer/model.ts` `speed.keybind`).
+        if kind == Kind::Speed {
+            use opencode_ui::keymap::{overrides, sequence};
+            let strokes = sequence::first(super::speed::CYCLE_COMMAND)
+                .unwrap_or_else(|| overrides::command(super::speed::CYCLE_COMMAND).and_then(|k| k.chords().first().copied()).into_iter().collect());
+            if !strokes.is_empty() {
+                button = button.help_keys(sequence::caps(&strokes));
+            }
+        }
     }
     let button = button.on_press_tx(move |s: &mut S, tx: &mut Tx| open::<S>(s, kind, tx));
     // A Kobalte `Menu.Trigger` (`editor.tsx:1153`) opens on the mouse's `pointerdown`; the model's
@@ -72,21 +99,29 @@ fn wrap<S: PickerHost>(s: &S, p: &Pal, kind: Kind, button: El) -> El {
 }
 
 /// The agent's picker folded to its mark; it still opens the agent list.
-pub fn agent_icon<S: PickerHost>(_: &S, p: &Pal, name: &str) -> El {
+pub fn agent_icon<S: PickerHost>(s: &S, p: &Pal, name: &str) -> El {
+    let open_here = s.pickers().open() == Some(Kind::Agent);
     let b = el()
         .key(Kind::Agent.key())
         .role("button")
         .label_static(opencode_i18n::t!("ui.promptInput.chooseAgent"))
-        .help(format!("{} ({name})", opencode_i18n::t!("ui.promptInput.chooseAgent")))
+        .expanded(open_here)
         .size(28.0, 28.0)
         .radius(6.0)
         .center()
-        .hover(p.hover)
-        .press(p.pressed)
         .motion(Spring::NONE)
         .focus_inset(p)
-        .child(icon(&ic::BRAIN, 16.0).color(p.icon_muted));
-    b.on_press_tx(|s: &mut S, tx: &mut Tx| open::<S>(s, Kind::Agent, tx)).press_on_down()
+        .child(icon(&ic::BRAIN, 16.0).color(if open_here { p.icon } else { p.icon_muted }))
+        .on_press_tx(|s: &mut S, tx: &mut Tx| open::<S>(s, Kind::Agent, tx))
+        .press_on_down();
+    if open_here {
+        b.fill(p.pressed)
+    } else {
+        b.help(format!("{} ({name})", opencode_i18n::t!("ui.promptInput.chooseAgent")))
+            .help_above()
+            .hover(p.hover)
+            .press(p.pressed)
+    }
 }
 
 fn open<S: PickerHost>(s: &mut S, kind: Kind, tx: &mut Tx) {
@@ -109,8 +144,9 @@ fn open<S: PickerHost>(s: &mut S, kind: Kind, tx: &mut Tx) {
     }
 }
 
-/// The agent, model and effort triggers for a toolbar with room for all of them: the agent's
-/// only when the host shows it, the effort's only for a model that has efforts.
+/// The agent, model, effort and speed triggers for a toolbar with room for all of them: the
+/// agent's only when the host shows it, the effort's only for a model that has efforts, the
+/// speed's only for a model running at another speed than its standard one.
 pub fn triggers<S: PickerHost>(s: &S, p: &Pal) -> Vec<El> {
     let selected = s.selection();
     let model = selected.model;
@@ -118,25 +154,34 @@ pub fn triggers<S: PickerHost>(s: &S, p: &Pal) -> Vec<El> {
     if s.picker_show_agent() {
         out.push(trigger(s, p, Kind::Agent, &capitalize(&selected.agent), p.muted, true));
     }
-    let name = s.pickers().model_name(&model);
+    let name = s.pickers().composer_model_name(&model);
     let provider = s.pickers().provider_label(&model);
     out.push(model_trigger(s, p, provider.as_deref(), &name, true).shrink().min_w(0.0));
     if s.has_effort() {
         out.push(effort_trigger(s, p, &model.variant, true));
     }
+    if s.speed_shown() {
+        out.push(speed_trigger(s, p, true));
+    }
     out
 }
 
+/// The speed's button, after the effort's (`editor.tsx`): shown only away from the standard
+/// speed, so a host asks [`PickerHost::speed_shown`] first.
+pub fn speed_trigger<S: PickerHost>(s: &S, p: &Pal, chevron: bool) -> El {
+    trigger(s, p, Kind::Speed, &capitalize(&s.picker_current(Kind::Speed)), p.muted, chevron)
+}
+
 /// The effort's button. "Default", the absence of a choice, shows only while the pointer is
-/// over the composer, the keyboard is on it or its list is open (`editor.css:75-80`); it keeps
-/// its room meanwhile.
+/// over the composer, keyboard focus is on the effort button itself, or its list is open
+/// (`editor.css:87`); it keeps its room meanwhile without leaking on prompt keyboard focus.
 pub fn effort_trigger<S: PickerHost>(s: &S, p: &Pal, variant: &str, chevron: bool) -> El {
     let default = variant.is_empty() || variant == "default";
     let label = if default { opencode_i18n::t!("common.default").to_owned() } else { capitalize(variant) };
     let button = trigger(s, p, Kind::Effort, &label, p.muted, chevron);
-    // Rune shows it at its hovered opacity while the keyboard is on it (`:focus-visible`).
-    let shown = crate::style::hover_none() || !default || s.pickers().open() == Some(Kind::Effort);
-    if shown { button } else { button.group_opacity(0.0, 1.0) }
+    let shown = crate::style::hover_none() || !default || s.pickers().open() == Some(Kind::Effort) || s.pickers().composer_hovered;
+    let button = if shown { button } else { button.group_opacity(0.0, 1.0) };
+    el().key("effort-slot").hover_group_focus().hover_motion(rune::Anim::INSTANT, rune::Anim::INSTANT).child(button)
 }
 
 /// The open menu (agent, effort or project), above its trigger.
@@ -145,8 +190,21 @@ pub fn picker<S: PickerHost>(s: &S, p: &Pal) -> El {
     let active = s.picker_active();
     let selected = s.picker_current(kind);
     let items = s.picker_items();
+    // The widest option with `gap` before its check, the row's padding and the surface's inset.
+    let hug = |gap: f32| {
+        let label = items.iter().map(|i| rune::text::measure(&i.label, &[], crate::style::UI, None).0).fold(0.0, f32::max);
+        label + gap + pop::SLOT + MENU.pad_l + MENU.pad_r + 2.0 * MENU.inset
+    };
+    let width = match kind {
+        Kind::Project => 240.0,
+        // `fitMenuToOptions` (`packages/app/src/composer/editor/editor.tsx`, opencode#60026): the
+        // agent menu is as wide as its longest option, with 24 pt before the check.
+        Kind::Agent => hug(24.0),
+        // `min-width: 160px` (`packages/ui/src/navigation/menu/menu.css`), wider for a longer option.
+        Kind::Effort | Kind::Speed | Kind::Model => hug(MENU.gap).max(160.0),
+    };
     let mut menu = pop::surface::<S>(p, MENU, format!("picker-{}", kind.key()), kind.choose_label())
-        .w(if kind == Kind::Project { 240.0 } else { 180.0 })
+        .w(width)
         .focusable(true)
         .tab_index(-1)
         .no_focus_ring()

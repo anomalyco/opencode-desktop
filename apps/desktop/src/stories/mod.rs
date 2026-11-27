@@ -294,6 +294,7 @@ fn fresh(real: &App) -> App {
     if let Some(waker) = (*w.waker).clone() {
         w.composer_ext.attach.set_waker(waker.clone());
         w.appearance_state.icons.set_waker(waker.clone());
+        w.kernel.slots.get(&crate::app::MATH).set_waker(waker.clone());
         w.kernel.slots.get_mut(&crate::mentions::MENTIONS).set_waker(waker.clone());
         w.kernel.slots.get_mut(&crate::switcher::SWITCHER).set_waker(waker.clone());
         w.kernel.slots.get_mut(&crate::add_menu::ADD_MENU).slash.set_waker(waker);
@@ -664,7 +665,7 @@ fn images_open(s: &mut App, tx: &mut Play<App>) {
         let id = format!("{ARRIVED}img");
         opencode_kit::model::set_user_files(&id, pictures().to_vec());
         let quote = "One call for you: the sidebar reconnects on wake, but it drops the first heartbeat after the socket comes back";
-        opencode_kit::model::set_user_comments(&id, vec![opencode_kit::model::Quote { text: quote.into(), comment: None }.into()]);
+        opencode_kit::model::set_user_comments(&id, vec![opencode_kit::model::Quote { text: quote.into(), comment: None, source: None }.into()]);
         emit(s, "session.prompted", json!({ "messageID": id, "text": "Here's the sidebar after a wake, and the reconnect log" }), tx);
     });
     tx.after(0.7, |s, tx| {
@@ -680,9 +681,7 @@ fn images_open(s: &mut App, tx: &mut Play<App>) {
 /// Opens the first picture of the story's prompt, as a press on its thumbnail does.
 fn view_image(s: &mut App, tx: &mut Play<App>) {
     let id = format!("{ARRIVED}img");
-    if let Some(f) = opencode_kit::model::user_files(&id).first() {
-        crate::attachments::view_image(s, &format!("user-attachments:{id}"), 0, f, tx);
-    }
+    crate::attachments::view_image(s, &format!("user-attachments:{id}"), &opencode_kit::model::user_files(&id), 0, tx);
 }
 
 /// The timeline glides up past a screen, Jump to latest shows, and takes it back down.

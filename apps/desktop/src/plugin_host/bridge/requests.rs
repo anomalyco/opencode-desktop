@@ -29,8 +29,11 @@ fn apply(app: &mut App, plugin: &std::rc::Rc<str>, request: Request, tx: &mut Tx
             if instant {
                 tx.instant();
             }
-            if app.active_session_id().is_some() {
+            if let Some(sid) = app.active_session_id().map(str::to_owned) {
                 app.open_side_tab(&tab_key(plugin, &panel, instance.as_deref()), None, false, false, tx);
+                if plugin.as_ref() == "review" && panel == "changes" {
+                    crate::plugin_host::native::diff::open_review(app, &sid);
+                }
             }
         }
         Request::TogglePanel { panel, session, instant } => {
@@ -44,6 +47,9 @@ fn apply(app: &mut App, plugin: &std::rc::Rc<str>, request: Request, tx: &mut Tx
                 app.close_side_tab(&key, tx);
             } else {
                 app.open_side_tab(&key, None, false, false, tx);
+                if plugin.as_ref() == "review" && panel == "changes" {
+                    crate::plugin_host::native::diff::open_review(app, &session);
+                }
             }
         }
         Request::ClosePanel { panel, .. } => app.close_side_tab(&tab_key(plugin, &panel, None), tx),
@@ -61,6 +67,7 @@ fn apply(app: &mut App, plugin: &std::rc::Rc<str>, request: Request, tx: &mut Tx
             crate::popover::motion::opening(&app.diag.knobs, tx);
         }
         Request::ClosePopover => close_popover(app, tx),
+        Request::Focus(key) => tx.focus(key, true),
         Request::Flyout(event) => step_flyout(app, Some(plugin), event, tx),
         Request::OpenDialog { id, data } => {
             tx.instant();
@@ -179,13 +186,35 @@ fn apply(app: &mut App, plugin: &std::rc::Rc<str>, request: Request, tx: &mut Tx
             }
             (None, None) => app.run_command(&id, tx),
         },
-        Request::OpenLink { href } => app.open_reply_link(&href, tx),
-        Request::OpenExternal(url) => {
-            if app.live() {
-                crate::open_in::open_external(tx, &url);
+        Request::OpenLink { href, tool_sid, in_tool } => {
+            if !in_tool && app.plugins.is_builtin_plugin(plugin) {
+                app.open_reply_link(&href, tx);
+            } else {
+                let target_sid = match tool_sid {
+                    Some(caller) => caller,
+                    None => app.active_session_id().map(str::to_owned),
+                };
+                app.open_restricted_plugin_link(target_sid.as_deref(), &href, in_tool, tx);
             }
         }
-        Request::Reveal(path) => crate::plugin_host::reveal(&path),
+        Request::OpenExternal(url) => {
+            if app.live() {
+                let trimmed = url.trim();
+                let is_http = trimmed.get(..7).is_some_and(|s| s.eq_ignore_ascii_case("http://"))
+                    || trimmed.get(..8).is_some_and(|s| s.eq_ignore_ascii_case("https://"));
+                if !browser_policy::is_safe_os_external_url(trimmed) {
+                    if browser_policy::classify_app_link(trimmed, browser_policy::AppSchemeSource::Conversation).is_some() {
+                        tx.copy(trimmed.to_owned());
+                        app.toast_say(opencode_i18n::t!("common.copied").to_owned(), String::new());
+                    }
+                } else if is_http && !app.external_url_allowed_for_session(app.active_session_id(), trimmed) {
+                    app.toast_fail(opencode_i18n::t!("rune.browser.menu.pageUnavailable").to_owned(), String::new());
+                } else {
+                    crate::open_in::open_external(tx, trimmed);
+                }
+            }
+        }
+        Request::Reveal(path) => crate::open_in::reveal_abs(app, path),
         Request::CopyText(text) => tx.copy(text),
         // A muted session, or one under a muted root, shows nothing (`host-apis.tsx`'s notify).
         Request::Notify { session: Some(id), .. } if crate::session_menu::preferences::silenced(app, crate::servers::runtime::active(app), &id) => {}

@@ -114,11 +114,11 @@ pub(super) fn view<H: ConnectHost + 'static>(s: &H, p: &Pal, id: &str) -> El {
     let can = groups.iter().any(|(_, ms)| ms.iter().any(|m| m.key == *selected));
     let pick = selected.clone();
     let footer = row().key("first-provider-model-footer").w_full().h(60.0).px(16.0).center_y().child(spacer()).child(
-        ui::button(opencode_i18n::t!("common.continue"), ButtonVariant::Contrast)
+        opencode_ui::widgets::not_allowed(ui::button(opencode_i18n::t!("common.continue"), ButtonVariant::Contrast)
             .disabled(!can)
             .on_press_tx(move |s: &mut H, tx: &mut Tx| confirm_model(s, &pick, tx))
             .build(kit(p))
-            .key("connect-continue"),
+            .key("connect-continue"), !can),
     );
     col()
         .key("connect-body")

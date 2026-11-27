@@ -119,7 +119,15 @@ pub fn buttons(n: rune_notify::Notification, ask: &Ask) -> rune_notify::Notifica
 pub fn take(host: &dyn NotificationsHost) -> Vec<rune_notify::Click> {
     let mut all = crate::CLICKS.lock().unwrap_or_else(|e| e.into_inner());
     let window_id = host.window_id();
-    let mine = |c: &rune_notify::Click| c.get("window").is_none_or(|w| w.is_empty() || w == window_id || !host.window_exists(w));
+    let mine = |c: &rune_notify::Click| {
+        let orphan = |w: &str| w.is_empty() || !host.window_exists(w);
+        // An extension toast's click goes to the window that posted it, or else to one whose
+        // engine runs extensions: a window without one would drop it.
+        if c.get("kind") == Some("extension") {
+            return c.get("window").is_some_and(|w| w == window_id) || (c.get("window").is_none_or(orphan) && host.takes_extension_clicks());
+        }
+        c.get("window").is_none_or(|w| w == window_id || orphan(w))
+    };
     let (taken, kept): (Vec<_>, Vec<_>) = std::mem::take(&mut *all).into_iter().partition(mine);
     *all = kept;
     taken

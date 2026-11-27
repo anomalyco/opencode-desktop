@@ -27,14 +27,22 @@ mod hub;
 mod ids;
 mod jobs;
 pub mod mcp;
+mod media;
 mod mentions;
+#[cfg(not(target_arch = "wasm32"))]
+pub use media::TempMediaFile;
 mod output_head;
 mod plugins;
+#[cfg(not(target_arch = "wasm32"))]
+mod preview;
+#[cfg(not(target_arch = "wasm32"))]
+pub use preview::{PreviewAbort, PreviewHttpHead};
 #[cfg(not(target_arch = "wasm32"))]
 mod reach;
 #[cfg(not(target_arch = "wasm32"))]
 mod streams;
 pub mod rewrite;
+pub mod spaces;
 mod upload;
 mod widgets;
 #[cfg(target_arch = "wasm32")]
@@ -70,6 +78,7 @@ impl Server {
         false
     }
 }
+pub use spaces::Space;
 pub use upload::UploadError;
 pub use widgets::{WidgetError, WidgetProgram};
 pub use wire::{Incoming, Request, Ticket, TicketKind, Write};
@@ -331,16 +340,6 @@ impl Server {
         self.get_bytes(&format!("/api/experimental/media/{hash}"))
     }
 
-    /// `path` as a URL a media player opens on its own, which sends no header of ours: the
-    /// credential rides along as `auth_token`, which the server takes in its place
-    /// (`packages/server/src/middleware/authorization.ts`).
-    pub fn stream_url(&self, path: &str) -> String {
-        let url = format!("{}{path}", self.base);
-        let Some(token) = self.auth.as_deref().and_then(|a| a.strip_prefix("Basic ")) else { return url };
-        let token: String = token.chars().map(|c| match c { '+' => "%2B".into(), '/' => "%2F".into(), '=' => "%3D".into(), c => c.to_string() }).collect();
-        format!("{url}{}auth_token={token}", if path.contains('?') { '&' } else { '?' })
-    }
-
     /// Raw bytes from `path` (such as `/api/fs/read/<path>?location[directory]=…`).
     pub fn get_bytes(&self, path: &str) -> Result<Vec<u8>, WireError> {
         self.exchange("GET", path, None, Some(Duration::from_secs(60)), &[])?.bytes("GET", path)
@@ -529,12 +528,13 @@ impl Server {
         if info.id.is_empty() { Err(WireError::new("POST", "/api/session", WireKind::Shape("no session in the reply".into()))) } else { Ok(info) }
     }
 
-    /// Create and admit the first prompt. Only roll back a definitely rejected prompt:
-    /// after a lost reply the client needs the session intact to check its receipt.
-    pub fn start_as(&self, id: &str, directory: &str, prompt: &Prompt) -> Result<SessionInfo, WireError> {
+    /// Create and admit the first prompt, calling `after_create` between `POST /api/session` and
+    /// `POST /prompt` (used by the fail-open `<= 1 s` new-session browser-attach gate).
+    pub fn start_as(&self, id: &str, directory: &str, prompt: &Prompt, after_create: impl FnOnce(&SessionInfo)) -> Result<SessionInfo, WireError> {
         let created = self.create_session_as(id, directory, prompt.agent.as_deref(), prompt.model.as_ref());
         // The create already chose the agent and model, so no switches before the prompt.
-        let sent = created.as_ref().map_err(WireError::clone).and_then(|_| {
+        let sent = created.as_ref().map_err(WireError::clone).and_then(|info| {
+            after_create(info);
             let prompt = self.with_mentions(Some(directory), id, prompt);
             self.write_bytes(&format!("/api/session/{id}/prompt"), prompt.body_bytes(), Expect::Prompt(prompt.id.as_deref()))
         });
@@ -571,10 +571,11 @@ impl Server {
     }
 
     /// `StartInNewWorktree`: the worktree, then `start_as` in it.
-    pub fn start_in_new_worktree(&self, id: &str, project: &str, from: &str, branch: Option<&str>, prompt: &Prompt, made: impl FnOnce()) -> Result<SessionInfo, WireError> {
+    #[allow(clippy::too_many_arguments)]
+    pub fn start_in_new_worktree(&self, id: &str, project: &str, from: &str, branch: Option<&str>, prompt: &Prompt, made: impl FnOnce(), after_create: impl FnOnce(&SessionInfo)) -> Result<SessionInfo, WireError> {
         let directory = self.create_worktree(project, from, branch)?;
         made();
-        self.start_as(id, &directory, prompt)
+        self.start_as(id, &directory, prompt, after_create)
     }
 
     /// `vcs.branch.list`: up to 50 branches at `directory` whose names hold `search`.
@@ -596,6 +597,8 @@ impl Server {
     pub fn projects(&self) -> Result<Vec<model::Project>, WireError> {
         self.get("/api/project").map(|v| model::parse_projects(&v))
     }
+
+
 
     /// Every direct subagent session of `session`, newest first, in pages of 200 (Desktop's
     /// `listChildren`).
@@ -668,15 +671,22 @@ impl Server {
         self.write("PATCH", &format!("/api/session/{session}/inbox/{item}"), Some(body)).map(|_| ())
     }
 
+    /// Open permission requests for `session`, propagating errors so callers never prune on failure.
+    pub fn pending_permissions(&self, session: &str) -> Result<Vec<Pending>, WireError> {
+        let v = self.get(&format!("/api/session/{session}/permission"))?;
+        Ok(list(&v).iter().filter_map(model::parse_permission).collect())
+    }
+
+    /// Open structured forms for `session`, propagating errors so callers never prune on failure.
+    pub fn pending_forms(&self, session: &str) -> Result<Vec<Pending>, WireError> {
+        let v = self.get(&format!("/api/session/{session}/form"))?;
+        Ok(list(&v).iter().filter_map(model::parse_form).collect())
+    }
+
     /// The session's open permission requests and forms.
     pub fn pending(&self, session: &str) -> Vec<Pending> {
-        let mut out = Vec::new();
-        if let Ok(v) = self.get(&format!("/api/session/{session}/permission")) {
-            out.extend(list(&v).iter().filter_map(model::parse_permission));
-        }
-        if let Ok(v) = self.get(&format!("/api/session/{session}/form")) {
-            out.extend(list(&v).iter().filter_map(model::parse_form));
-        }
+        let mut out = self.pending_permissions(session).unwrap_or_default();
+        out.extend(self.pending_forms(session).unwrap_or_default());
         out
     }
 
@@ -715,7 +725,11 @@ impl Server {
                 stream_step(state, StreamEvent::Closed);
                 return Ok(());
             }
+            let shrink = line.len() <= 64 * 1024 && line.capacity() > 256 * 1024;
             line.clear();
+            if shrink {
+                line.shrink_to(64 * 1024);
+            }
             let limit = 32 << 20;
             let read = (&mut reader).take(limit + 1).read_line(&mut line).map_err(|e| down(read_failure(e)))?;
             if read == 0 { break; }
@@ -763,12 +777,12 @@ impl Server {
 /// heartbeat, a comment or a line it can't read.
 fn event_line(line: &str) -> Option<Incoming> {
     let data = line.strip_prefix("data:")?;
-    let v = serde_json::from_str::<Value>(data.trim()).ok()?;
+    let mut v = serde_json::from_str::<Value>(data.trim()).ok()?;
     let ty = v["type"].as_str().unwrap_or("").to_owned();
     if ty.is_empty() || ty == "server.heartbeat" {
         return None;
     }
-    let mut data = v["data"].clone();
+    let mut data = v["data"].take();
     // A compaction message, and a notice's, takes its id from the event that started it; so does
     // the idle marker a run's end records (`session.execution.*`), which ends a turn that failed
     // before any step, with its error.

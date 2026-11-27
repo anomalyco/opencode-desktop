@@ -1,9 +1,11 @@
 //! macOS: team builds (`anomaly.opencode-rune`) update from Anomaly's release feed. A download is
 //! verified (size, SHA-256, code signature, signing team, Gatekeeper) and unpacked into a private
-//! folder under `~/Library/Caches/anomaly.opencode-rune/Updates`; Restart to update checks the
-//! staged bundle again, swaps it in atomically (the old bundle comes back when the move fails),
-//! and the app starts again from it as the app menu's Restart does (`Tx::relaunch`). Local dev bundles (`anomaly.opencode-rune.dev`) and bare `cargo`
-//! binaries never update.
+//! folder under `~/Library/Caches/anomaly.opencode-rune/Updates`; Restart to update or quitting
+//! with a ready update checks the staged bundle again and swaps it in atomically (the old bundle
+//! comes back when the move fails), and Restart to update starts the app again from it as the app
+//! menu's Restart does (`Tx::relaunch`). Local dev bundles (`anomaly.opencode-rune.dev`) and bare
+//! `cargo` binaries never update. A bundle this user can't replace (translocated, read-only) keeps
+//! checking and links to the DMG; `DisableUpdates` in the app's defaults domain turns updates off.
 
 use std::io;
 use std::os::unix::fs::MetadataExt as _;
@@ -18,14 +20,42 @@ use super::engine::{self, Engine, Facts};
 use super::feed;
 use super::platform::Platform;
 
-/// Team release bundle ID installed from the release feed.
+/// Team release bundle ID installed from the release feed (the dev channel's, the only one).
 pub const TEAM_BUNDLE_ID: &str = "anomaly.opencode-rune";
 
-/// Only bundles the team release feed manages update (never local dev builds).
+/// Only the bundle the team release feed publishes updates (never local dev builds,
+/// `anomaly.opencode-rune.dev`, or a pull request's). A staged update must carry the running
+/// bundle's own id (`verify_bundle`).
 pub fn is_updatable_bundle_id(bundle_id: &str) -> bool {
     bundle_id == TEAM_BUNDLE_ID
 }
 const EXPECTED_SIGNING_TEAM: &str = "5NZ4Q7NXJ4";
+
+/// The code requirement every update must satisfy (`codesign --verify -R`): Apple's anchor, the
+/// bundle id, a Developer ID certificate of Anomaly's team, and Apple's notarization, as Hex's
+/// `app/update-requirement.txt`.
+fn update_requirement(bundle_id: &str, team: &str, notarized: bool) -> String {
+    let base = format!("anchor apple generic and identifier \"{bundle_id}\" and certificate 1[field.1.2.840.113635.100.6.2.6] exists and certificate leaf[field.1.2.840.113635.100.6.1.13] exists and certificate leaf[subject.OU] = \"{team}\"");
+    if notarized { format!("{base} and notarized") } else { base }
+}
+
+/// Whether an administrator turned updates off: `DisableUpdates` in the app's defaults domain,
+/// set by a configuration profile (managed preferences) or `defaults write`.
+fn updates_disabled_by_policy(bundle_id: &str) -> bool {
+    let user = feed::env("USER").unwrap_or_default();
+    let domains = [
+        bundle_id.to_owned(),
+        format!("/Library/Preferences/{bundle_id}"),
+        format!("/Library/Managed Preferences/{bundle_id}"),
+        format!("/Library/Managed Preferences/{user}/{bundle_id}"),
+    ];
+    domains.iter().any(|domain| {
+        Command::new("/usr/bin/defaults")
+            .args(["read", domain, "DisableUpdates"])
+            .output()
+            .is_ok_and(|out| out.status.success() && matches!(String::from_utf8_lossy(&out.stdout).trim().to_ascii_lowercase().as_str(), "1" | "true" | "yes"))
+    })
+}
 
 static STAGE_SEQ: AtomicU64 = AtomicU64::new(1);
 
@@ -54,7 +84,7 @@ pub struct Mac {
 }
 
 /// The updater for the running bundle, when it's a team build; `None` keeps it off.
-pub fn platform(exe: &Path, build_channel: &str, updates: PathBuf) -> Option<Mac> {
+pub fn platform(exe: &Path, updates: PathBuf) -> Option<Mac> {
     let exe = exe.canonicalize().ok()?;
     let app = bundle_root_from_exe(&exe)?;
     let exe_rel = exe.strip_prefix(&app).ok()?.to_path_buf();
@@ -62,12 +92,21 @@ pub fn platform(exe: &Path, build_channel: &str, updates: PathBuf) -> Option<Mac
     if !is_updatable_bundle_id(&bundle.id) {
         return None;
     }
-    let service = feed::env("OPENCODE_RUNE_RELEASE_URL").unwrap_or_else(|| feed::DEFAULT_SERVICE_URL.to_owned());
-    let local_loopback_test = feed::loopback(&service) && bundle.team.is_none() && feed::env("OPENCODE_RUNE_SKIP_GATEKEEPER").as_deref() == Some("1");
-    let (check_team, check_gatekeeper) = if local_loopback_test { (None, false) } else { (bundle.team.clone().or_else(|| Some(EXPECTED_SIGNING_TEAM.to_owned())), true) };
+    if updates_disabled_by_policy(&bundle.id) {
+        eprintln!("updater: off (DisableUpdates is set for {})", bundle.id);
+        return None;
+    }
+    let service = feed::debug_release_url().unwrap_or_else(|| feed::DEFAULT_SERVICE_URL.to_owned());
+    if !feed::allowed_update_url(&service) {
+        return None;
+    }
+    let local_loopback_test = feed::debug_skip_gatekeeper() && feed::loopback(&service) && bundle.team.is_none();
+    // Always Anomaly's team, never whichever team signed the running bundle.
+    let (check_team, check_gatekeeper) = if local_loopback_test { (None, false) } else { (Some(EXPECTED_SIGNING_TEAM.to_owned()), true) };
     sweep_old_stages(&updates);
+    sweep_swap_leftovers(&app);
     sync_installed_receipt(&updates, &exe, &app.join(&exe_rel));
-    let facts = Facts { version: bundle.version.clone(), channel: feed::feed_channel(build_channel), service, updates };
+    let facts = Facts { version: bundle.version.clone(), channel: feed::feed_channel(), service, updates };
     Some(Mac::new(facts, bundle, exe_rel, check_team, check_gatekeeper))
 }
 
@@ -80,14 +119,25 @@ impl Mac {
     /// keyed by the placed executable's `(dev, ino)` into `Updates/` after `swap` succeeds so the
     /// record survives even when `apply` runs after `storage::close()`.
     pub fn apply(&self) -> Result<(), String> {
+        self.apply_inner(false)
+    }
+
+    fn apply_inner(&self, on_quit: bool) -> Result<(), String> {
         let staged = self.staged.lock().ok().and_then(|mut s| s.take()).ok_or_else(|| "No staged update ready to install.".to_owned())?;
-        if let Err(e) = verify_bundle(&staged.app, &self.bundle.id, self.check_team.as_deref(), self.check_gatekeeper) {
+        // On quit, `spctl --assess` already passed during `stage()` and can stall online past
+        // `exit_deadline`, so verify bundle ID, `codesign --verify --strict --deep`, and signing
+        // team locally; also skip `engine::record_installed` because `storage::close()` has run
+        // (`sync_installed_receipt` promotes `installed-bundle.json` on next boot).
+        let check_gatekeeper = if on_quit { false } else { self.check_gatekeeper };
+        if let Err(e) = verify_bundle(&staged.app, &self.bundle.id, self.check_team.as_deref(), check_gatekeeper) {
             std::fs::remove_dir_all(&staged.dir).ok();
             return Err(e);
         }
         swap(&staged.app, &self.bundle.path)?;
         write_installed_receipt(&self.engine.facts.updates, &self.bundle.path.join(&self.exe_rel), &staged.version, &staged.sha256);
-        engine::record_installed(&staged.version, &staged.sha256);
+        if !on_quit {
+            engine::record_installed(&staged.version, &staged.sha256);
+        }
         std::fs::remove_dir_all(&staged.dir).ok();
         Ok(())
     }
@@ -105,7 +155,14 @@ impl Platform for Mac {
         {
             return Ok(Some(super::machine::Target::Installed(r.version)));
         }
-        Ok(self.engine.check()?.map(super::machine::Target::Restart))
+        let Some(version) = self.engine.check()? else { return Ok(None) };
+        // A bundle this user can't replace (translocated, read-only, another user's) is never
+        // overwritten: the update links to the DMG instead.
+        if let Err(why) = check_replaceable(&self.bundle.path) {
+            eprintln!("updater: {why}; offering the download instead");
+            return Ok(Some(super::machine::Target::External { version, url: self.download_url() }));
+        }
+        Ok(Some(super::machine::Target::Restart(version)))
     }
 
     fn stage(&self, progress: &dyn Fn(u64, u64)) -> Result<(), String> {
@@ -131,6 +188,7 @@ impl Platform for Mac {
             let app = unpack_zip(&zip, &unpacked)?;
             std::fs::remove_file(&zip).ok();
             verify_bundle(&app, &self.bundle.id, self.check_team.as_deref(), self.check_gatekeeper)?;
+            first_run(&app.join(&self.exe_rel));
             Ok(Staged { version: found.version, dir: dir.clone(), app, sha256: found.target.sha256 })
         })();
         match result {
@@ -158,8 +216,48 @@ impl Platform for Mac {
         true
     }
 
+    /// Opt-in install-on-quit (`packages/gui-plugins/src/updater/platform.ts`, `opencode#66501`).
+    /// Because Rune swaps the signed bundle directly at quit (no Squirrel.Mac), turning the
+    /// setting off mid-session always disarms quit-install cleanly.
+    fn installs_on_quit(&self) -> bool {
+        super::install_on_quit_enabled()
+    }
+
+    fn install_on_quit(&self) {
+        if let Err(e) = self.apply_inner(true) {
+            eprintln!("updater: couldn't install on quit: {e}");
+        }
+    }
+
     fn auto_install(&self) -> bool {
         feed::env("OPENCODE_RUNE_AUTO_INSTALL_ON_READY").as_deref() == Some("1")
+    }
+
+    fn external(&self) -> bool {
+        true
+    }
+
+    fn external_install(&self, url: &str) -> Result<(), String> {
+        let url = url.trim();
+        if !feed::allowed_update_url(url) || !browser_policy::is_safe_os_external_url(url) {
+            return Err("Refusing unsafe update URL".into());
+        }
+        if harness_log::record("openExternal", &[("url", url)]) {
+            return Ok(());
+        }
+        match Command::new("/usr/bin/open").arg(url).status() {
+            Ok(s) if s.success() => Ok(()),
+            Ok(s) => Err(format!("Could not open the download (open {s})")),
+            Err(e) => Err(format!("Could not open the download: {e}")),
+        }
+    }
+}
+
+impl Mac {
+    /// The channel's DMG for this Mac (`…/opencode/desktop-rune/dev/macos-arm64-dmg`).
+    fn download_url(&self) -> String {
+        let facts = &self.engine.facts;
+        format!("{}/{}/{}/{}/{}-dmg", facts.service.trim_end_matches('/'), super::protocol::APP_NAME, super::protocol::ARTIFACT_NAME, facts.channel, feed::target_name())
     }
 }
 
@@ -212,7 +310,37 @@ fn check_replaceable(app: &Path) -> Result<(), String> {
         .open(&probe)
         .map(drop)
         .and_then(|()| std::fs::remove_file(&probe))
-        .map_err(|_| format!("{} is not writable.", parent.display()))
+        .map_err(|_| format!("{} is not writable.", parent.display()))?;
+    // Moving the bundle aside renames it, which needs write access to the bundle folder itself
+    // (an administrator's copy in /Applications is often root's).
+    if !Command::new("/bin/test").arg("-w").arg(app).status().is_ok_and(|s| s.success()) {
+        return Err(format!("{} is not writable.", app.display()));
+    }
+    Ok(())
+}
+
+/// macOS checks a new executable file the first time a process is made from it, before that
+/// process's `main`: 1,074,000 to 1,097,000 µs for the 179 MB bundles of dev-473 and dev-474 on
+/// an M4, and more for a larger bundle. It is once per file, not per signature (a second unpack
+/// of the same build pays it again), and `codesign --verify` and `spctl --assess` don't take it.
+/// The swap renames the staged files into place, so the staged executable runs once here
+/// (`--version` prints and exits before anything else starts), and the version the app
+/// restarts into is one macOS has checked: its `main` came 27,273 µs after its start instead of
+/// 1,095,137. A run that fails, or is ended after 20 s, changes nothing: the update is staged
+/// either way.
+fn first_run(exe: &Path) {
+    use std::process::Stdio;
+    use std::time::{Duration, Instant};
+    let Ok(mut child) = Command::new(exe).arg("--version").stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).spawn() else { return };
+    let deadline = Instant::now() + Duration::from_secs(20);
+    while matches!(child.try_wait(), Ok(None)) {
+        if Instant::now() >= deadline {
+            child.kill().ok();
+            child.wait().ok();
+            return;
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    }
 }
 
 fn unpack_zip(zip: &Path, into: &Path) -> Result<PathBuf, String> {
@@ -233,9 +361,16 @@ pub fn verify_bundle(app: &Path, expected_id: &str, expected_team: Option<&str>,
     if info.id != expected_id {
         return Err(format!("update bundle ID {} did not match {expected_id}", info.id));
     }
-    let cs = Command::new("/usr/bin/codesign").args(["--verify", "--strict", "--deep"]).arg(app).output().map_err(|e| format!("failed to run codesign: {e}"))?;
+    let mut codesign = Command::new("/usr/bin/codesign");
+    codesign.args(["--verify", "--strict", "--deep"]);
+    // On quit (`check_gatekeeper` false) the notarization was already checked at staging, and an
+    // online notarization lookup could stall the exit.
+    if let Some(team) = expected_team {
+        codesign.arg(format!("-R={}", update_requirement(expected_id, team, check_gatekeeper)));
+    }
+    let cs = codesign.arg(app).output().map_err(|e| format!("failed to run codesign: {e}"))?;
     if !cs.status.success() {
-        return Err(format!("invalid code signature on update: {}", String::from_utf8_lossy(&cs.stderr).trim()));
+        return Err(format!("the update's code signature is not Anomaly's notarized Developer ID: {}", String::from_utf8_lossy(&cs.stderr).trim()));
     }
     let Some(expected_team) = expected_team else { return Ok(()) };
     if info.team.as_deref() != Some(expected_team) {
@@ -251,14 +386,19 @@ pub fn verify_bundle(app: &Path, expected_id: &str, expected_team: Option<&str>,
 }
 
 /// Atomically swaps `staged` into `dest`, restoring `dest` if the final move fails.
+/// Uses per-process unique sibling names so a leftover file, dangling symlink, or locked directory
+/// at legacy `.{name}.update` / `.{name}.previous` never permanently blocks updates (`ENOTDIR`),
+/// and never follows or removes symlinks.
 fn swap(staged: &Path, dest: &Path) -> Result<(), String> {
     let parent = dest.parent().ok_or_else(|| "app has no parent directory".to_owned())?;
     let name = dest.file_name().ok_or_else(|| "app has no file name".to_owned())?.to_string_lossy();
-    let incoming = parent.join(format!(".{name}.update"));
-    let outgoing = parent.join(format!(".{name}.previous"));
-    for leftover in [&incoming, &outgoing] {
-        if leftover.exists() {
-            std::fs::remove_dir_all(leftover).ok();
+    let seq = STAGE_SEQ.fetch_add(1, Ordering::Relaxed);
+    let pid = std::process::id();
+    let incoming = parent.join(format!(".{name}.update-{pid}-{seq}"));
+    let outgoing = parent.join(format!(".{name}.previous-{pid}-{seq}"));
+    for path in [&incoming, &outgoing] {
+        if std::fs::symlink_metadata(path).is_ok() {
+            return Err(format!("unexpected path already exists at {}", path.display()));
         }
     }
     move_bundle(staged, &incoming).map_err(|e| format!("could not stage update in {}: {e}", parent.display()))?;
@@ -289,10 +429,64 @@ fn move_bundle(from: &Path, to: &Path) -> io::Result<()> {
     }
 }
 
+fn pid_alive(pid: u32) -> bool {
+    if pid == std::process::id() {
+        return true;
+    }
+    match Command::new("/bin/kill").args(["-0", &pid.to_string()]).output() {
+        Ok(out) if out.status.success() => true,
+        Ok(out) => String::from_utf8_lossy(&out.stderr).contains("Operation not permitted"),
+        Err(_) => true,
+    }
+}
+
+fn is_real_dir(path: &Path) -> bool {
+    std::fs::symlink_metadata(path).is_ok_and(|m| !m.file_type().is_symlink() && m.is_dir())
+}
+
 fn sweep_old_stages(root: &Path) {
+    if !is_real_dir(root) {
+        return;
+    }
     let Ok(entries) = std::fs::read_dir(root) else { return };
     for entry in entries.flatten() {
-        if entry.file_name().to_string_lossy().starts_with("stage-") {
+        let name = entry.file_name();
+        let Some(name) = name.to_str() else { continue };
+        let Some(rest) = name.strip_prefix("stage-") else { continue };
+        let live = rest
+            .split_once('-')
+            .and_then(|(pid, _)| pid.parse::<u32>().ok())
+            .is_some_and(pid_alive);
+        if !live && is_real_dir(&entry.path()) {
+            std::fs::remove_dir_all(entry.path()).ok();
+        }
+    }
+}
+
+/// Removes dead-PID swap leftovers beside `app` (and non-symlink legacy `.update`/`.previous` dirs),
+/// never following symlinks and never touching leftovers of a still-running process.
+fn sweep_swap_leftovers(app: &Path) {
+    let Some(parent) = app.parent() else { return };
+    if !is_real_dir(parent) {
+        return;
+    }
+    let Some(name) = app.file_name().and_then(|n| n.to_str()) else { return };
+    let Ok(entries) = std::fs::read_dir(parent) else { return };
+    let legacy_u = format!(".{name}.update");
+    let legacy_p = format!(".{name}.previous");
+    let prefix_u = format!(".{name}.update-");
+    let prefix_p = format!(".{name}.previous-");
+    for entry in entries.flatten() {
+        let n = entry.file_name();
+        let Some(n) = n.to_str() else { continue };
+        let dead = if n == legacy_u || n == legacy_p {
+            true
+        } else if let Some(rest) = n.strip_prefix(&prefix_u).or_else(|| n.strip_prefix(&prefix_p)) {
+            rest.split_once('-').and_then(|(pid, _)| pid.parse::<u32>().ok()).is_some_and(|pid| !pid_alive(pid))
+        } else {
+            false
+        };
+        if dead && is_real_dir(&entry.path()) {
             std::fs::remove_dir_all(entry.path()).ok();
         }
     }
@@ -343,7 +537,7 @@ fn write_installed_receipt(updates: &Path, placed_exe: &Path, version: &str, sha
     let tmp = updates.join(format!("installed-bundle.tmp-{}", std::process::id()));
     let Ok(json) = serde_json::to_vec(&InstalledBundle { version: version.to_owned(), sha256: sha256.to_owned(), dev, ino }) else { return };
     if std::fs::write(&tmp, json).is_ok() {
-        let _ = std::fs::rename(&tmp, updates.join(INSTALLED_RECEIPT));
+        std::fs::rename(&tmp, updates.join(INSTALLED_RECEIPT)).ok();
     } else {
         std::fs::remove_file(&tmp).ok();
     }

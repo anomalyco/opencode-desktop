@@ -21,6 +21,29 @@ use crate::code_view::find_bar::{FindBar, find_bar, over};
 use crate::code_view::{DiffViewer, ExpandMode};
 use crate::review::{ChangeMode, SessionReview};
 
+fn saved_review_mode(app: &App, sid: &str) -> ChangeMode {
+    if let Some(sr) = app.kernel.slots.get(&crate::review::REVIEW).sessions.get(sid) {
+        return sr.mode;
+    }
+    stored_mode(app, sid).unwrap_or_default()
+}
+
+/// The source the bundled Review keeps for session `sid` in its store, when it kept one.
+fn stored_mode(app: &App, sid: &str) -> Option<ChangeMode> {
+    use crate::plugin_host::{services::store, stores};
+    let ns = opencode_storage::plugin_namespace("review");
+    let key = stores::key("session", &store::scope_session(app, sid));
+    store::session_text("review", &ns, "session", sid, &key)
+        .and_then(|text| serde_json::from_str::<serde_json::Value>(&text).ok())
+        .and_then(|v| ChangeMode::parse(v.get("mode")?.as_str()?))
+}
+
+/// [`stored_mode`] for the review engine (`ReviewHost::saved_mode`): only the bundled Review's
+/// store is read, as in [`prepare_route`].
+pub(crate) fn stored_review_mode(app: &App, sid: &str) -> Option<ChangeMode> {
+    app.plugins.running().any(|(_, p)| p.tier == super::super::Tier::Bundled && p.manifest.id == "review").then(|| stored_mode(app, sid)).flatten()
+}
+
 /// A routed session with the built-in Review already on screen needs its saved source in
 /// the navigation update, before its label asks for the count. Don't start an inactive VM
 /// or apply the bundled plugin's store schema to a third-party panel.
@@ -31,17 +54,31 @@ pub(crate) fn prepare_route(app: &mut App, sid: &str) {
         if app.side_open() { app.kernel.slots.get_mut(&crate::review::REVIEW).refresh.step(crate::review::RefreshEvent::Immediate); }
         return;
     }
-    let mode = if let Some(sr) = app.kernel.slots.get(&crate::review::REVIEW).sessions.get(sid) {
-        sr.mode
-    } else {
-        use crate::plugin_host::{services::store, stores};
-        let ns = opencode_storage::plugin_namespace("review");
-        let key = stores::key("session", &store::scope_session(app, sid));
-        store::session_text("review", &ns, "session", sid, &key)
-            .and_then(|text| serde_json::from_str::<serde_json::Value>(&text).ok())
-            .and_then(|v| ChangeMode::parse(v.get("mode")?.as_str()?)).unwrap_or_default()
-    };
+    let mode = saved_review_mode(app, sid);
     app.set_session_change_mode(sid, mode);
+}
+
+/// Hydrates or refreshes `sid`'s built-in Review synchronously when the Review panel opens or
+/// reopens (`Request::OpenPanel`/`TogglePanel`), eliminating the one-frame delay before firing
+/// `/api/vcs/diff` and refreshing cached diffs in the background as Desktop's `side.opened` does.
+pub(crate) fn open_review(app: &mut App, sid: &str) {
+    if !app.plugins.running().any(|(_, p)| p.tier == super::super::Tier::Bundled && p.manifest.id == "review") {
+        app.refresh_review_on_open(sid);
+        return;
+    }
+    let mode = saved_review_mode(app, sid);
+    let already_same_mode = app
+        .kernel
+        .slots
+        .get(&crate::review::REVIEW)
+        .sessions
+        .get(sid)
+        .is_some_and(|sr| sr.mode == mode);
+    if already_same_mode {
+        app.refresh_review_on_open(sid);
+    } else {
+        app.set_session_change_mode(sid, mode);
+    }
 }
 
 /// `Diff:Open(spec)`: session `sessionId`'s changes, read from `source`.
@@ -54,7 +91,17 @@ pub fn build(lua: &Lua, vmx: &Rc<Vmx>, t: &Table) -> mlua::Result<()> {
         with_app("Diff:Open", |app| {
             if !app.kernel.slots.get(&crate::review::REVIEW).has_read(&sid, mode) {
                 let id = sid.clone();
-                app.later(Box::new(move |s: &mut App, _: &mut Tx| s.set_session_change_mode(&id, mode)));
+                // The plugin read its saved source before the server listed the session, so under
+                // a key without the session's folder: `mode` is its default, not its choice. The
+                // engine waits for the listing and then reads the saved one itself, whether the
+                // listing is seconds away or already in when this runs.
+                let unlisted = app.live() && app.session(&sid).is_none_or(|s| s.directory.is_empty());
+                app.later(Box::new(move |s: &mut App, _: &mut Tx| {
+                    if unlisted {
+                        s.kernel.slots.get_mut(&crate::review::REVIEW).wait_for_listing(&id);
+                    }
+                    s.set_session_change_mode(&id, mode);
+                }));
             }
             Ok(())
         })?;
@@ -110,7 +157,7 @@ fn document(lua: &Lua, vmx: &Rc<Vmx>, sid: &str) -> mlua::Result<Table> {
     })?;
     let id = sid.to_owned();
     method(lua, &m, "Sources", move |lua, ()| {
-        let modes = read_meta(&id, "DiffDocument:Sources", |app| Ok(app.kernel.slots.get(&crate::review::REVIEW).sessions.get(&id).map_or_else(|| vec![ChangeMode::Git, ChangeMode::Turn], SessionReview::available_modes)))?;
+        let modes = read_meta(&id, "DiffDocument:Sources", |app| Ok(sources(app, &id)))?;
         lua_data(lua, Data::List(modes.into_iter().map(|m| Data::String(m.name().into())).collect()))
     })?;
     let id = sid.to_owned();
@@ -180,6 +227,19 @@ pub(super) fn lua_data(lua: &Lua, d: Data) -> mlua::Result<Value> {
     mlua::IntoLua::into_lua(d, lua)
 }
 
+/// The sources session `id` offers (`DiffDocument:Sources`). None while the engine waits for the
+/// server to list the session: its saved source can't be read yet, and naming the default would
+/// name a source it may not be in (Desktop's `canReview`: "the mode picker waits for the stored
+/// mode", `packages/gui-plugins/src/review/model.ts`).
+fn sources(app: &App, id: &str) -> Vec<ChangeMode> {
+    let review = app.kernel.slots.get(&crate::review::REVIEW);
+    // Not listed yet: also before the engine was first asked about it (the frame the panel opens in).
+    if review.waits(id) || (app.live() && app.session(id).is_none_or(|s| s.directory.is_empty())) {
+        return Vec::new();
+    }
+    review.sessions.get(id).map_or_else(|| vec![ChangeMode::Git, ChangeMode::Turn], SessionReview::available_modes)
+}
+
 /// How session `sr`'s read went (`DiffStatus`).
 pub fn status(sr: Option<&SessionReview>) -> &'static str {
     match sr {
@@ -227,7 +287,7 @@ pub fn meta_version(app: &App, session: &str) -> u64 {
         status(sr),
         sr.and_then(|r| r.load.failed()),
         sr.and_then(|r| r.active_path.as_deref()),
-        sr.map(SessionReview::available_modes),
+        sources(app, session),
     )
         .hash(&mut h);
     h.finish()
@@ -251,6 +311,7 @@ pub fn tree_version(app: &App, session: &str) -> u64 {
             let st = sr.tree.get(path).and_then(|n| n.data.as_ref()).map(|m| m.status);
             (path, st).hash(&mut h);
         }
+        sr.highlighted_filter_path.hash(&mut h);
     }
     h.finish()
 }
@@ -367,12 +428,117 @@ fn diff_find_input<'a>(s: &'a mut App, sid: &str) -> &'a mut rune::TextEdit {
     }
 }
 
-/// Keys for the routed session's review while its tab shows and has the keyboard: the diff's
-/// own (moving through hunks, copying the selection).
+/// Depth-first changed-file order with subfolders before sibling files, matching
+/// `plugins/review/kinds.luau:40-80` and Desktop's `packages/gui-plugins/src/review/kinds.ts`.
+fn sorted_review_paths(paths: &[String]) -> Vec<String> {
+    use std::collections::{BTreeMap, HashMap};
+    let mut children: HashMap<String, BTreeMap<(bool, String), String>> = HashMap::new();
+    for p in paths {
+        let mut cur = String::new();
+        let parts: Vec<&str> = p.split('/').collect();
+        for (i, name) in parts.iter().enumerate() {
+            let parent = cur.clone();
+            if !cur.is_empty() {
+                cur.push('/');
+            }
+            cur.push_str(name);
+            let is_file = i + 1 == parts.len();
+            children.entry(parent).or_default().entry((is_file, (*name).to_owned())).or_insert_with(|| cur.clone());
+        }
+    }
+    fn walk(parent: &str, children: &HashMap<String, BTreeMap<(bool, String), String>>, out: &mut Vec<String>) {
+        if let Some(entries) = children.get(parent) {
+            for ((is_file, _), path) in entries {
+                if *is_file {
+                    out.push(path.clone());
+                } else {
+                    walk(path, children, out);
+                }
+            }
+        }
+    }
+    let mut out = Vec::with_capacity(paths.len());
+    walk("", &children, &mut out);
+    out
+}
+
+/// Cycles to the next (`forward == true`) or previous changed file in Review's single-file preview,
+/// matching `SessionReviewV2` (`packages/session-ui/src/v2/components/session-review-v2.tsx:215-262`).
+fn step_review_file(app: &mut App, sid: &str, forward: bool, tx: &mut Tx) -> bool {
+    let target = {
+        let Some(sr) = app.kernel.slots.get(&crate::review::REVIEW).sessions.get(sid) else {
+            return false;
+        };
+        if sr.listed.is_empty() {
+            return false;
+        }
+        let order = sorted_review_paths(&sr.listed);
+        if order.is_empty() {
+            return false;
+        }
+        let at = sr.active_path.as_deref().and_then(|a| order.iter().position(|p| p == a)).unwrap_or(0);
+        let len = order.len();
+        let next = if forward { (at + 1) % len } else { (at + len - 1) % len };
+        order[next].clone()
+    };
+    tx.instant();
+    if let Some(sr) = app.kernel.slots.get_mut(&crate::review::REVIEW).sessions.get_mut(sid) {
+        sr.show(&target);
+        sr.tree.reveal(&target, tx);
+    }
+    super::super::bump();
+    if matches!(tx.focused(), Some("review-prev-file" | "review-next-file")) {
+        tx.focus(if forward { "review-next-file" } else { "review-prev-file" }, false);
+    }
+    true
+}
+
+/// Keys for the routed session's review while its tab shows:
+/// - Bare Left/Right cycles previous/next changed file anywhere outside editable inputs and tree
+///   rows (`packages/session-ui/src/v2/components/session-review-v2.tsx:228-262`).
+/// - With the side pane focused, the diff viewer's own keys (hunks, `[`/`]`, copy, find).
 pub fn key(app: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
-    if app.composer.focused || !app.kernel.slots.get(&crate::panels::SIDE).focus.is_focused() || !app.is_review_active() {
+    if !app.is_review_active() {
         return false;
     }
     let Some(sid) = app.active_session_id().map(str::to_owned) else { return false };
+    let unmodified = !ev.mods.cmd && !ev.mods.ctrl && !ev.mods.alt && !ev.mods.shift;
+    if unmodified && matches!(ev.key, rune::Key::Left | rune::Key::Right) {
+        let diff_find_focused = app
+            .kernel
+            .slots
+            .get(&crate::review::REVIEW)
+            .sessions
+            .get(&sid)
+            .is_some_and(|sr| sr.diffs.find_open() && sr.diffs.find.input.focused);
+        let in_tree = tx.focused().is_some_and(|k| k.starts_with("rt:") || k.starts_with("ft:"));
+        let in_comment = {
+            let lc = app.kernel.slots.get(&crate::line_comments::LINE_COMMENTS);
+            lc.active_card.is_some() || lc.any_draft_focused(&sid)
+        };
+        if !app.composer.focused
+            && !crate::plugin_host::field_focused(app)
+            && !app.kernel.slots.get(&crate::find::FIND).input.focused
+            && !diff_find_focused
+            && !in_tree
+            && !in_comment
+        {
+            let rtl = opencode_i18n::direction() == opencode_i18n::Direction::Rtl;
+            let forward = (ev.key == rune::Key::Right) ^ rtl;
+            if step_review_file(app, &sid, forward, tx) {
+                return true;
+            }
+        }
+    }
+    if app.composer.focused || !app.kernel.slots.get(&crate::panels::SIDE).focus.is_focused() {
+        return false;
+    }
+    if !ev.mods.cmd && !ev.mods.ctrl && !ev.mods.alt && tx.focused().is_none()
+        && let rune::Key::Text(ref t) = ev.key
+        && matches!(t.as_str(), "[" | "]")
+        && app.kernel.slots.get(&crate::review::REVIEW).sessions.get(&sid).is_some_and(|sr| sr.diffs.only().is_some())
+    {
+        return step_review_file(app, &sid, t == "]", tx);
+    }
     app.kernel.slots.get_mut(&crate::review::REVIEW).sessions.get_mut(&sid).is_some_and(|sr| sr.diffs.handle_key(ev, tx, &crate::code_view::DesktopKeys))
 }

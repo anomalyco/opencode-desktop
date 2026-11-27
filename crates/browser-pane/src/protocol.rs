@@ -100,9 +100,18 @@ pub struct TabSnapshot {
     /// Site favicon as a bounded `data:image/png;base64,...` data URL (`UP-109` `#65094`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub favicon: Option<String>,
+    /// Isolation scope of this tab (with proxy credentials stripped), preserved across reconnects.
+    #[serde(default, skip_serializing_if = "ContextKind::is_default")]
+    pub context: ContextKind,
     /// Set on isolated `oc-preview://` tabs so browser chrome marks them as previews.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub preview: Option<PreviewKindTag>,
+    /// Whether this tab is agent-driven (preserved across reconnects).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub agent_driven: bool,
+    /// Counts main-frame document loads (`on_load_start`); unchanged by same-document URL changes.
+    #[serde(default)]
+    pub document: u64,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -136,6 +145,10 @@ pub struct PickedElement {
     pub rect: [f32; 4],
 }
 
+fn is_false(b: &bool) -> bool {
+    !*b
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum HostMsg {
@@ -145,6 +158,12 @@ pub enum HostMsg {
         /// This app shows and answers page dialogs, permissions, and HTTP auth (`prompts.rs`).
         #[serde(default)]
         prompts: bool,
+        /// This app handles extension-initiated tab opens (`EngineMsg::ExtensionOpenTab`).
+        #[serde(default)]
+        extensions: bool,
+        /// This app handles `EngineMsg::DownloadSaveRequest` via a native OS Save dialog.
+        #[serde(default)]
+        download_save: bool,
     },
     OpenTab {
         tab_id: u64,
@@ -159,6 +178,33 @@ pub enum HostMsg {
         context: ContextKind,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         preview: Option<PreviewSpec>,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        agent_driven: bool,
+        /// Allows navigating to loaded `chrome-extension://` pages (user tabs & popups only;
+        /// never set for agent-driven or isolated tabs).
+        #[serde(default, skip_serializing_if = "is_false")]
+        allow_extension_pages: bool,
+        /// True when this tab is an anchored extension popup (enables content auto-sizing).
+        #[serde(default, skip_serializing_if = "is_false")]
+        is_popup: bool,
+        /// When answering `EngineMsg::ExtensionOpenTab`, correlates this newly opened pane tab.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        ext_open_request_id: Option<u64>,
+    },
+    ClickExtension {
+        ext_id: String,
+    },
+    ListExtensions {
+        request_id: u64,
+    },
+    UninstallExtension {
+        ext_id: String,
+    },
+    ReloadExtension {
+        ext_id: String,
+    },
+    CancelExtensionOpenTab {
+        request_id: u64,
     },
     SetTabPolicy {
         tab_id: u64,
@@ -196,6 +242,11 @@ pub enum HostMsg {
     /// Desktop's follow `nativeTheme.themeSource`. An engine from before it ignores the line.
     SetColorScheme {
         dark: bool,
+    },
+    /// The window's display refresh rate in Hz (clamped by the engine to 60..=240). An engine
+    /// from before it ignores the line.
+    SetFrameRate {
+        fps: u32,
     },
     Resize {
         tab_id: u64,
@@ -288,12 +339,28 @@ pub enum HostMsg {
         tab_id: u64,
         id: u64,
         allow: bool,
+        #[serde(default)]
+        dismiss: bool,
+        #[serde(default)]
+        persist: bool,
+    },
+    ResetPermission {
+        origin: String,
+        kind: PermissionKind,
+    },
+    SyncSitePermissions {
+        entries: Vec<SitePermissionEntry>,
     },
     AnswerAuth {
         tab_id: u64,
         id: u64,
         username: Option<String>,
         password: Option<String>,
+    },
+    AnswerDownloadSave {
+        tab_id: u64,
+        id: u64,
+        path: Option<String>,
     },
     SetAgentDriven {
         tab_id: u64,
@@ -309,6 +376,8 @@ pub enum HostMsg {
         forward: bool,
         match_case: bool,
         find_next: bool,
+        #[serde(default)]
+        user_initiated: bool,
     },
     StopFind {
         tab_id: u64,
@@ -326,6 +395,69 @@ pub enum HostMsg {
     },
     DropContext {
         context: ContextKind,
+    },
+    ProfileCookiesList {
+        request_id: u64,
+        #[serde(default)]
+        partition: Option<String>,
+    },
+    ProfileCookiesSet {
+        request_id: u64,
+        #[serde(default)]
+        partition: Option<String>,
+        cookies: Vec<WireCookie>,
+    },
+    ProfileCookieDelete {
+        request_id: u64,
+        #[serde(default)]
+        partition: Option<String>,
+        url: String,
+        name: String,
+    },
+    ProfileProbeCookies {
+        request_id: u64,
+    },
+    /// `sites`: origins the engine checks after the clear (an older engine ignores them).
+    ClearProfileData {
+        request_id: u64,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        sites: Vec<String>,
+    },
+    SetShareSignIns {
+        enabled: bool,
+    },
+    SyncRemoteCookies {
+        request_id: u64,
+        partition: String,
+        #[serde(default)]
+        from_remote: bool,
+    },
+    TypedCdpCall {
+        tab_id: u64,
+        request_id: u64,
+        method: String,
+        params: Value,
+        session_id: Option<String>,
+        /// The frame an element ref came from; the engine checks it belongs to `session_id`.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        frame_id: Option<String>,
+    },
+    UploadFiles {
+        tab_id: u64,
+        request_id: u64,
+        backend_node_id: i64,
+        files: Vec<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        session_id: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        frame_id: Option<String>,
+    },
+    DropFiles {
+        tab_id: u64,
+        request_id: u64,
+        x: f64,
+        y: f64,
+        files: Vec<String>,
     },
     /// App-proxied response headers for a remote workspace or artifact `EngineMsg::PreviewFetch`.
     PreviewResponseHead {
@@ -348,6 +480,15 @@ pub enum HostMsg {
         req_id: u64,
         ok: bool,
     },
+    /// User clicked or dismissed an OS notification posted by an extension (`chrome.notifications`).
+    ExtensionNotificationEvent {
+        ext_id: String,
+        notif_id: String,
+        clicked: bool,
+        by_user: bool,
+    },
+    /// Whether the app's OS notification sink & Settings > Notifications allow extension toasts.
+    SetNotificationsEnabled { enabled: bool },
     Shutdown,
 }
 
@@ -381,9 +522,58 @@ pub enum EngineMsg {
         /// The engine confines proxied `RemoteServer` partitions via `fixed_servers` + `<-loopback>` + WebRTC/DoH hardening.
         #[serde(default)]
         remote_proxy: bool,
+        /// The engine supports `TypedCdpCall` and flattened OOPIF `sessionId` CDP events.
+        #[serde(default)]
+        agent_tools: bool,
         /// The engine serves isolated `oc-preview://` tabs.
         #[serde(default)]
         preview: bool,
+        /// The engine resets Chromium's `HostContentSettingsMap` on one-time/revoked permissions
+        /// and supports `HostMsg::ResetPermission` + `AnswerPermission.dismiss`.
+        #[serde(default)]
+        permission_sync: bool,
+        /// The engine emits `EngineMsg::PreviewCredit` for end-to-end preview flow control.
+        #[serde(default)]
+        preview_credit: bool,
+        /// The engine hosts verified MV3 extensions over its private in-process CDP pipe.
+        #[serde(default)]
+        extensions: bool,
+        /// The engine owns `Target.setAutoAttach` and frame exclusion authority (`EngineCdpLedger`).
+        #[serde(default)]
+        frame_authority: bool,
+        /// The engine stages agent files for confined `UploadFiles` and `DropFiles`.
+        #[serde(default)]
+        agent_files: bool,
+        /// The engine exposes `CefCookieManager` list/import/delete/probe/clear & two-way remote cookie mirroring.
+        #[serde(default)]
+        cookies: bool,
+        /// The engine enforces the WebAuthn / passkey gate and emits `PasskeyRefused`.
+        #[serde(default)]
+        passkeys: bool,
+        /// The engine enforces committed-main-frame renderer PID trace isolation and a single engine-wide trace lock.
+        #[serde(default)]
+        trace_isolation: bool,
+        /// The engine supports Copy image, spellcheck toggle, and spellcheck languages in page menus.
+        #[serde(default)]
+        menu_extras: bool,
+    },
+    ProfileCookies {
+        request_id: u64,
+        cookies: Vec<WireCookie>,
+    },
+    ProfileCookiesImported {
+        request_id: u64,
+        imported: u32,
+        failed: u32,
+    },
+    ProfileProbeReady {
+        request_id: u64,
+        written: bool,
+        cache_dir: String,
+    },
+    ProfileActionDone {
+        request_id: u64,
+        ok: bool,
     },
     /// Requests bytes for a remote workspace or artifact preview from the app host.
     PreviewFetch {
@@ -395,6 +585,13 @@ pub enum EngineMsg {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         range: Option<String>,
     },
+    /// Byte-credit replenishment (or immediate cancellation) for an in-flight `PreviewFetch`.
+    PreviewCredit {
+        req_id: u64,
+        bytes: u32,
+        #[serde(default)]
+        cancel: bool,
+    },
     /// A preview page attempted to load a file outside its grant or a secret/hidden path.
     PreviewDenied {
         tab_id: u64,
@@ -403,6 +600,13 @@ pub enum EngineMsg {
     Refused {
         tab_id: u64,
         reason: String,
+    },
+    /// Controlled `Default`-profile tab refused due to an inherited site permission; carries the
+    /// refused URL for the notice bar and "Open in new tab" without overwriting `BrowserTab.url`.
+    ControlledPermissionRefused {
+        tab_id: u64,
+        #[serde(default)]
+        url: Option<String>,
     },
     Dialog {
         tab_id: u64,
@@ -439,7 +643,32 @@ pub enum EngineMsg {
         tab_id: u64,
         url: String,
     },
+    /// A user-activated non-agent page click on an allow-listed app scheme was cancelled in CEF
+    /// and forwarded to the desktop review bar.
+    AppLinkBlocked {
+        tab_id: u64,
+        url: String,
+    },
+    /// A site asked for a passkey or security key (`navigator.credentials.{get,create}` with
+    /// `publicKey`) and the tab's passkey gate refused it (`webauthn-gate.ts`).
+    PasskeyRefused {
+        tab_id: u64,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        origin: Option<String>,
+        #[serde(default)]
+        main_frame: bool,
+        kind: String,
+    },
     FileChooserBlocked {
+        tab_id: u64,
+    },
+    /// The person's Copy image: the image under the menu as PNG (base64), for the app's clipboard.
+    CopiedImage {
+        tab_id: u64,
+        png_b64: String,
+    },
+    /// A tab whose first navigation became the person's download, now placed (or cancelled).
+    DownloadOnlyTab {
         tab_id: u64,
     },
     FindResult {
@@ -501,10 +730,20 @@ pub enum EngineMsg {
         texture: String,
         release_fence: String,
     },
-    /// A download started, moved on or ended. An engine from before it sends none.
+    /// A download started, moved on or ended (agent-driven tabs only). An engine from before it sends none.
     Download {
         tab_id: u64,
         file: DownloadFile,
+    },
+    /// A human-initiated download (or right-click "Save image as…") awaiting a native OS Save
+    /// dialog path outside the engine profile and `opencode-page-downloads`.
+    DownloadSaveRequest {
+        tab_id: u64,
+        id: u64,
+        name: String,
+        mime: String,
+        #[serde(default)]
+        executable: bool,
     },
     /// Linux: a tab's new linear ARGB8888 dmabufs, their descriptors sent with the line
     /// (`SCM_RIGHTS`, `fd_lines.rs`), one per buffer.
@@ -525,6 +764,92 @@ pub enum EngineMsg {
         pool: u64,
         slot: u32,
     },
+    ExtensionsState {
+        request_id: Option<u64>,
+        extensions: Vec<ExtensionActionSnapshot>,
+    },
+    ExtensionAction {
+        action: ExtensionActionSnapshot,
+    },
+    ExtensionPopupRequested {
+        ext_id: String,
+        url: String,
+    },
+    ExtensionPopupResized {
+        ext_id: String,
+        width: u32,
+        height: u32,
+    },
+    ExtensionOpenTab {
+        request_id: u64,
+        ext_id: String,
+        url: String,
+        active: bool,
+    },
+    ExtensionFocusTab {
+        tab_id: u64,
+    },
+    ExtensionFiltersReady,
+    ExtensionUninstalled {
+        ext_id: String,
+        ok: bool,
+        error: Option<String>,
+    },
+    ExtensionReloaded {
+        ext_id: String,
+        ok: bool,
+        error: Option<String>,
+    },
+    ExtensionIntegrityFailed {
+        ext_id: String,
+    },
+    ExtensionNotificationShow {
+        ext_id: String,
+        ext_name: String,
+        notif_id: String,
+        body: String,
+    },
+    ExtensionNotificationClear {
+        ext_id: String,
+        notif_id: String,
+    },
+}
+
+/// Live toolbar button snapshot for one loaded extension (`apps/browser-engine/src/extensions/mod.rs`).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ExtensionActionSnapshot {
+    pub ext_id: String,
+    pub name: String,
+    pub version: String,
+    pub title: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub popup: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub options: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub icon: Option<String>,
+    #[serde(default)]
+    pub badge_text: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub badge_color: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub badge_text_color: Option<String>,
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+}
+
+fn default_true() -> bool {
+    true
+}
+
+/// A human download awaiting an OS Save dialog choice in the host app (`EngineMsg::DownloadSaveRequest`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DownloadSaveRequest {
+    pub tab_id: u64,
+    pub id: u64,
+    pub name: String,
+    pub mime: String,
+    pub executable: bool,
 }
 
 /// A file a page downloaded, kept in the engine's private downloads folder for the agent's tools
@@ -545,6 +870,9 @@ pub struct DownloadFile {
     /// interrupt reason (`network_failed`, `file_no_space`, ...).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
+    /// Source URL captured by the engine in `on_before_download` before any post-download redirect.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_url: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -610,6 +938,13 @@ impl PermissionKind {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SitePermissionEntry {
+    pub origin: String,
+    pub kind: PermissionKind,
+    pub allow: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PermissionPrompt {
     pub id: u64,
     pub origin: String,
@@ -628,6 +963,42 @@ pub struct AuthChallenge {
     #[serde(default)]
     pub realm: String,
     pub scheme: String,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ExtensionMenuItemKind {
+    #[default]
+    Normal,
+    Checkbox,
+    Radio,
+    Separator,
+}
+
+fn default_menu_enabled() -> bool {
+    true
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ExtensionMenuItem {
+    pub id: String,
+    #[serde(default)]
+    pub title: String,
+    #[serde(default)]
+    pub kind: ExtensionMenuItemKind,
+    #[serde(default)]
+    pub checked: bool,
+    #[serde(default = "default_menu_enabled")]
+    pub enabled: bool,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub children: Vec<ExtensionMenuItem>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ExtensionMenuGroup {
+    pub ext_id: String,
+    pub title: String,
+    pub items: Vec<ExtensionMenuItem>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -663,9 +1034,20 @@ pub struct PageContextMenu {
     pub misspelled_word: Option<String>,
     #[serde(default)]
     pub suggestions: Vec<String>,
+    /// Current profile spellcheck toggle state (populated when `is_editable && Ready.menu_extras`).
+    #[serde(default)]
+    pub spellcheck: bool,
+    /// Enabled spellcheck BCP-47 dictionary tags (populated when `is_editable && Ready.menu_extras`).
+    #[serde(default)]
+    pub languages: Vec<String>,
+    /// Offerable spellcheck BCP-47 dictionary tags (empty on macOS, as official).
+    #[serde(default)]
+    pub dictionaries: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub extensions: Vec<ExtensionMenuGroup>,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RemoteProxyConfig {
     pub host: String,
     pub port: u16,
@@ -675,6 +1057,18 @@ pub struct RemoteProxyConfig {
     pub password: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub realm: Option<String>,
+}
+
+impl std::fmt::Debug for RemoteProxyConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RemoteProxyConfig")
+            .field("host", &self.host)
+            .field("port", &self.port)
+            .field("username", &self.username.as_ref().map(|_| "<redacted>"))
+            .field("password", &self.password.as_ref().map(|_| "<redacted>"))
+            .field("realm", &self.realm)
+            .finish()
+    }
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -711,12 +1105,29 @@ impl ContextKind {
         !self.is_default()
     }
 
+    pub fn redacted(&self) -> Self {
+        match self {
+            Self::RemoteServer { server_id, .. } => Self::RemoteServer {
+                server_id: server_id.trim().to_owned(),
+                proxy: None,
+            },
+            Self::Preview { workspace, grant } => Self::Preview {
+                workspace: workspace.trim().to_owned(),
+                grant: grant.trim().to_owned(),
+            },
+            Self::Artifact { artifact_id } => Self::Artifact {
+                artifact_id: artifact_id.trim().to_owned(),
+            },
+            other => other.clone(),
+        }
+    }
+
     pub fn is_supported(&self, partitions: bool, remote_proxy: bool) -> bool {
         match self {
             Self::Default => true,
             Self::Preview { .. } | Self::Artifact { .. } | Self::Private => partitions,
-            Self::RemoteServer { proxy: None, .. } => partitions,
-            Self::RemoteServer { proxy: Some(_), .. } => partitions && remote_proxy,
+            // Remote servers ALWAYS require an authenticated loopback tunnel proxy (never direct).
+            Self::RemoteServer { .. } => partitions && remote_proxy,
         }
     }
 }
@@ -733,7 +1144,44 @@ pub enum ContextMenuCommand {
     Paste,
     PastePlain,
     SelectAll,
+    CopyImage,
     SaveImage { url: String },
     ReplaceMisspelling { word: String },
     AddToDictionary { word: String },
+    ToggleSpellcheck,
+    ToggleLanguage { value: String },
+    ExtensionItem { ext_id: String, item_id: String },
+}
+
+fn default_cookie_path() -> String {
+    "/".to_owned()
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CookieSameSite {
+    #[default]
+    Unspecified,
+    NoRestriction,
+    Lax,
+    Strict,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct WireCookie {
+    /// Leading dot for domain cookies (`.github.com`), bare host for host-only (`github.com`).
+    pub host: String,
+    pub name: String,
+    pub value: String,
+    #[serde(default = "default_cookie_path")]
+    pub path: String,
+    #[serde(default)]
+    pub secure: bool,
+    #[serde(default)]
+    pub http_only: bool,
+    /// Unix timestamp in seconds; `None` for session cookies.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expires: Option<f64>,
+    #[serde(default)]
+    pub same_site: CookieSameSite,
 }

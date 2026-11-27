@@ -3,6 +3,7 @@
 //! on Home), its workspace, the branch, the folder, and Edit project.
 
 use crate::popup::MenuButton as _;
+use opencode_ui::focus::FocusExt;
 use rune::{El, TextStyle, Tx, row, text};
 use rune_theme_opencode::icons as ic;
 
@@ -32,16 +33,16 @@ pub fn trigger(s: &App, p: &Pal, project: Option<&opencode_kit::model::Project>,
         .key(TRIGGER)
         .role("button")
         .label(label.clone())
-        .help(label)
+        .expanded(open)
         .h(28.0)
         .px(6.0)
         .gap(8.0)
         .center_y()
         .radius(6.0)
+        .focus_default(p)
         .shrink()
         .min_w(0.0)
         .hover_group()
-        .hover(p.hover)
         .hover_motion(crate::view::INSTANT, crate::view::INSTANT)
         .menu_button(TRIGGER, |s: &mut App, tx: &mut Tx| super::location_card::open_card(s, tx))
         .child(crate::icons::badge(s, p, project, name));
@@ -57,7 +58,14 @@ pub fn trigger(s: &App, p: &Pal, project: Option<&opencode_kit::model::Project>,
             t = t.child(text(w.to_owned()).key("location-worktree").font(LABEL).color(ink).group_color(p.text).single_line().dir(rune::Direction::Auto));
         }
     }
-    if open { t.fill(p.hover) } else { t }
+    // `session-identity-header.tsx:229,234`: `data-[expanded]:bg-v2-overlay-simple-overlay-hover`,
+    // and the location tooltip opens only when the trigger is collapsed (`collapse() > 0`).
+    if open {
+        t.fill(p.hover)
+    } else {
+        let t = if collapse > 0 { t.help(label) } else { t };
+        t.hover(p.hover).press(p.pressed)
+    }
 }
 
 /// The worktree a session in `dir` runs in, by its folder's name: one of the project's sandboxes

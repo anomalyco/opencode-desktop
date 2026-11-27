@@ -10,7 +10,7 @@
 
 use std::collections::HashMap;
 
-use opencode_kit::client::{Request, Ticket, TicketKind, Write};
+use opencode_kit::client::{Ticket, TicketKind, Write};
 use opencode_kit::model::Message;
 use rune::machine::{Attempt, Effects, Seq};
 use serde_json::json;
@@ -31,6 +31,9 @@ pub struct Stops {
     /// Sessions stopped, until the server confirms and their last step closes.
     by: HashMap<String, Stop>,
     seq: Seq,
+    /// `/api/session/active` sync & retry state shared across the server's windows
+    /// (`reconnect::ActiveSync`). Stored here rather than adding another field to `App`.
+    pub(crate) active_sync: crate::reconnect::ActiveSync,
 }
 
 /// One session's stop.
@@ -136,7 +139,7 @@ impl App {
     /// detached background helpers keep running and can be stopped from their own pages.
     pub fn stop(&mut self) {
         let Route::Session { id: sid, .. } = (*self.route).clone() else { return };
-        if !self.running.contains(&sid) || self.stops.has(&sid) {
+        if !self.busy(&sid) || self.stops.has(&sid) {
             return;
         }
         // The fixture and the storybook answer as a server would, a little later.
@@ -153,6 +156,8 @@ impl App {
             };
             if asked {
                 self.running.remove(&sid);
+                // A stop that comes before the model has answered takes the prompt back.
+                crate::rewind::take_back::stopped(self, &sid);
             } else {
                 self.stops.step(&sid, Event::Forgotten);
             }
@@ -227,6 +232,7 @@ pub fn failed(s: &mut App, sid: &str, attempt: u32, e: &opencode_kit::wire_error
     for effect in s.stops.step(sid, Event::Failed { attempt: Attempt(attempt) }) {
         if effect == (Effect::Resume { failed: true }) {
             s.running.insert(sid.to_owned());
+            crate::rewind::take_back::forget(s, sid);
             crate::windows::peer::touch(s);
             crate::status_toast::failed_wire(s, opencode_i18n::t!("rune.stop.failed"), e);
         }
@@ -256,9 +262,7 @@ pub fn poll(s: &mut App, _clock: f64, tx: &mut rune::Tx) -> bool {
         }
     }
     if late {
-        if let Source::Live { requests: Some(r), .. } = &*s.source {
-            r.send(Request::Active).ok();
-        }
+        crate::reconnect::request_active(s, false);
         crate::windows::peer::touch(s);
     }
     let left = |st: &Stop| match *st { Stop::Asked { at, .. } => Some((at - now) as f64 / 1000.0 + CONFIRM_SECS), Stop::Confirmed => None };

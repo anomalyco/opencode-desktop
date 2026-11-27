@@ -10,7 +10,7 @@ use opencode_ui::style::INSTANT;
 /// `text-14-regular`.
 const FIELD: TextStyle = TextStyle::new(14.0, 440.0).lh(25.2);
 /// `text-12-regular tabular-nums`.
-const COUNT: TextStyle = TextStyle::new(12.0, 440.0).lh(18.0).features("tnum");
+const COUNT: TextStyle = TextStyle::new(12.0, 440.0).lh(18.0).features("\"tnum\"");
 
 /// What the bar does to the view it searches.
 pub struct FindBar<S: 'static> {

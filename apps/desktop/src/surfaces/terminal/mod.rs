@@ -216,8 +216,21 @@ impl TerminalSurfaceHost for App {
         crate::quote::can_quote(self, selected)
     }
 
-    fn quote_terminal_selection(&mut self, selected: &str, tx: &mut Tx) {
-        crate::quote::quote_selected(self, selected, tx);
+    fn quote_terminal_selection(&mut self, selected: &str, comment: Option<opencode_feature_terminal_surface::grid::QuotePlace>, tx: &mut Tx) {
+        // The terminal names itself as the quote's source (`packages/gui-plugins/src/terminal/
+        // panel.tsx`): its card reads Terminal under the terminal's icon, and the model reads
+        // `From the terminal:` over the quoted lines.
+        let source = opencode_kit::quote::source(opencode_i18n::t!("plugin.terminal.quote.label"), "terminal", "the terminal");
+        // Its comment editor opens beside the rows it came from, inside the terminal's pane
+        // (`panel.tsx:52-62`: `composer.focus(commentID, { anchor })`).
+        let anchor = comment.as_ref().filter(|place| !place.boxes.is_empty()).map(|place| crate::quote::comment::Anchor {
+            bounds: crate::quote::comment::Bounds::Element(place.bounds.to_owned()),
+            path: place.origin.to_owned(),
+            rects: place.boxes.clone(),
+            short: place.single,
+            backward: false,
+        });
+        crate::quote::quote_selected_from(self, selected, source, comment.is_some(), anchor, tx);
     }
 
     fn speech_terminal_key(&mut self, ws_key: &str, tab_id: &str) {
@@ -247,7 +260,7 @@ impl TerminalSurfaceHost for App {
             .slots
             .get(&crate::panels::SIDE)
             .sessions
-            .get(sid)
+            .get(self.panel_root(sid))
             .is_some_and(|st| st.tab_state.tabs.all.iter().any(|k| k.starts_with("terminal:")))
     }
 
@@ -329,7 +342,7 @@ impl App {
     }
 
     pub fn ensure_workspace_ready(&mut self, ws_key: &str) {
-        ensure_workspace_ready(self, ws_key);
+        ensure_workspace_ready(self, ws_key, calls::After::Nothing);
     }
 
     pub fn open_terminal_for_session(&mut self, sid: &str, new_tab: bool) -> Option<String> {
@@ -357,7 +370,7 @@ impl App {
     }
 
     pub fn new_terminal_in(&mut self, ws_key: &str) -> Option<String> {
-        new_terminal_in(self, ws_key)
+        new_terminal_in(self, ws_key, calls::After::Nothing)
     }
 
     pub(crate) fn start_terminal(
@@ -403,6 +416,10 @@ impl App {
 
     pub(crate) fn toggle_terminal(&mut self, tx: &mut Tx) {
         toggle_terminal(self, tx);
+    }
+
+    pub(crate) fn first_terminal(&mut self, tx: &mut Tx) {
+        side_ops::first_terminal(self, tx);
     }
 
     pub fn apply_pty_event(&mut self, ty: &str, data: &Value) -> bool {

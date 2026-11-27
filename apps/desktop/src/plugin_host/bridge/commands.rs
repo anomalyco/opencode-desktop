@@ -332,7 +332,9 @@ pub fn hover_menu_item(app: &mut App, key: &str, target: &str, tx: &mut Tx) {
 
 /// Opens `href` with the first Luau link handler whose `match` takes it, highest priority first.
 pub fn open_link(app: &mut App, href: &str, tx: &mut Tx) -> bool {
-    // Every handler's `match` is asked: the dormant ones start first.
+    // Every handler's `match` is asked: the dormant ones start first, and the ones a launch
+    // without their record still has queued behind its first frame.
+    crate::plugin_host::runtime::boot::adopt_later_kinds(app, &["LinkHandler"]);
     dormant::wake_owners(app, |c| !c.link_handlers.is_empty());
     let mut handlers: Vec<(usize, i64, Function, Function)> = app
         .plugins
@@ -401,14 +403,27 @@ pub fn mcp_call(app: &mut App, call: McpCall, session: &str, directory: &str, tx
     None
 }
 
-/// App menu items Luau app halves add, as `(key, menu, label, order)`.
-pub fn menubar_items() -> Vec<(&'static str, String, String, i64)> {
-    let rows = |c: &plugin::Contribs| c.menubar_items.iter().map(|c| (c.key, c.spec.menu.as_str().to_owned(), c.spec.label.clone(), c.spec.order.unwrap_or(0))).collect::<Vec<_>>();
+/// App menu items Luau app halves add, as `(key, menu, label, order, enabled)`.
+pub fn menubar_items() -> Vec<(&'static str, String, String, i64, bool)> {
+    let updater_on = crate::updater::shared_enabled();
+    let rows = |c: &plugin::Contribs| {
+        c.menubar_items
+            .iter()
+            .map(|c| {
+                let enabled = if c.key == "updater.check" { updater_on } else { c.spec.enabled.unwrap_or(true) };
+                (c.key, c.spec.menu.as_str().to_owned(), c.spec.label.clone(), c.spec.order.unwrap_or(0), enabled)
+            })
+            .collect::<Vec<_>>()
+    };
     let running = app_half::each(|a| Some(rows(&a.half.contribs.borrow()))).into_iter().flatten();
     running.chain(dormant::each_app_half(|_, c| Some(rows(c))).into_iter().flatten()).collect()
 }
 
 pub fn run_menubar(app: &mut App, key: &str, tx: &mut Tx) -> bool {
+    if key == "updater.check" && services::app::channel() != opencode_plugin_spec::Channel::Beta {
+        crate::updater::check_with_dialog(app);
+        return true;
+    }
     dormant::wake_owners(app, |c| c.menubar_items.iter().any(|c| c.key == key));
     let found = app_half::each(|a| a.half.contribs.borrow().menubar_items.iter().find(|c| c.key == key).and_then(|c| c.f("run").cloned())).into_iter().next();
     let Some(f) = found else { return false };

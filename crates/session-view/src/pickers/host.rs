@@ -4,7 +4,7 @@
 use opencode_kit::model::{ModelRef, capitalize};
 use rune::{El, Key, KeyEvent, TextEdit, Tx};
 
-use super::{ADD_PROJECT_KEY, FAVORITES, Item, Kind, Model, ModelAction, Pickers, RECENT, Selection, grouped, hover, menu, search};
+use super::{ADD_PROJECT_KEY, Choice, Effort, FAVORITES, Item, Kind, Model, ModelAction, Pickers, RECENT, Selection, grouped, hover, menu, search, speed};
 use super::hover::ModelHover;
 use crate::composer::ComposerHost;
 use crate::palette::Pal;
@@ -18,7 +18,7 @@ pub trait PickerHost: ComposerHost {
     fn pickers(&self) -> &Pickers;
     fn pickers_mut(&mut self) -> &mut Pickers;
 
-    /// Where picks are kept: the open session's id, or "draft" for a new session.
+    /// Where picks are kept: the open session's id, a new session's draft's own id, or "draft".
     fn picker_scope(&self) -> String;
     /// A new session, which starts with what the toolbar shows.
     fn picker_draft(&self) -> bool {
@@ -35,6 +35,9 @@ pub trait PickerHost: ComposerHost {
     fn picker_subagent(&self) -> Option<(String, Selection)> {
         None
     }
+    /// The picks kept for `scope` changed: a host that keeps them across a relaunch writes
+    /// them (`selection-machine.ts` `persist.write`).
+    fn picker_changed(&mut self, _scope: &str) {}
     /// Whether the toolbar shows the agent's picker.
     fn picker_show_agent(&self) -> bool {
         true
@@ -78,21 +81,34 @@ pub trait PickerHost: ComposerHost {
     }
 
     /// What the session runs with now: the agent and model the server last said, or for a new
-    /// session the first agent with its configured model.
+    /// session the first agent with its configured model. A model the server did not name
+    /// runs with the effort it inherits (`selection-machine.ts` `selectVariant`).
     fn durable(&self) -> Selection {
         let pk = self.pickers();
         let info = self.picker_running();
-        let agent = info.as_ref().map(|i| i.agent.clone()).filter(|a| !a.is_empty())
-            .unwrap_or_else(|| if pk.agents.iter().any(|a| a == "build") || pk.agents.is_empty() { "build".into() } else { pk.agents[0].clone() });
-        let model = info.map(|i| i.model).filter(|m| !m.id.is_empty())
-            .or_else(|| pk.agent_models.get(&agent).cloned())
-            .or_else(|| self.picker_fallback_model())
-            .unwrap_or_default();
-        Selection { model, agent }
+        let agent = pk.effective_agent(info.as_ref().map_or("", |i| i.agent.as_str())).to_owned();
+        if let Some(model) = info.map(|i| i.model).filter(|m| !m.id.is_empty()) {
+            return Selection { model, agent, effort: Effort::Chosen };
+        }
+        let model = pk.agent_models.get(&agent).cloned().or_else(|| self.picker_fallback_model()).unwrap_or_default();
+        self.with_inherited(Selection { model, agent, effort: Effort::Inherited })
     }
 
     fn selection(&self) -> Selection {
-        self.pickers().selections.get(&self.picker_scope()).cloned().unwrap_or_else(|| self.durable())
+        match self.pickers().selections.get(&self.picker_scope()) {
+            Some(pick) => self.with_inherited(pick.clone()),
+            None => self.durable(),
+        }
+    }
+
+    /// `pick` with the effort its model inherits now, when it chose none: the saved effort
+    /// and the configured one may have changed since it was kept (`composer/selection.ts`
+    /// `variant.current`).
+    fn with_inherited(&self, mut pick: Selection) -> Selection {
+        if pick.effort == Effort::Inherited {
+            pick.model.variant = self.pickers().inherited_effort(&pick.agent, &pick.model.key(), self.picker_draft());
+        }
+        pick
     }
 
     /// What the next prompt switches the session to: a pick that differs from what it runs
@@ -107,7 +123,7 @@ pub trait PickerHost: ComposerHost {
         }
         let draft = self.picker_draft();
         let picked = match self.pickers().selections.get(&self.picker_scope()) {
-            Some(p) => p.clone(),
+            Some(p) => self.with_inherited(p.clone()),
             None if draft => self.durable(),
             None => return (None, None),
         };
@@ -128,6 +144,9 @@ pub trait PickerHost: ComposerHost {
                 std::iter::once(Item::new("default", opencode_i18n::t!("common.default")))
                     .chain(variants.into_iter().flat_map(|m| &m.variants).map(|v| Item::new(v.clone(), capitalize(v)))).collect()
             }
+            // Its speeds by name, as the efforts are (`composer/model.ts` `speed.options`).
+            Kind::Speed => pk.speeds(&selection.model.key()).into_iter()
+                .map(|(id, _)| if id == speed::STANDARD { Item::new(id, capitalize(opencode_i18n::t!("composer.speed.standard"))) } else { Item::new(id.clone(), capitalize(&id)) }).collect(),
             Kind::Project => self.picker_projects(),
         }
     }
@@ -142,13 +161,14 @@ pub trait PickerHost: ComposerHost {
         let pk = self.pickers();
         let m = pk.models.iter().find(|m| m.key == key).filter(|m| !m.variants.is_empty())?;
         let s = self.selection();
-        let current = s.model.id == m.id && s.model.provider == m.provider;
-        Some(pk.staged.get(key).cloned()
+        // A model's speeds share its effort (`models.tsx` `getVariant`).
+        let current = pk.standard_key(&s.model.key()) == key;
+        let effort = pk.staged.get(key).cloned()
             .or_else(|| current.then(|| s.model.variant.clone()))
-            .or_else(|| pk.efforts.get(key).filter(|v| m.variants.contains(v)).cloned())
-            // A session can say "default" for no choice, as the effort trigger reads it.
-            .filter(|v| v != "default")
-            .unwrap_or_default())
+            // Any other model's is the one it would inherit (`select-dialog.tsx` `variant`).
+            .unwrap_or_else(|| pk.inherited_effort(&s.agent, &m.key, self.picker_draft()));
+        // A session can say "default" for no choice, as the effort trigger reads it.
+        Some(if effort == "default" { String::new() } else { effort })
     }
 
     /// Moves the model `key`'s staged effort `step` along Default and its efforts; false when it
@@ -164,11 +184,14 @@ pub trait PickerHost: ComposerHost {
     }
 
     /// Stars or unstars a model (⌘F on the highlighted row, or Favorite in its flyout).
-    fn toggle_favorite(&mut self, key: &str) {
+    fn toggle_favorite(&mut self, key: &str, by_pointer: bool) {
         let pk = self.pickers_mut();
         pk.prefs.toggle_favorite(key);
         // The row moves between groups; the highlight goes with it, and typing still searches.
-        pk.activate(key.to_owned());
+        // From the keys the list follows the row to its new place; a press in the flyout
+        // leaves the list where it is, as a row the pointer lit is not scrolled to when the
+        // list reorders (official `search-list.tsx` `setActive(key, "pointer")`, opencode#65649).
+        if by_pointer { pk.point(key.to_owned()) } else { pk.activate(key.to_owned()) }
         pk.search.focused = pk.open() == Some(Kind::Model);
     }
 
@@ -179,10 +202,24 @@ pub trait PickerHost: ComposerHost {
         self.pickers().models.iter().find(|x| x.id == m.id && x.provider == m.provider).is_some_and(|x| !x.variants.is_empty())
     }
 
+    /// Whether the selected model has other speeds: its speed command is offered only then, so
+    /// nothing about speeds shows for the rest (`composer/commands.tsx`).
+    fn has_speeds(&self) -> bool {
+        !self.pickers().speeds(&self.selection().model.key()).is_empty()
+    }
+
+    /// Whether the toolbar shows the speed's picker: not at the standard speed, so it adds nothing
+    /// to the composer until the speed command chooses one (`editor.tsx`).
+    fn speed_shown(&self) -> bool {
+        self.has_speeds() && self.picker_current(Kind::Speed) != speed::STANDARD
+    }
+
     fn picker_current(&self, kind: Kind) -> String {
         let s = self.selection();
         match kind {
-            Kind::Model => format!("{}:{}", s.model.provider, s.model.id),
+            // The row that stands for the model at any of its speeds (`select-dialog.tsx` `current`).
+            Kind::Model => self.pickers().standard_key(&s.model.key()),
+            Kind::Speed => self.pickers().speed_of(&s.model.key()),
             Kind::Agent => s.agent,
             Kind::Effort => if s.model.variant.is_empty() { "default".into() } else { s.model.variant },
             Kind::Project => self.picker_project_current(),
@@ -281,38 +318,100 @@ pub trait PickerHost: ComposerHost {
     fn apply_selection_for(&mut self, kind: Kind, key: &str) -> bool {
         let mut selected = self.selection();
         let session = self.picker_scope();
+        let draft = self.picker_draft();
+        // An open session's selection owns the effort it shows, whatever is saved or
+        // configured later (`selection.tsx` `set`); a draft's goes on inheriting until one is
+        // chosen (`composer/selection.ts` `set`).
+        if !draft { selected.effort = Effort::Chosen; }
+        // What an agent that names no model runs with (`composer/selection.ts` `key`).
+        let fallback = (kind == Kind::Agent).then(|| self.picker_fallback_model()).flatten();
         let pk = self.pickers_mut();
         match kind {
             Kind::Model => {
-                let Some(m) = pk.models.iter().find(|m| m.key == key).cloned() else { return false };
+                // A model runs at the speed last used with it. Another speed of the same model
+                // keeps what the selection holds; another model starts with no effort chosen
+                // (`composer/selection.ts` `set`).
+                let key = &pk.standard_key(key);
+                let target = pk.remembered_speed(key);
+                let Some(m) = pk.models.iter().find(|m| m.key == target).cloned() else { return false };
                 pk.prefs.picked(key);
+                let same = pk.standard_key(&selected.model.key()) == *key;
+                selected.model.id = m.id.clone();
+                selected.model.provider = m.provider.clone();
                 let staged = pk.staged.get(key).cloned();
-                if m.id != selected.model.id || m.provider != selected.model.provider {
-                    let variant = staged.clone().or_else(|| pk.efforts.get(key).filter(|v| m.variants.contains(v)).cloned()).unwrap_or_default();
-                    selected.model = ModelRef { id: m.id.clone(), provider: m.provider.clone(), variant };
-                } else if let Some(v) = staged.clone() {
-                    selected.model.variant = v;
+                match staged {
+                    Some(staged) => {
+                        pk.prefs.set_variant(key, &staged);
+                        selected.model.variant = staged;
+                        selected.effort = Effort::Chosen;
+                    }
+                    None if same => {}
+                    None => selected.effort = Effort::Inherited,
                 }
-                if let Some(v) = staged { pk.efforts.insert(key.to_owned(), v); }
             }
             Kind::Agent => {
-                if selected.agent != key {
-                    let remembered = pk.choices.get(&session).and_then(|c| c.get(key));
-                    if let Some(m) = remembered.or_else(|| pk.agent_models.get(key)) { selected.model = m.clone(); }
-                    selected.agent = key.into();
+                // Picking the agent already shown changes nothing (`selection-machine.ts`
+                // `editSelection`).
+                if selected.agent == key { return true; }
+                // In an open session the agent it leaves keeps the model and effort it showed,
+                // for when it is picked again (`selection-machine.ts` `editSelection`). A draft
+                // keeps only a model that was picked for the agent, which the pick remembered
+                // (`composer/selection.ts`: the agent's `prompt.model`, none when nothing was).
+                if !draft {
+                    let left = Choice { model: selected.model.clone(), effort: Effort::Chosen };
+                    pk.choices.entry(session.clone()).or_default().insert(selected.agent.clone(), left);
                 }
+                match pk.choices.get(&session).and_then(|c| c.get(key)).cloned() {
+                    // The model the agent last had here comes back as it was. One a draft
+                    // remembered has no effort of its own, also in the session the draft
+                    // started (`composer/selection.ts` `remembered`).
+                    Some(c) => {
+                        selected.model = c.model;
+                        selected.effort = if draft { Effort::Inherited } else { c.effort };
+                    }
+                    // An agent new here runs with its own model, else with the one a session
+                    // nobody chose a model for starts with: the config's, a recent one or the
+                    // first (`composer/selection.ts` `key`, `selection.tsx` `key`). The model
+                    // on screen was the other agent's, so it does not stay. No effort is chosen.
+                    None => {
+                        if let Some(m) = pk.agent_models.get(key).cloned().or(fallback) {
+                            selected.model = m;
+                            selected.effort = Effort::Inherited;
+                        }
+                    }
+                }
+                selected.agent = key.into();
             }
             Kind::Effort => {
                 selected.model.variant = if key == "default" { String::new() } else { key.into() };
-                pk.efforts.insert(format!("{}:{}", selected.model.provider, selected.model.id), selected.model.variant.clone());
+                selected.effort = Effort::Chosen;
+                let standard = pk.standard_key(&selected.model.key());
+                pk.prefs.set_variant(&standard, &selected.model.variant);
+            }
+            // The same model at another speed, remembered for when it is picked again
+            // (`composer/selection.ts` `speed.set`). A chosen effort goes with it; an inherited
+            // one is asked again for the speed it moves to (opencode#66107).
+            Kind::Speed => {
+                let now = selected.model.key();
+                let Some((_, target)) = pk.speeds(&now).into_iter().find(|(id, _)| id == key) else { return false };
+                let Some(m) = pk.models.iter().find(|m| m.key == target) else { return false };
+                selected.model.id = m.id.clone();
+                pk.prefs.set_speed(&pk.standard_key(&now), Some(key).filter(|k| *k != speed::STANDARD));
             }
             Kind::Project => return false,
         }
-        pk.choices.entry(session.clone()).or_default().insert(selected.agent.clone(), selected.model.clone());
+        if selected.effort == Effort::Inherited {
+            selected.model.variant = pk.inherited_effort(&selected.agent, &selected.model.key(), draft);
+            // An open session keeps what that came to (`selection.tsx` `set`: "A session
+            // selection owns its variant even when preferences change in another session").
+            if !draft { selected.effort = Effort::Chosen; }
+        }
+        if draft && kind != Kind::Agent { pk.remember_draft_pick(&session, &selected); }
         let live = !self.picker_draft();
         let durable = self.durable();
         let pk = self.pickers_mut();
-        if live && selected == durable { pk.selections.remove(&session); } else { pk.selections.insert(session, selected); }
+        if live && selected == durable { pk.selections.remove(&session); } else { pk.selections.insert(session.clone(), selected); }
+        self.picker_changed(&session);
         true
     }
 
@@ -379,8 +478,9 @@ fn model_items(pk: &Pickers) -> Vec<Item> {
         note: if note { m.group.clone() } else { String::new() }, free: m.free, latest: m.latest,
     };
     if !pk.search.text.trim().is_empty() {
+        // A model's speeds are not rows of their own (`models.tsx` `listed`).
         let mut hits: Vec<(i64, Item)> = pk.models.iter()
-            .filter(|m| pk.visible(m))
+            .filter(|m| m.speed.is_none() && pk.visible(m))
             .filter_map(|m| {
                 let fields = [m.name.as_str(), m.group.as_str(), m.provider.as_str(), m.id.as_str()];
                 search::score(&pk.search.text, &fields).map(|score| (score, item(m, &m.provider, &m.group, false)))
@@ -391,10 +491,14 @@ fn model_items(pk: &Pickers) -> Vec<Item> {
     }
     let prefs = &pk.prefs;
     let find = |k: &String| pk.models.iter().find(|m| &m.key == k);
-    let favorites: Vec<&Model> = prefs.favorites.iter().filter_map(find).collect();
-    let recent: Vec<&Model> = prefs.recent.iter().filter(|k| !prefs.is_favorite(k)).filter_map(find).collect();
+    // Saved entries may name a model at any of its speeds; the lists show each model once
+    // (`models.tsx` `recent`, `favorite`).
+    let once = |keys: &[String]| keys.iter().map(|k| pk.standard_key(k)).fold(Vec::new(), |mut out: Vec<String>, k| { if !out.contains(&k) { out.push(k); } out });
+    let (favorites, recent) = (once(&prefs.favorites), once(&prefs.recent));
+    let recent: Vec<&Model> = recent.iter().filter(|k| !favorites.contains(k)).filter_map(find).collect();
+    let favorites: Vec<&Model> = favorites.iter().filter_map(find).collect();
     let lead = |m: &Model| favorites.iter().chain(&recent).any(|x| x.key == m.key);
-    let mut rest: Vec<&Model> = pk.models.iter().filter(|m| pk.visible(m) && !lead(m)).collect();
+    let mut rest: Vec<&Model> = pk.models.iter().filter(|m| m.speed.is_none() && pk.visible(m) && !lead(m)).collect();
     rest.sort_by(|a, b| provider_rank(a).cmp(&provider_rank(b)).then_with(|| rune::text::compare_names(&a.name, &b.name)));
     grouped(favorites.iter().map(|m| item(m, FAVORITES, opencode_i18n::t!("dialog.model.favorites"), true))
         .chain(recent.iter().map(|m| item(m, RECENT, opencode_i18n::t!("dialog.model.recent"), true)))
@@ -453,7 +557,7 @@ fn picker_keys<S: PickerHost>(s: &mut S, ev: &KeyEvent, tx: &mut Tx) -> bool {
                 s.apply_menu_effect(eff, tx);
             }
             None if crate::keymap::Bind::Favorite.matches(ev) && open == Kind::Model => {
-                if let Some(key) = s.picker_active() { s.toggle_favorite(&key); }
+                if let Some(key) = s.picker_active() { s.toggle_favorite(&key, false); }
                 s.model_list_keyed();
             }
             // As in Desktop's list: ← → change the lit model's effort, or while searching edit
@@ -475,13 +579,15 @@ fn picker_keys<S: PickerHost>(s: &mut S, ev: &KeyEvent, tx: &mut Tx) -> bool {
                 }
                 s.flyout_event(hover::machine::Event::Highlight { id: &key, option: Some(0) }, tx);
             }
+            // Add project (`project.open`, which Desktop binds while its location dialog shows).
+            None if open == Kind::Project && crate::keymap::Bind::OpenProject.matches_tx(ev, tx) => s.picker_choose_project(ADD_PROJECT_KEY, tx),
             None => return open != Kind::Model,
         }
         return true;
     }
     // A focused trigger opens its list on the arrows too, as Kobalte's `MenuTrigger.onKeyDown`
     // does (`ArrowDown` focuses the first row, `ArrowUp` the last).
-    let toolbar_focus = [Kind::Agent, Kind::Model, Kind::Effort].into_iter().find(|k| tx.focused() == Some(k.key()));
+    let toolbar_focus = [Kind::Agent, Kind::Model, Kind::Effort, Kind::Speed].into_iter().find(|k| tx.focused() == Some(k.key()));
     if matches!(ev.key, Key::Down | Key::Up) && ev.mods == Default::default()
         && let Some(kind) = toolbar_focus {
         let entry = if ev.key == Key::Up { menu::EntryFocus::Last } else { menu::EntryFocus::First };
@@ -515,7 +621,7 @@ fn flyout_key<S: PickerHost>(s: &mut S, ev: &KeyEvent, tx: &mut Tx) -> bool {
         Key::Up => Some((index + count - 1) % count),
         key if *key == backward || *key == Key::Escape => None,
         Key::Enter => {
-            if index == count - 1 { s.toggle_favorite(&id); s.model_flyout_dismissed(tx); }
+            if index == count - 1 { s.toggle_favorite(&id, false); s.model_flyout_dismissed(tx); }
             else {
                 let effort = index.checked_sub(1).and_then(|i| model.variants.get(i)).cloned().unwrap_or_default();
                 s.choose_effort(&id, &effort, tx);

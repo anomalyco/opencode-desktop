@@ -97,7 +97,9 @@ fn start_loaded(app: &mut App, i: usize) {
     let adopted = half.adopt(vm);
     services::reap(&half, vm);
     services::store::withdraw_owner(&id, plugin::Kind::Window, vm);
+    services::browser_contract::revoke_half(&half.token, vm);
     app.plugins.clear_model_badges(&id, vm);
+    let timed_out = script.error().is_some_and(|e| e.kind == rune_luau::ErrorKind::Timeout);
     let event = match (script.error(), adopted) {
         (None, true) => LifeEvent::Started(script),
         (error, _) => {
@@ -106,14 +108,78 @@ fn start_loaded(app: &mut App, i: usize) {
         }
     };
     drive(app, i, event);
+    if timed_out {
+        restart_later(app, &id);
+    }
     if app.plugins.list[i].running() {
         dormant::note_started(app, i);
     }
 }
 
+/// How long a plugin whose start ran out of time shows its error card before it starts again, in s.
+const RESTART_AFTER: f64 = 2.0;
+/// Restarts a plugin gets after its start ran out of time, per window, never reset: one. It repairs
+/// a false positive of our own watchdog (a busy machine at boot); official has no such watchdog and
+/// restarts nothing by itself. A start that times out again stays on its error card with Reload.
+const RESTARTS: u32 = 1;
+
+/// The window's plugins whose start ran out of time: each restart still to come (the plugin, and
+/// when it is due on `app.clock`), and how many each plugin had. Leaving the error card any other
+/// way (Reload, disable, trust) stops its script, which drops the plugin's pending restart.
+#[derive(Default)]
+pub struct Restarts {
+    due: Vec<(String, f64)>,
+    count: std::collections::BTreeMap<String, u32>,
+}
+
+impl Restarts {
+    /// The window is closing or the app is quitting: no plugin starts again on the way out.
+    pub fn cancel_all(&mut self) {
+        self.due.clear();
+    }
+}
+
+/// Plugin `id`'s start ran past the watchdog: it starts again in [`RESTART_AFTER`], up to
+/// [`RESTARTS`] time; meanwhile its surfaces show the error card and the console says so.
+fn restart_later(app: &mut App, id: &str) {
+    let at = *app.clock + RESTART_AFTER;
+    let restarts = &mut app.plugins.restarts;
+    let n = restarts.count.entry(id.to_owned()).or_insert(0);
+    if *n >= RESTARTS {
+        return;
+    }
+    *n += 1;
+    restarts.due.push((id.to_owned(), at));
+    console::push(id, rune_luau::LogLevel::Warn, "its start ran out of time; starting it again");
+    // A frame soon, whose poll sets the wake for the restart.
+    if let Some(w) = app.plugins.waker.clone() {
+        w();
+    }
+}
+
+/// Starts again one plugin whose restart came due ([`restart_later`]) and wakes for the next. One a
+/// frame: plugins that timed out together in a busy boot don't all start again in one frame.
+fn poll_restarts(app: &mut App, tx: &mut Tx) -> bool {
+    let now = *app.clock;
+    // Read first: a `&mut` borrow of the host is a write, after which every region showing a
+    // plugin surface (the sidebar, titlebar and session header) builds again.
+    let id = app.plugins.restarts.due.iter().position(|(_, at)| *at <= now).map(|k| app.plugins.restarts.due.remove(k).0);
+    if let Some(next) = app.plugins.restarts.due.iter().map(|(_, at)| *at).min_by(f64::total_cmp) {
+        tx.wake_at(next.max(now));
+    }
+    let Some(i) = id.and_then(|id| app.plugins.find(&id)).filter(|&i| matches!(app.plugins.list[i].life, Life::Errored { .. })) else {
+        return false;
+    };
+    drive(app, i, LifeEvent::Load);
+    true
+}
+
 /// [`LifeEffect::Stop`]: fires `Disposing` in `script`, then withdraws what plugin `i`
 /// contributed and reaps its processes; the script goes with this call.
 fn stop(app: &mut App, i: usize, script: Script) {
+    // Off its error card some other way first (Reload, disable, trust): no restart comes after.
+    let id = app.plugins.list[i].manifest.id.clone();
+    app.plugins.restarts.due.retain(|(k, _)| *k != id);
     let half = app.plugins.list[i].half.clone();
     if let Some(vm) = script.vm_id() {
         let fire = half.fire.borrow().get(&vm).cloned();
@@ -126,6 +192,7 @@ fn stop(app: &mut App, i: usize, script: Script) {
     *half.contribs.borrow_mut() = plugin::Contribs::default();
     services::reap(&half, None);
     services::store::withdraw_owner(&half.id, plugin::Kind::Window, None);
+    services::browser_contract::revoke_half(&half.token, None);
     app.plugins.clear_model_badges(&half.id, None);
     app.plugins.shared.images.borrow_mut().forget(&half.id);
     crate::plugin_host::icons::clear_plugin(&half.id);
@@ -196,6 +263,7 @@ pub fn reload(app: &mut App, i: usize, prepared: Option<hot::Prepared>) {
             half.adopt(vm);
             services::reap(&half, vm);
             services::store::withdraw_owner(&id, plugin::Kind::Window, vm);
+            services::browser_contract::revoke_half(&half.token, vm);
             app.plugins.clear_model_badges(&id, vm);
             if app.plugins.dialog.as_ref().is_some_and(|d| {
                 *d.plugin == *id && !half.contribs.borrow().dialogs.iter().any(|c| c.spec.id == d.id)
@@ -229,7 +297,13 @@ pub fn poll(app: &mut App, fresh: bool, tx: &mut Tx) -> bool {
     // it asked writes what that changes).
     let asked = app.plugins.asked.replace(false);
     let mut changed = false;
+    let focused_pill = tx.focused().and_then(|k| k.strip_prefix("plugin-titlebar-"));
+    if app.plugins.titlebar_focus.as_deref() != focused_pill {
+        app.plugins.titlebar_focus = focused_pill.map(str::to_owned);
+        changed = true;
+    }
     changed |= dormant::poll(app, tx);
+    changed |= poll_restarts(app, tx);
     if app.plugins.boot.later().is_empty() {
         dormant::save(app);
     }

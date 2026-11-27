@@ -21,6 +21,21 @@ pub struct Model {
     /// tools: the flyout's summary under its efforts (`details.tsx:32-43`).
     pub inputs: Vec<String>,
     pub tools: bool,
+    /// Set on a model that is another model of its provider served faster or slower
+    /// ("gpt-5.5-fast" for "gpt-5.5", the server's `experimental.speed`): it is offered as a
+    /// speed of that model, not as a row of its own (`packages/schema/src/model.ts` `Speed`).
+    pub speed: Option<Speed>,
+}
+
+/// A model's place among another model's speeds.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Speed {
+    /// The id of the same provider's model at its standard speed.
+    pub base: String,
+    /// The speed's name: "fast", "flex".
+    pub id: String,
+    /// Faster than the standard speed; a slower one trades latency for a lower price.
+    pub faster: bool,
 }
 
 /// What a model reads natively besides text (`AttachmentDestination.input`).

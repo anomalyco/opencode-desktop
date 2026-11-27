@@ -12,7 +12,7 @@ pub(crate) use crate::shell::{
     commands,
     commands::type_to_compose,
     diag::{diagnostics, motion_log},
-    input::{escape, keymap, keys, shortcuts},
+    input::{escape, key_sequence, keymap, keys, shortcuts},
     menus::{add_menu, app_menu, menubar, popover, popup},
     narrow,
     nav::{history, layout_state, pinch, route},
@@ -31,13 +31,13 @@ pub(crate) use crate::session::{
     events,
     events::{incoming, stream::pace as stream_pace},
     inbox::{
-        model as inbox_model, order as inbox_order, queue, send, send_failed, stop, submit,
+        model as inbox_model, moves as archive_moves, order as inbox_order, queue, send, send_failed, stop, submit,
     },
     menu as session_menu,
     menu::view as session_menu_view,
     meta::{
         catalog as session_catalog, context_window, cost as session_cost, open as session_open,
-        state as session_state, status as session_status, title_change, turn_diffs,
+        state as session_state, status as session_status, title_change, turn_diffs, viewed as session_viewed,
     },
     pages as session_pages,
     timeline::{
@@ -49,7 +49,7 @@ pub(crate) use crate::session::{
 #[allow(unused_imports)]
 pub(crate) use crate::workspace::{
     lifecycle::{
-        idle, jobs, launch, new_session, new_worktree, page_sign_in, reconnect, restore, rune_mcp,
+        idle, jobs, launch, new_session, new_worktree, page_sign_in, reconnect, restore, rune_mcp, start_location,
         served, storage, tips,
     },
     projects,
@@ -63,6 +63,8 @@ pub(crate) use crate::workspace::{
 };
 #[cfg(windows)]
 pub(crate) use crate::workspace::system::install;
+#[cfg(bundle_assets)]
+pub(crate) use crate::workspace::system::bundle;
 
 #[allow(unused_imports)]
 pub(crate) use crate::surfaces::{browser, egg, files, glitch, review, terminal, updater};

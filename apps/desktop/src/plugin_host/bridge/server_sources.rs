@@ -104,7 +104,7 @@ fn run(script: &rune_luau::Script, f: &Function, id: &str, settle: Option<Settle
     };
     let settle = RefCell::new(Some(settle));
     let wrapped = script.with_lua(|lua| -> mlua::Result<(Function, Function)> {
-        let wrapper: Function = lua.load("local f, id, done = ...\nlocal ok, result = pcall(f, id)\ndone(ok and result == true)").into_function()?;
+        let wrapper: Function = opencode_plugin_runtime::chunk::load(lua, "local f, id, done = ...\nlocal ok, result = pcall(f, id)\ndone(ok and result == true)").into_function()?;
         let done = lua.create_function(move |_, ready: bool| {
             if let Some(s) = settle.borrow_mut().take() {
                 s(ready);

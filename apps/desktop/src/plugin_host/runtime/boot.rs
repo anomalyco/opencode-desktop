@@ -41,6 +41,12 @@ pub fn setup(app: &mut App, waker: Waker) {
         return;
     }
     stores::begin();
+    // Non-realtime headless runs (`--script`/`--snap`/`--tree` with `--harness-writes`) have no
+    // `on_ready` hook to call `storage::presented()`, so join stage B here rather than stranding
+    // `start_later` in `Phase::Booted` until process exit when SQLite WAL init is still running.
+    if crate::headless() && !crate::realtime() {
+        crate::storage::join_for_headless();
+    }
     // What the user turned off and trusted: in memory, or in the boot record. A launch whose
     // plugin files weren't imported yet knows them only from stage B, so nothing starts before it.
     let known = refresh_records(app) || (crate::storage::need() && refresh_records(app));
@@ -51,8 +57,16 @@ pub fn setup(app: &mut App, waker: Waker) {
     crate::servers::refresh(app);
     // The built-ins this launch's first screen shows start now, the rest after its first frame
     // (`first_screen`); a headless run (no first-frame hook) starts them all.
-    let first = (!crate::headless()).then(|| first_screen::plugins(app));
-    let (now, later): (Vec<_>, Vec<_>) = sources::builtins()
+    let builtins = sources::builtins();
+    app.plugins.dormant.ensure_read();
+    let first = (!crate::headless()).then(|| {
+        first_screen::plugins(app, |id| {
+            let found = builtins.iter().find(|f| f.manifest.id == id)?;
+            let hash = sources::files_hash(id, &found.origin, found.tier)?;
+            app.plugins.dormant.kept(id, &hash).cloned()
+        })
+    });
+    let (now, later): (Vec<_>, Vec<_>) = builtins
         .into_iter()
         .partition(|f| first.as_ref().is_none_or(|ids| ids.contains(&f.manifest.id.as_str())));
     let start_now = known && stores::answers();
@@ -69,6 +83,11 @@ pub fn setup(app: &mut App, waker: Waker) {
     app.plugins.boot.step(BootEvent::Start { later, doze });
     if !adopt_now.is_empty() {
         adopt(app, adopt_now);
+    }
+    // A side panel open on New tab lists the sleeping built-ins' entries from their records
+    // (`first_screen`): those go to sleep before this frame, not after it.
+    if app.active_session_id().is_some_and(|session| dormant::shows_launchers(app, session)) {
+        doze_owed(app);
     }
     // A headless run (a capture, a check) reads the plugin folders before it draws; a window
     // reads them on a worker after its first frame ([`first_frame`]).
@@ -154,7 +173,28 @@ fn start_later(app: &mut App) {
             adopt_later_kinds(app, &["Command"]);
         }
         if app.settings_open() {
-            adopt_later_kinds(app, &["Command", "Setting", "SettingsPage"]);
+            dormant::wake_settings(app);
+        }
+        if let Some(sid) = app.active_session_id().map(str::to_owned) {
+            let tab_plugins: Vec<String> = app
+                .kernel
+                .slots
+                .get(&crate::panels::SIDE)
+                .sessions
+                .get(&sid)
+                .map(|st| {
+                    st.tab_state
+                        .tabs
+                        .all
+                        .iter()
+                        .filter_map(|k| crate::panels::tabs::split_panel_key(k).map(|(p, _)| p.to_owned()))
+                        .collect()
+                })
+                .unwrap_or_default();
+            for id in tab_plugins {
+                adopt_later_id(app, &id);
+                dormant::wake(app, &id, dormant::Why::Use);
+            }
         }
         if let Some(kind) = app.composer_ext.pickers.open() {
             crate::plugin_host::notify_picker_after_boot(app, kind, tx);
@@ -248,6 +288,53 @@ pub(in crate::plugin_host) fn adopt_later_signal(app: &mut App, signal: &str) ->
     any
 }
 
+/// Ensures plugin `id` is running now when it is an eligible dormant or deferred plugin (never
+/// overriding user disable, trust refusal, or `--no-plugins`). Returns `true` if `id` is running.
+pub fn ensure_plugin_running(app: &mut App, id: &str) -> bool {
+    if app.plugins.find(id).is_some_and(|i| app.plugins.list[i].running()) {
+        return true;
+    }
+    if !app.plugins.boot.is_started() {
+        return false;
+    }
+    doze_owed(app);
+    if let Some(i) = app.plugins.find(id) {
+        if app.plugins.list[i].running() {
+            return true;
+        }
+        return matches!(app.plugins.list[i].life, Life::Dormant)
+            && dormant::wake(app, id, dormant::Why::Use);
+    }
+    adopt_later_id(app, id)
+        && app.plugins.find(id).is_some_and(|i| app.plugins.list[i].running())
+}
+
+/// Adopts queued plugin `id` from `later` immediately when its enabled/trust records are known.
+pub(in crate::plugin_host) fn adopt_later_id(app: &mut App, id: &str) -> bool {
+    if !app.plugins.boot.later().iter().any(|f| f.manifest.id == id) {
+        return false;
+    }
+    if !refresh_records(app) && !(crate::storage::need() && refresh_records(app)) {
+        return false;
+    }
+    let later = app.plugins.boot.take_later();
+    let mut now = Vec::new();
+    let mut keep = Vec::with_capacity(later.len());
+    for found in later {
+        if found.manifest.id == id {
+            now.push(found);
+        } else {
+            keep.push(found);
+        }
+    }
+    app.plugins.boot.set_later(keep);
+    if now.is_empty() {
+        return false;
+    }
+    adopt(app, now);
+    true
+}
+
 /// Whether built-in `id` has work of its own to do from launch, without a use: the updater's check,
 /// pill and What's new, and Pairing while Keep screen active holds the display. Those start in idle
 /// time rather than waiting for a use.
@@ -288,6 +375,9 @@ pub fn doze_owed(app: &mut App) {
     }
     rune::marks::mark("plugins.doze");
     settle_later(app);
+    if app.settings_open() {
+        dormant::wake_settings(app);
+    }
     rune::marks::mark("plugins.dozed");
 }
 
@@ -296,6 +386,13 @@ pub fn doze_owed(app: &mut App) {
 /// the app's thread. True when some start (the window redraws for them).
 pub fn first_frame(app: &mut App) -> bool {
     doze_owed(app);
+    // What the routed session's screen draws that slept through the first frame (a composer
+    // pill, `first_screen`) starts from the next turn, one per turn.
+    if app.active_session_id().is_some() && dormant::want_pills(app)
+        && let Some(wake) = &*app.waker
+    {
+        wake();
+    }
     let later = !app.plugins.boot.later().is_empty();
     let effects = app.plugins.boot.step(BootEvent::FirstFrame);
     for effect in effects {

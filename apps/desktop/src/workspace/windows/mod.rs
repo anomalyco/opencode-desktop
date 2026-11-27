@@ -29,7 +29,7 @@ pub(crate) mod tear_stories;
 
 pub use open::new_window;
 #[cfg(not(target_arch = "wasm32"))]
-pub use open::{launch, opened};
+pub use open::{launch, open_rest, opened};
 pub use reopen::reopen;
 
 /// One window's identity and what it tracks of itself.
@@ -61,6 +61,8 @@ pub struct Window {
     pub hidden: bool,
     /// Its display scale before or outside `view` (from the opening display, `placement`, or web).
     pub scale: f32,
+    /// It holds the keyboard (`on_focus`): only then does it report what's seen as viewed.
+    pub focused: bool,
 }
 
 impl Window {
@@ -79,13 +81,8 @@ impl Window {
 /// that writes (`--harness-writes`) reads and writes the rows the app's first window keeps
 /// (`opencode.window.<id>.dat`): its tabs, page and drafts.
 pub fn first_saved() -> Window {
-    let saved = store::saved_ids();
-    let mut ids = saved.clone().unwrap_or_default();
-    if ids.is_empty() {
-        ids.push(store::new_id());
-        store::save_ids(&ids);
-    }
-    Window::new(ids.swap_remove(0), saved.is_none())
+    let (mut ids, fresh) = store::launch_ids();
+    Window::new(ids.swap_remove(0), fresh)
 }
 
 /// An open window: its handles, where its strip is, and its life.
@@ -97,10 +94,23 @@ struct Open {
     life: life::Life,
     /// When it last came to the front (`FOCUSES`): of windows under one point, the latest is on top.
     focused: u64,
+    /// False between `register` and this window's first `sync_shown` (`servers::runtime::leave`):
+    /// while unreported, another window's `App::rest` treats this window as showing everything so
+    /// shared transcripts and user-message metadata are never evicted in the startup gap.
+    reported: bool,
+    /// Stamp of `(tabs, route)` when `shown` was last refreshed.
+    shown_stamp: u64,
+    /// Every `(server, session_id)` this window holds in its tabs or active route, so another
+    /// window resting (`App::rest`) never evicts a session still open here.
+    shown: Vec<(opencode_kit::servers::ServerKey, String)>,
+    /// Weak handles to every `Pages` prefetch cache in this window (active and parked servers)
+    /// so another window's `App::rest` never prunes user-message metadata for pages cached here.
+    pages: Vec<crate::session_pages::CacheRef>,
 }
 
 thread_local! {
-    /// Every open window, in the order they opened (the UI thread's, which all windows share).
+    /// Every open window, in the order they opened (the UI thread's, which all windows share),
+    /// and a window kept at its close while the app ends.
     static OPEN: RefCell<Vec<Open>> = const { RefCell::new(Vec::new()) };
     /// Counts windows coming to the front.
     static FOCUSES: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
@@ -164,9 +174,73 @@ pub fn register(id: &str, handle: WindowHandle, app: AppHandle<App>, life: life:
     OPEN.with(|o| {
         let mut o = o.borrow_mut();
         o.retain(|w| w.id != id);
-        o.push(Open { id: id.to_owned(), handle, app, strip: None, life, focused: 0 });
+        o.push(Open { id: id.to_owned(), handle, app, strip: None, life, focused: 0, reported: false, shown_stamp: 0, shown: Vec::new(), pages: Vec::new() });
     });
     focused(id);
+}
+
+/// Records the `(server, session_id)` entries this window holds in its open tabs and active route
+/// (plus its `Pages` prefetch cache handle), so another window's `App::rest` never evicts sessions
+/// or user-message metadata still live here.
+pub fn sync_shown(s: &App) {
+    if s.window.id.is_empty() {
+        return;
+    }
+    use std::hash::{DefaultHasher, Hash, Hasher};
+    let mut h = DefaultHasher::new();
+    rune::Tracked::version(&s.tabs).hash(&mut h);
+    rune::Tracked::version(&s.route).hash(&mut h);
+    let stamp = h.finish().max(1);
+    OPEN.with(|o| {
+        let mut o = o.borrow_mut();
+        let Some(w) = o.iter_mut().find(|w| w.id == s.window.id) else { return };
+        w.reported = true;
+        if !crate::servers::runtime::same_cache_refs(s, &w.pages) {
+            w.pages = crate::servers::runtime::all_cache_refs(s);
+        }
+        if w.shown_stamp == stamp {
+            return;
+        }
+        w.shown_stamp = stamp;
+        w.shown.clear();
+        for t in s.tabs.iter().filter(|t| !t.is_draft()) {
+            w.shown.push((t.server.clone(), t.id.clone()));
+        }
+        if let crate::Route::Session { server, id } = &*s.route
+            && !w.shown.iter().any(|(srv, sid)| srv == server && sid == id)
+        {
+            w.shown.push((server.clone(), id.clone()));
+        }
+    });
+}
+
+/// True when any other open window was registered but has not yet completed its first turn and
+/// reported its shown tabs/route.
+pub fn any_other_window_unreported(exclude_id: &str) -> bool {
+    OPEN.with(|o| o.borrow().iter().any(|w| w.id != exclude_id && !w.reported))
+}
+
+/// Every session id open in a tab or active route of any OTHER open window on `server`.
+pub fn other_windows_shown(exclude_id: &str, server: &opencode_kit::servers::ServerKey) -> Vec<String> {
+    OPEN.with(|o| {
+        o.borrow()
+            .iter()
+            .filter(|w| w.id != exclude_id)
+            .flat_map(|w| w.shown.iter().filter(|(srv, _)| srv == server).map(|(_, sid)| sid.clone()))
+            .collect()
+    })
+}
+
+/// User message ids held by every OTHER open window's per-window `Pages` prefetch cache.
+pub fn other_windows_cached_user_messages(exclude_id: &str) -> Vec<String> {
+    OPEN.with(|o| {
+        o.borrow()
+            .iter()
+            .filter(|w| w.id != exclude_id)
+            .flat_map(|w| w.pages.iter())
+            .flat_map(crate::session_pages::CacheRef::user_message_ids)
+            .collect()
+    })
 }
 
 /// Window `id` came to the front.
@@ -200,14 +274,17 @@ pub fn life(id: &str, event: life::LifeEvent) -> life::LifeEffect {
     effect
 }
 
-/// The windows that open again next launch: the open ones, in the order they opened.
+/// The windows that open again next launch, in the order they opened: the open ones, and one
+/// kept at its close (`Life::Kept`: the last window's close button or Alt+F4, which the app's
+/// quit follows).
 fn saved_ids() -> Vec<String> {
-    OPEN.with(|o| o.borrow().iter().filter(|w| w.life.saved()).map(|w| w.id.clone()).collect())
+    OPEN.with(|o| o.borrow().iter().filter(|w| w.life.listed()).map(|w| w.id.clone()).collect())
 }
 
-/// Window `id`'s native handle, while it's open.
+/// Window `id`'s native handle, while it's open (a kept window has closed: its frame was saved
+/// as it did).
 pub fn handle(id: &str) -> Option<WindowHandle> {
-    OPEN.with(|o| o.borrow().iter().find(|w| w.id == id).map(|w| w.handle.clone()))
+    OPEN.with(|o| o.borrow().iter().find(|w| w.id == id && w.life != life::Life::Kept).map(|w| w.handle.clone()))
 }
 
 /// Window `s`'s view scale (`device_scale`) before or outside `view`: its live OS window's
@@ -215,7 +292,7 @@ pub fn handle(id: &str) -> Option<WindowHandle> {
 /// on (Wayland, or before `on_created`), else `--scale` (headless).
 pub fn view_scale(s: &App) -> f32 {
     let win = handle(&s.window.id)
-        .and_then(|h| h.placement().map(|p| p.scale as f32))
+        .and_then(|h| h.scale().map(|s| s as f32))
         .or_else(|| (s.window.scale > 0.0).then_some(s.window.scale))
         .or_else(|| crate::arg("--scale").and_then(|v| v.parse::<f32>().ok()))
         .filter(|&v| v > 0.0);

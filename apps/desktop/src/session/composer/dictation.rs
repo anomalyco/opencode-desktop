@@ -64,6 +64,7 @@ pub(crate) fn submit_mode(s: &mut App, mode: crate::send::SubmitMode) -> bool {
         crate::send::SubmitMode::Default => SubmitKind::Default,
         crate::send::SubmitMode::Alternate => SubmitKind::Alternate,
         crate::send::SubmitMode::QueueFirst => SubmitKind::QueueFirst,
+        crate::send::SubmitMode::InPlace => SubmitKind::InPlace,
     };
     submit(s, kind)
 }
@@ -83,6 +84,14 @@ impl DictationHost for App {
     }
 
     fn is_dictate_bind(&self, ev: &KeyEvent) -> bool {
+        // The browser's device toolbar takes the chord in the channels its plugin offers it in
+        // (`App.Channel` dev or local, which every unnamed channel such as `pr-625` maps to).
+        if !self.dictation().active() && !matches!(crate::updater::build_channel(), "stable" | "prod" | "latest" | "beta") {
+            let field = self.plugins.editors.borrow().iter().any(|((p, _), e)| p == "browser" && e.focused);
+            if self.focused_browser_pane(field).is_some() {
+                return false;
+            }
+        }
         crate::keymap::Bind::Dictate.matches(ev)
     }
 
@@ -103,6 +112,7 @@ impl DictationHost for App {
             SubmitKind::Default => crate::send::SubmitMode::Default,
             SubmitKind::Alternate => crate::send::SubmitMode::Alternate,
             SubmitKind::QueueFirst => crate::send::SubmitMode::QueueFirst,
+            SubmitKind::InPlace => crate::send::SubmitMode::InPlace,
         };
         App::submit_mode(self, mode, tx);
     }

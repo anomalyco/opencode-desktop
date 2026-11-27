@@ -58,7 +58,7 @@ fn projects_of(s: &App, v: &ServerView) -> Vec<model::Project> {
 }
 
 fn same_dir(a: &str, b: &str) -> bool {
-    opencode_servers::home::comparable_path(a) == opencode_servers::home::comparable_path(b)
+    opencode_servers::home::same_directory_key(a) == opencode_servers::home::same_directory_key(b)
 }
 
 /// `mx-3 h-px bg-v2-border-border-base`.
@@ -97,7 +97,7 @@ fn server_row(s: &App, p: &Pal, v: &ServerView, selected: bool, collapsed: bool)
     let chevron = if can_toggle {
         chevron.hover(p.hover).expanded(!collapsed).on_press_tx(move |_: &mut App, tx: &mut Tx| home_state::toggle_collapsed(&chevron_key, tx))
     } else {
-        chevron.on_press(|_: &mut App| {})
+        chevron.disabled(true).on_press(|_: &mut App| {})
     };
     let mut label = row()
         .key("label")
@@ -139,7 +139,7 @@ fn server_row(s: &App, p: &Pal, v: &ServerView, selected: bool, collapsed: bool)
     let (menu_target, add_target) = (key.clone(), key.clone());
     let add_enabled = !v.failed() || auth;
     let mut add = super::projects::icon_button(p, &format!("home-server-add-{}", v.key), t!("home.project.add"), &ic::FOLDER_ADD_LEFT, false).help(t!("home.project.add"));
-    add = if add_enabled { add.on_press_tx(move |s: &mut App, tx: &mut Tx| choose_project(s, &add_target, tx)) } else { add.opacity(0.5) };
+    add = if add_enabled { add.on_press_tx(move |s: &mut App, tx: &mut Tx| choose_project(s, &add_target, tx)) } else { add.disabled(true).opacity(0.5).hit().cursor(rune::Cursor::NotAllowed) };
     let actions = row()
         .key("actions")
         // 2 clear of the row's top and bottom, where the row's inset focus ring runs.
@@ -219,6 +219,7 @@ fn focus(s: &mut App, key: &ServerKey, tx: &mut Tx) {
         return;
     }
     home_state::focus(s, key);
+    super::picked(s, tx);
 }
 
 /// An added server that rejects its saved sign-in opens its Edit server dialog, for a new

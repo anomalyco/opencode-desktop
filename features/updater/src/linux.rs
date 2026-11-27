@@ -1,11 +1,12 @@
-//! Linux: checks the release feed and offers the download, never installs.
+//! Linux: checks the release feed and offers the direct package download link, never elevating
+//! or replacing packages in-app.
 //!
-//! The release ships an AppImage, a `.deb` and an `.rpm` (`apps/desktop/scripts/package-linux.sh`), none of
-//! which can safely replace itself, so a newer release comes back as Desktop's external update
-//! (`Target::External`, the `download-required` state): Download opens the channel's latest
-//! link for the package this build was installed from,
-//! `https://anoma.ly/release/opencode/desktop-rune/<channel>/linux-<arch>-<format>`.
+//! - **AppImage**, **`.deb`**, **`.rpm`**: checks `https://anoma.ly/release/opencode/desktop-rune/<channel>.json`
+//!   for `linux-<arch>-<format>` and reports `Target::External` (`download-required`), opening the
+//!   channel's HTTPS download URL for the matching format.
+//! - **Snap, Flatpak, distro/bare binaries**: returns `None` (`Disabled`).
 
+use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
@@ -15,11 +16,10 @@ use super::machine::Target;
 use super::platform::Platform;
 use super::protocol::{APP_NAME, ARTIFACT_NAME, DEFAULT_SERVICE_URL};
 
-/// What the `.deb` and `.rpm` install as (`package-linux.sh`).
+/// What the `.deb` and `.rpm` install as (`apps/desktop/scripts/package-linux.sh`).
 const PACKAGE: &str = "opencode-rune";
 const PACKAGED_EXE: &str = "/usr/bin/opencode-rune";
 
-/// How this build was installed, as the release names its Linux targets.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Format {
     AppImage,
@@ -40,47 +40,68 @@ impl Format {
 pub struct Linux {
     engine: Engine,
     version: String,
-    /// The release target this install follows (`linux-x64-appimage`).
+    /// The release target this install follows (`linux-x64-appimage`, `linux-x64-deb`, ...).
     target: String,
 }
 
-/// The updater for a release build (any channel but `local`), or for any build pointed at a
-/// feed with `OPENCODE_RUNE_UPDATE_FEED` / `OPENCODE_RUNE_RELEASE_URL`. It only reads the feed
-/// and opens a link, so no signature gates it.
+/// The updater for an AppImage, `.deb` or `.rpm` install on a release channel (or with a debug
+/// feed override). Snap, Flatpak, distro packages and bare binaries return `None` (`Disabled`).
 pub fn platform(exe: &Path, version: &str, build_channel: &str, updates: PathBuf) -> Option<Linux> {
-    let service = match feed::env("OPENCODE_RUNE_UPDATE_FEED").or_else(|| feed::env("OPENCODE_RUNE_RELEASE_URL")) {
+    if feed::env("SNAP").is_some() || feed::env("FLATPAK_ID").is_some() || Path::new("/.flatpak-info").exists() {
+        eprintln!("updater: linux packaged under Snap/Flatpak; updater disabled");
+        return None;
+    }
+    let service = match feed::debug_release_url() {
         Some(url) => url,
         None if build_channel != "local" => DEFAULT_SERVICE_URL.to_owned(),
         None => return None,
     };
-    let format = format(exe);
+    if !feed::allowed_update_url(&service) {
+        eprintln!("updater: refusing insecure linux feed URL: {service}");
+        return None;
+    }
+    let format = detect_format(exe)?;
     let target = format!("{}-{}", feed::target_name(), format.suffix());
-    eprintln!("updater: linux {format:?} install, following {target}");
-    let facts = Facts { version: version.to_owned(), channel: feed::feed_channel(build_channel), service, updates };
+    eprintln!("updater: linux {format:?} install, following {target} (download link)");
+    sweep_old_stages(&updates);
+    let facts = Facts { version: version.to_owned(), channel: feed::feed_channel(), service, updates };
     Some(Linux { engine: Engine::new(facts), version: version.to_owned(), target })
 }
 
-/// An AppImage runtime sets `$APPIMAGE`; the packaged executable belongs to whichever package
-/// manager owns it; anything else (a copied binary) gets the AppImage, which runs anywhere.
-fn format(exe: &Path) -> Format {
-    if feed::env("APPIMAGE").is_some() {
-        return Format::AppImage;
+fn detect_format(exe: &Path) -> Option<Format> {
+    if let Some(raw) = feed::env("APPIMAGE") {
+        let path = PathBuf::from(&raw);
+        if path.is_absolute() && !raw.contains('\0') && path.is_file() {
+            return Some(Format::AppImage);
+        }
+        eprintln!("updater: ignoring invalid APPIMAGE path: {raw:?}");
+        return None;
     }
-    if exe != Path::new(PACKAGED_EXE) {
-        return Format::AppImage;
+    let canonical = exe.canonicalize().ok();
+    let is_packaged = exe == Path::new(PACKAGED_EXE) || canonical.as_deref() == Some(Path::new(PACKAGED_EXE));
+    if !is_packaged {
+        return None;
     }
     if Path::new(&format!("/var/lib/dpkg/info/{PACKAGE}.list")).is_file() {
-        return Format::Deb;
+        return Some(Format::Deb);
     }
-    let rpm = Command::new("rpm").args(["-q", "--quiet", PACKAGE]).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).status();
-    if rpm.is_ok_and(|s| s.success()) {
-        return Format::Rpm;
+    let rpm_bin = Path::new("/usr/bin/rpm");
+    if rpm_bin.is_file() {
+        let rpm = Command::new(rpm_bin)
+            .args(["-q", "--quiet", PACKAGE])
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status();
+        if rpm.is_ok_and(|s| s.success()) {
+            return Some(Format::Rpm);
+        }
     }
-    Format::AppImage
+    None
 }
 
 impl Linux {
-    /// The channel's latest link for this install's target.
+    /// The channel's direct download link for this install's target.
     fn latest(&self) -> String {
         let facts = &self.engine.facts;
         format!("{}/{APP_NAME}/{ARTIFACT_NAME}/{}/{}", facts.service.trim_end_matches('/'), facts.channel, self.target)
@@ -108,13 +129,29 @@ impl Platform for Linux {
         true
     }
 
-    // On the updater's worker thread, so waiting for `xdg-open` holds nothing up.
     fn external_install(&self, url: &str) -> Result<(), String> {
-        let status = Command::new("xdg-open").arg(url).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).status();
+        let trimmed = url.trim();
+        if !feed::allowed_update_url(trimmed) || !browser_policy::is_safe_os_external_url(trimmed) {
+            return Err("Refusing unsafe update URL".into());
+        }
+        if harness_log::record("openExternal", &[("url", trimmed)]) {
+            return Ok(());
+        }
+        let opener = ["/usr/bin/xdg-open", "/bin/xdg-open"].into_iter().find(|p| Path::new(p).is_file()).unwrap_or("xdg-open");
+        let status = Command::new(opener).arg(trimmed).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).status();
         match status {
             Ok(s) if s.success() => Ok(()),
             Ok(s) => Err(format!("Could not open the download (xdg-open {s})")),
             Err(e) => Err(format!("Could not open the download: {e}")),
+        }
+    }
+}
+
+fn sweep_old_stages(root: &Path) {
+    let Ok(entries) = fs::read_dir(root) else { return };
+    for entry in entries.flatten() {
+        if entry.file_name().to_string_lossy().starts_with("stage-") {
+            fs::remove_dir_all(entry.path()).ok();
         }
     }
 }

@@ -33,7 +33,23 @@ pub fn build(lua: &Lua, vmx: &Rc<Vmx>, name: &str, t: &Table) -> mlua::Result<()
                 cx::ask(&q, cx::Request::OpenIn { app, path });
                 Ok(())
             })?;
-            method(lua, t, "Relative", |_, (path, directory): (String, String)| Ok(crate::tool_open::relative(&path, &directory)))?;
+            method(lua, t, "Relative", |_, (path, directory): (String, String)| {
+                let Some(rel) = crate::tool_open::relative(&path, &directory) else {
+                    return Ok(None);
+                };
+                // On local live servers, require OS-level `verify_within_root` as final authority
+                // (blocking symlink/junction escapes, non-fixed drives, and path differentials).
+                let verified = super::with_app("Workspace:Relative", |app| {
+                    #[cfg(not(target_arch = "wasm32"))]
+                    if app.can_reveal_outside() && app.live() {
+                        let abs = opencode_kit::path::absolute(&directory, &rel);
+                        return Ok(browser_policy::verify_within_root(&abs, &directory, false).is_some());
+                    }
+                    let _ = app;
+                    Ok(true)
+                })?;
+                Ok(verified.then_some(rel))
+            })?;
             super::lazy_signals(lua, vmx, t, "Workspace", &["FileChanged"])
         }
     }

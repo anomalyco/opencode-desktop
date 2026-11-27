@@ -154,8 +154,11 @@ pub(crate) fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
         s.composer.focused = false;
     }
     let scheduler = s.kernel.scheduler.clone();
+    crate::panels::state::flight::begin_poll(s);
     let changed = scheduler.run_all(s, now, tx);
+    crate::shell::memory_reclaim::poll(s, tx, changed);
     s.finish_tail_change(tx);
+    crate::panels::state::flight::end_poll(s, tx);
     changed
 }
 
@@ -167,6 +170,7 @@ pub(crate) fn setup(s: &mut App, waker: Waker) {
     windows::peer::set_waker(s, waker.clone());
     s.appearance_state.icons.set_waker(waker.clone());
     s.turn_diffs.set_waker(waker.clone());
+    s.kernel.slots.get(&crate::app::MATH).set_waker(waker.clone());
     s.appearance_state.icons.set_sync(headless());
     s.setup_browser(waker.clone());
     rune::marks::mark("browser.setup");
@@ -189,6 +193,9 @@ pub(crate) fn visibility(s: &mut App, shown: bool, tx: &mut Tx) {
     if !shown && s.persists() {
         s.poll_restore();
         s.poll_preview(true);
+        launch::saved_list::save(s);
+        launch::saved_catalog::save(s);
+        launch::saved_gutters::save(s);
         storage::flush(opencode_storage::FlushReason::Hide, false);
     }
 }

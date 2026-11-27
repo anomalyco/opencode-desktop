@@ -14,6 +14,30 @@ use crate::plugin_host::{bump, cx};
 /// Every plugin's fields in one window, by `(plugin, index)`.
 pub type Editors = RefCell<HashMap<(String, usize), TextEdit>>;
 
+thread_local! {
+    /// One-shot paste markers set on Mod+V before the next `Changed` read so paste never triggers
+    /// inline address-bar completion (matching official `panel.tsx:1074` `insertText` gate).
+    static PASTED: RefCell<std::collections::HashSet<(String, usize)>> = RefCell::new(std::collections::HashSet::new());
+}
+
+pub fn mark_pasted(plugin: &str, index: usize) {
+    PASTED.with(|p| {
+        p.borrow_mut().insert((plugin.to_owned(), index));
+    });
+}
+
+pub fn take_pasted(plugin: &str, index: usize) -> bool {
+    PASTED.with(|p| p.borrow_mut().remove(&(plugin.to_owned(), index)))
+}
+
+pub fn is_composing(app: &App, plugin: &str, index: usize) -> bool {
+    app.plugins
+        .editors
+        .borrow()
+        .get(&(plugin.to_owned(), index))
+        .is_some_and(|t| t.preedit().is_some())
+}
+
 fn with<R>(f: impl FnOnce(&Editors) -> R) -> Option<R> {
     cx::with_app(|app| f(&app.plugins.editors))
 }
@@ -74,6 +98,26 @@ pub fn select_all(plugin: &str, index: usize) {
             edit.set_selection(0, len);
         }
     });
+}
+
+pub fn set_selection(plugin: &str, index: usize, anchor: usize, focus: usize) {
+    with(|e| {
+        if let Some(edit) = e.borrow_mut().get_mut(&(plugin.to_owned(), index)) {
+            edit.set_selection(anchor, focus);
+        }
+    });
+    bump();
+}
+
+/// Returns `(start, end, len, composing, focused)` in UTF-8 bytes for `plugin`'s editor `index`.
+pub fn selection_in(app: &App, plugin: &str, index: usize) -> (usize, usize, usize, bool, bool) {
+    app.plugins
+        .editors
+        .borrow()
+        .get(&(plugin.to_owned(), index))
+        .map_or((0, 0, 0, false, false), |t| {
+            (t.anchor.min(t.focus), t.anchor.max(t.focus), t.text.len(), t.preedit().is_some(), t.focused)
+        })
 }
 
 pub fn focused(plugin: &str, index: usize) -> bool {

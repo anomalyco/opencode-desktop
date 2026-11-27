@@ -64,5 +64,6 @@
   "zoom.reset": "Masshtabni tiklash",
   "zoom.percent": "{{percent}}%",
   "link.copy": "Havolani nusxalash",
-  "history.clear": "Tarixni tozalash"
+  "history.clear": "Tarixni tozalash",
+  "extensions.compat.feature.management": "Boshqa kengaytmalarni boshqarish"
 }

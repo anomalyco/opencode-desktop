@@ -60,5 +60,6 @@
   "zoom.reset": "ޒޫމް ރީސެޓް ކުރާ",
   "zoom.percent": "⁨{{percent}}⁩%",
   "link.copy": "ލިންކް ކޮޕީކުރާ",
-  "history.clear": "ހިސްޓްރީ ސާފުކުރާ"
+  "history.clear": "ހިސްޓްރީ ސާފުކުރާ",
+  "extensions.compat.feature.management": "އެހެން އެކްސްޓެންޝަންތައް ބެލެހެއްޓުން"
 }

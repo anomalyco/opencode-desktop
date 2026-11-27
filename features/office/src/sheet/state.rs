@@ -20,13 +20,7 @@ pub enum Ask {
     Position { cell: Cell, ticket: u64 },
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Purpose {
-    /// The block screen readers browse (`cells`).
-    Read,
-    /// A copy (`copy`).
-    Copy,
-}
+pub use office_preview::engine::Purpose;
 
 /// What the window does for a grid once an answer arrives.
 pub enum UiEffect {

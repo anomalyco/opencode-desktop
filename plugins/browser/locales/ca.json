@@ -65,5 +65,6 @@
   "zoom.percent": "{{percent}} %",
   "link.copy": "Copia l'enllaç",
   "history.clear": "Esborra l'historial",
-  "site.cookies.count.many": "{{count}} galetes en ús"
+  "site.cookies.count.many": "{{count}} galetes en ús",
+  "extensions.compat.feature.management": "Gestió d'altres extensions"
 }

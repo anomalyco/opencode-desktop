@@ -76,10 +76,14 @@ return plugin.defineWindow(function(ctx)
         Diagnostics:Set("memoryLog", memory:Get())
     end
 
+    local function memoryLogActive(state: unknown): boolean
+        return state == "on" or state == "env"
+    end
+
     -- How the bar shows (`debugBarView`): running diagnostics pin it open, without its close
     -- button, so they're never silently on.
     local function view(): (boolean, boolean)
-        local pinned = debugBuild and Diagnostics:Get("memoryLog") ~= "off"
+        local pinned = debugBuild and memoryLogActive(Diagnostics:Get("memoryLog"))
         local visible = pinned or bar:Get().visible
         return visible, visible and not pinned
     end
@@ -460,7 +464,7 @@ return plugin.defineWindow(function(ctx)
                             I18n:T("memory.label"),
                             I18n:T(if env then "memory.tipEnv" else "memory.tip"),
                             value,
-                            logState ~= "off",
+                            memoryLogActive(logState),
                             v:Handler(function()
                                 -- The environment's choice lasts for the launch.
                                 if env then

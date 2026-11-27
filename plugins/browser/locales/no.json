@@ -64,5 +64,6 @@
   "zoom.reset": "Tilbakestill zoom",
   "zoom.percent": "{{percent}} %",
   "link.copy": "Kopier lenke",
-  "history.clear": "Tøm historikk"
+  "history.clear": "Tøm historikk",
+  "extensions.compat.feature.management": "Administrere andre utvidelser"
 }

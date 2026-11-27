@@ -23,7 +23,8 @@ local function main(state: UpdaterState?): Action
     elseif phase == "installing" then
         return { label = "action.installing" }
     elseif phase == "disabled" then
-        return { label = "action.unavailable", description = "check.unavailable" }
+        -- The host says `isolated` when it keeps updates off in a scratch-root run.
+        return { label = "action.unavailable", description = if state.error == "isolated" then "check.isolated" else "check.unavailable" }
     end
     return { label = "action.checkNow", run = "check" }
 end

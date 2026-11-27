@@ -20,6 +20,11 @@ pub fn on(e: El, t: Target) -> El {
     opencode_feature_session_menu::on::<App>(e, t)
 }
 
+/// [`on`] for a Home row: Open and Open in background lead its menu.
+pub fn on_home(e: El, t: Target) -> El {
+    opencode_feature_session_menu::on_home::<App>(e, t)
+}
+
 /// [`on`] for a project sidebar's session row where Rename opens the Rename dialog.
 pub fn on_dialog(e: El, t: Target) -> El {
     opencode_feature_session_menu::on_dialog::<App>(e, t)
@@ -65,6 +70,20 @@ impl SessionMenuHost for App {
         self.tab_summaries()
     }
 
+    /// Consolidated's strip leaves out the tabs its pinned area holds (`tab-strip.tsx:715-719`),
+    /// and under Settings › Group tabs shows each group's tabs in the groups' order, a collapsed
+    /// group's hidden tabs not among them (`auto-tab-groups.ts:72`). A narrow window's drawer
+    /// shows every tab (`titlebar.tsx:840-855`).
+    fn strip_tabs(&self) -> Vec<TabSummary> {
+        if self.narrow() {
+            return self.tab_summaries();
+        }
+        match crate::tabs::auto_groups::groups(self) {
+            Some(groups) => groups.iter().flat_map(|g| g.tabs.iter()).map(|&i| self.tabs[i].summary()).collect(),
+            None => self.tabs.iter().filter(|t| !crate::tabs::pins::holds(self, t)).map(crate::tabs::Tab::summary).collect(),
+        }
+    }
+
     fn layout_has_sidebar(&self) -> bool {
         self.tab_layout().has_sidebar()
     }
@@ -108,12 +127,42 @@ impl SessionMenuHost for App {
         self.checkout.read_menu(server, id)
     }
 
+    fn session_copy_info(&self, server: &ServerKey, id: &str) -> Option<(String, String)> {
+        if *server == self.active_server() {
+            return self.session(id).map(|i| (i.title.clone(), i.project.clone()));
+        }
+        if !self.checkout.known(server, id) {
+            return None;
+        }
+        let title = self
+            .tabs
+            .iter()
+            .find(|t| !t.is_draft() && t.server == *server && t.id == id)
+            .map(|t| t.title.clone())
+            .unwrap_or_default();
+        let project = self.checkout.project(server, id).map(|p| p.id.clone()).unwrap_or_default();
+        Some((title, project))
+    }
+
     fn with_server(&mut self, server: &ServerKey, f: &mut dyn FnMut(&mut dyn SessionMenuHost)) -> bool {
         crate::servers::runtime::with_server(self, server, |s| f(s)).is_some()
     }
 
     fn write_server(&mut self, write: Write) -> bool {
         App::write(self, write)
+    }
+
+    fn write_server_quiet(&mut self, write: Write) -> Offered {
+        use crate::session::inbox::send::Unsent;
+        match App::write_quiet(self, write) {
+            Ok(true) => Offered::Sent,
+            Ok(false) | Err(Unsent::NoWriter) => Offered::NoWriter,
+            Err(Unsent::ReadOnly) => Offered::ReadOnly,
+        }
+    }
+
+    fn mark_viewed(&mut self, root: &str) {
+        crate::session_viewed::mark(self, root);
     }
 
     fn server_label(&self, server: &ServerKey) -> String {
@@ -142,6 +191,10 @@ impl SessionMenuHost for App {
 
     fn toast_wire_error(&mut self, error: WireError) {
         crate::status_toast::from_wire(self, error);
+    }
+
+    fn toast_wire_error_titled(&mut self, title: &str, error: WireError) {
+        crate::status_toast::failed_wire(self, title, &error);
     }
 
     fn offer_delete_undo(&mut self, title: &str, server: ServerKey, session: String, hidden: Vec<SessionInfo>) {
@@ -173,8 +226,19 @@ impl SessionMenuHost for App {
         App::save_tabs(self);
     }
 
+    fn refresh_session(&mut self, id: &str) {
+        self.fetch_info(id);
+    }
+
     fn open_session(&mut self, server: &ServerKey, id: &str, tx: &mut Tx) {
-        crate::servers::runtime::with_server(self, server, |s| s.open(id, tx));
+        crate::servers::runtime::with_server(self, server, |s| {
+            s.clear_home_search(false, tx);
+            s.open(id, tx);
+        });
+    }
+
+    fn open_session_in_background(&mut self, server: &ServerKey, id: &str) {
+        crate::servers::runtime::with_server(self, server, |s| s.open_in_background(id));
     }
 
     fn pin_menu_extra(&self, server: &ServerKey, id: &str) -> Vec<crate::session_menu::Line> {
@@ -195,6 +259,14 @@ impl SessionMenuHost for App {
 
     fn close_tab(&mut self, uid: &str, tx: &mut Tx) {
         App::close_tab(self, uid, tx);
+    }
+
+    fn shown_tab(&self) -> Option<String> {
+        App::current_tab(self)
+    }
+
+    fn show_tab(&mut self, uid: &str, tx: &mut Tx) {
+        App::select_tab(self, uid, tx);
     }
 
     fn is_session_pinned(&self, server: &ServerKey, id: &str) -> bool {
@@ -231,7 +303,12 @@ impl SessionMenuHost for App {
         App::save_tabs(self);
     }
 
+    fn on_archive_replied(&mut self, session: String, ok: bool, tx: &mut Tx) {
+        self.archive_move_replied(&session, true, ok, tx);
+    }
+
     fn on_unarchive_replied(&mut self, session: String, ok: bool, why: &str, tx: &mut Tx) {
+        self.archive_move_replied(&session, false, ok, tx);
         self.switcher_restore_replied(session, ok, why, tx);
     }
 
@@ -319,12 +396,38 @@ impl Feature<App> for SessionMenuFeature {
                     s.begin_rename(&Target::active(s, &id, Spot::Header));
                 },
             )
+            // As in the TUI, `/rename <title>` renames and a bare `/rename` asks the server to
+            // generate a new title (`message-timeline.tsx:300-310`).
+            .describe(opencode_i18n::key!("command.session.rename.description"))
+            .slash("rename")
+            .slash_words(|s, words, _| {
+                let Some(id) = s.open_root_session() else { return };
+                generate_title::set_title(s, &id, words);
+            })
             .bind_id(Bind::Rename.id())
             .when(App::in_root_session),
         );
         builder.add_command(
             CommandEntry::<App>::from_key(
-                "export",
+                "session.title.generate",
+                opencode_i18n::key!("command.session.title.generate"),
+                crate::commands::order::TITLE_GENERATE,
+                |s, _| {
+                    let Some(id) = s.open_root_session() else { return };
+                    generate_title::set_title(s, &id, "");
+                },
+            )
+            .describe(opencode_i18n::key!("command.session.title.generate.description"))
+            .section("session")
+            // Not while the title is edited or one is on its way (`message-timeline.tsx:317`).
+            .when(|s| {
+                let menus = s.kernel.slots.get(&MENUS);
+                s.open_root_session().is_some_and(|id| menus.renaming().is_none() && !menus.generating(crate::servers::runtime::active(s), &id))
+            }),
+        );
+        builder.add_command(
+            CommandEntry::<App>::from_key(
+                "session.export",
                 opencode_i18n::key!("command.session.export"),
                 crate::commands::order::EXPORT,
                 |s, _| {
@@ -339,7 +442,7 @@ impl Feature<App> for SessionMenuFeature {
         );
         builder.add_command(
             CommandEntry::<App>::from_key(
-                "copy-session",
+                "session.copyID",
                 opencode_i18n::key!("command.session.copyID"),
                 crate::commands::order::COPY_SESSION,
                 |s, tx| {
@@ -349,6 +452,37 @@ impl Feature<App> for SessionMenuFeature {
             )
             .section("session")
             .when(|s| s.active_session_id().is_some()),
+        );
+        // Archive session (`use-session-commands.tsx` `session.archive`, opencode#65428): the open root
+        // session; its tab closes, as archiving it from the sidebar does. It toggles, so the one
+        // shortcut archives a session and brings an archived one back (opencode#66327).
+        builder.add_command(
+            CommandEntry::<App>::from_key(
+                "session.archive",
+                opencode_i18n::key!("command.session.archive"),
+                crate::commands::order::SESSION_ARCHIVE,
+                |s, tx| match s.open_root_archived() {
+                    Some((id, false)) => App::archive_session(s, &id, tx),
+                    Some((id, true)) => App::unarchive_session(s, &id),
+                    None => {}
+                },
+            )
+            .bind_id(Bind::ArchiveSession.id())
+            .when(|s| s.open_root_archived().is_some()),
+        );
+        // Unarchive session (`session.unarchive`, opencode#66327): the open root session, archived.
+        builder.add_command(
+            CommandEntry::<App>::from_key(
+                "session.unarchive",
+                opencode_i18n::key!("command.session.unarchive"),
+                crate::commands::order::SESSION_UNARCHIVE,
+                |s, _| {
+                    if let Some((id, true)) = s.open_root_archived() {
+                        App::unarchive_session(s, &id);
+                    }
+                },
+            )
+            .when(|s| matches!(s.open_root_archived(), Some((_, true)))),
         );
         // Delete session (`message-timeline.tsx:268-277`): the open root session's confirmation.
         builder.add_command(

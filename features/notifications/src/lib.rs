@@ -54,6 +54,11 @@ pub trait Sink {
     fn focused(&self) -> bool;
     fn post(&mut self, note: &Note, server: &str);
     fn remove(&mut self, id: &str);
+    /// Posts a raw OS notification (used by browser extensions' `chrome.notifications`, titled with
+    /// the extension's name so it never impersonates the app).
+    fn post_raw(&mut self, _id: &str, _title: &str, _body: &str, _info: &[(&str, &str)]) -> bool {
+        false
+    }
 }
 
 /// Notification sink initialization lifecycle.
@@ -121,7 +126,19 @@ pub struct Coordinator {
     /// Posted ids, oldest first, with the server they're from.
     shown: VecDeque<(String, String)>,
     asked: VecDeque<String>,
+    /// Browser-extension toasts, oldest first: `(os id, extension id, its notification id, the
+    /// window whose engine posted it)`. Kept apart from `shown` so an extension can never push one
+    /// of OpenCode's own toasts out.
+    ext_shown: VecDeque<(String, String, String, String)>,
+    /// Extension toasts the cap pushed out, (window, extension id, notification id), until that window's poll.
+    ext_evicted: Vec<(String, String, String)>,
 }
+
+/// Browser-extension toasts the app keeps in the system's list at once, across all extensions.
+/// Official sets none (`extension-api/notifications.ts`: one Electron `Notification` each, the OS
+/// keeps them); here they share the app's list with permission and question toasts, so they get a
+/// quarter of `CAP`: room for a few extensions to have a couple each.
+pub const EXT_CAP: usize = 10;
 
 thread_local! {
     static COORDINATOR: std::cell::RefCell<Coordinator> = std::cell::RefCell::default();
@@ -187,13 +204,74 @@ impl Notifier {
             return;
         };
         COORDINATOR.with_borrow_mut(|c| {
-            let before = c.shown.len();
+            let before = c.shown.len() + c.ext_shown.len();
             c.shown.retain(|(shown, _)| shown != id);
-            if c.shown.len() != before {
+            c.ext_shown.retain(|(shown, ..)| shown != id);
+            if c.shown.len() + c.ext_shown.len() != before {
                 sink.remove(id);
             }
         });
     }
+}
+
+/// Takes every browser-extension toast out of the system's list (Settings > Notifications turned
+/// off, or the engine that posted them is gone), answering `(extension id, notification id)` of each.
+/// A closed window's extension toasts go too: no engine is left to hear their clicks.
+pub fn clear_all_extensions(host: &mut dyn NotificationsHost) -> Vec<(String, String)> {
+    if COORDINATOR.with_borrow(|c| c.ext_shown.is_empty()) {
+        return Vec::new();
+    }
+    let window = host.window_id().to_owned();
+    let gone: Vec<String> = COORDINATOR.with_borrow(|c| {
+        c.ext_shown
+            .iter()
+            .map(|(.., owner)| owner)
+            .filter(|owner| **owner != window && !host.window_exists(owner))
+            .cloned()
+            .collect()
+    });
+    let SinkState::Ready(sink) = &mut host.notifier_mut().state else {
+        return Vec::new();
+    };
+    COORDINATOR.with_borrow_mut(|c| {
+        let mut cleared = Vec::new();
+        c.ext_shown.retain(|(os_id, ext, notif, owner)| {
+            if *owner != window && !gone.contains(owner) {
+                return true;
+            }
+            sink.remove(os_id);
+            if *owner == window {
+                cleared.push((ext.clone(), notif.clone()));
+            }
+            false
+        });
+        cleared
+    })
+}
+
+/// The extension toasts the cap pushed out that this window's engine posted, to tell it they
+/// closed (`notifications.onClosed`, and out of its `getAll`). A gone window's are dropped.
+pub fn take_extension_evicted(host: &dyn NotificationsHost) -> Vec<(String, String)> {
+    let window = host.window_id();
+    COORDINATOR.with_borrow_mut(|c| {
+        let mut mine = Vec::new();
+        c.ext_evicted.retain(|(owner, ext, notif)| {
+            if owner == window {
+                mine.push((ext.clone(), notif.clone()));
+                return false;
+            }
+            host.window_exists(owner)
+        });
+        mine
+    })
+}
+
+/// Text an extension supplies, without the bidi controls that could reorder it to pass for the
+/// app's or another extension's words (`U+061C`, `U+200E`/`F`, `U+202A`-`U+202E`, `U+2066`-`U+2069`).
+pub fn strip_bidi(text: &str) -> String {
+    text.chars()
+        .filter(|c| !matches!(c, '\u{061C}' | '\u{200E}' | '\u{200F}' | '\u{202A}'..='\u{202E}' | '\u{2066}'..='\u{2069}'))
+        .collect()
 }
 
 /// Request `id` was answered (here, in another window, from its toast, or the server settled
@@ -207,7 +285,7 @@ pub fn seen(host: &mut dyn NotificationsHost, session: &str) {
     host.notifier_mut().take_out(&format!("run-{session}"));
 }
 
-/// The app quits: the requests of its own server end with it, so their notifications go.
+/// The app quits: the requests of its own server and extension toasts end with it, so their notifications go.
 pub fn quitting(host: &mut dyn NotificationsHost) {
     let own_base = host.own_server_base();
     let SinkState::Ready(sink) = &mut host.notifier_mut().state else {
@@ -222,7 +300,63 @@ pub fn quitting(host: &mut dyn NotificationsHost) {
             }
             !ends
         });
+        for (id, ..) in c.ext_shown.drain(..) {
+            sink.remove(&id);
+        }
     });
+}
+
+/// Whether Settings > Notifications has at least one notification kind enabled AND the OS sink can post.
+pub fn extension_notifications_allowed(host: &dyn NotificationsHost) -> bool {
+    let prefs = host.notification_prefs();
+    host.notifier().shows() && (prefs.agent || prefs.permissions || prefs.questions || prefs.errors)
+}
+
+/// Posts a browser-extension OS notification through the app's native notification sink
+/// (`extension-api/notifications.ts:24-50`), respecting Settings > Notifications and the
+/// extensions' own cap (`EXT_CAP`, apart from OpenCode's toasts; the oldest extension toast goes,
+/// for its window to report closed: [`take_extension_evicted`]). Answers whether it was shown.
+pub fn post_extension(
+    host: &mut dyn NotificationsHost,
+    os_id: &str,
+    title: &str,
+    body: &str,
+    ext_id: &str,
+    notif_id: &str,
+) -> bool {
+    if !extension_notifications_allowed(host) {
+        return false;
+    }
+    let window = host.window_id().to_owned();
+    let SinkState::Ready(sink) = &mut host.notifier_mut().state else {
+        return false;
+    };
+    let info = [
+        ("kind", "extension"),
+        ("ext_id", ext_id),
+        ("ext_notif_id", notif_id),
+        ("window", window.as_str()),
+    ];
+    let (title, body) = (strip_bidi(title), strip_bidi(body));
+    COORDINATOR.with_borrow_mut(|c| {
+        c.ext_shown.retain(|(id, ..)| id != os_id);
+        while c.ext_shown.len() >= EXT_CAP
+            && let Some((oldest, ext, notif, owner)) = c.ext_shown.pop_front()
+        {
+            sink.remove(&oldest);
+            c.ext_evicted.push((owner, ext, notif));
+        }
+        let posted = sink.post_raw(os_id, &title, &body, &info);
+        if posted {
+            c.ext_shown.push_back((os_id.to_owned(), ext_id.to_owned(), notif_id.to_owned(), window.clone()));
+        }
+        posted
+    })
+}
+
+/// Removes a browser-extension OS notification posted under `os_id`.
+pub fn clear_extension(host: &mut dyn NotificationsHost, os_id: &str) {
+    host.notifier_mut().take_out(os_id);
 }
 
 /// What `ty` posts, if anything: the kind, its title, the session a click opens and the body.
@@ -354,6 +488,19 @@ pub fn poll(host: &mut dyn NotificationsHost, tx: &mut Tx) -> bool {
     }
     let mut opened = false;
     for mut click in actions::take(host) {
+        if click.get("kind") == Some("extension") {
+            let ext_id = click.get("ext_id").unwrap_or("").to_owned();
+            let notif_id = click.get("ext_notif_id").unwrap_or("").to_owned();
+            if !ext_id.is_empty() && !notif_id.is_empty() {
+                if host.is_live() {
+                    rune_notify::bring_to_front();
+                }
+                host.notifier_mut().take_out(&click.id);
+                host.on_extension_notification_clicked(&ext_id, &notif_id);
+                opened = true;
+            }
+            continue;
+        }
         // A button answers where the app is, without bringing it forward.
         match on_action(host, &mut click) {
             actions::Outcome::Answered => {
@@ -416,6 +563,14 @@ impl Sink for System {
     fn remove(&mut self, id: &str) {
         rune_notify::remove(&[id]);
     }
+
+    fn post_raw(&mut self, id: &str, title: &str, body: &str, info: &[(&str, &str)]) -> bool {
+        let mut n = rune_notify::Notification::new(id, title).body(body);
+        for &(k, v) in info {
+            n = n.info(k, v);
+        }
+        rune_notify::post(&n)
+    }
 }
 
 /// A notification's link, opened with the app (`deep_links`): its session opens as a click's
@@ -446,8 +601,8 @@ pub fn identify(product: &win_install::Product, headless: bool) {
 
 /// After the first frame, off the UI thread: the registered install's toasts open the app's
 /// scheme, so a toast left in the notification center starts it again; another copy (a zip, a
-/// build folder, a harness run) reads only, and its clicks reach it while it runs. A launch
-/// writes no registration. Then the toast activator is served (`rune_notify::serve_activations`).
+/// build folder, a harness run) reads only, and its clicks reach it while it runs. Only the
+/// registered install writes, and only its own scheme when it went missing (`repair_scheme`). Then the toast activator is served (`rune_notify::serve_activations`).
 #[cfg(target_os = "windows")]
 pub fn settle_identity(product: &win_install::Product, headless: bool) {
     static SETTLED: std::sync::Once = std::sync::Once::new();
@@ -466,6 +621,11 @@ fn settle_once(product: win_install::Product) {
             return;
         };
         let found = win_install::settle_identity(&product, &root);
+        // The registered install keeps its scheme pointed at itself; another copy, the exe renamed
+        // or a scratch `RUNE_DIRS_ROOT` run writes nothing (`repair_scheme` checks each).
+        if let Some(done) = win_install::repair_scheme(&product, &root) {
+            eprintln!("notifications: {done}");
+        }
         if found == win_install::Identity::Installed
             && let Err(e) = rune_notify::adopt(&rune_notify::Identity::new(product.id(), product.name()).activation(product.scheme()))
         {

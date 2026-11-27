@@ -1,6 +1,6 @@
-# OpenCode (Rune) (`rune-desktop`)
+# OpenCode (Rune) (`opencode-rune`)
 
-`anomalyco/rune-desktop` houses **OpenCode (Rune)** (`apps/desktop`, `apps/web`, `apps/installer`) and the shared Rust crates (`crates/*`) that any Rune app can embed by git dependency.
+`anomalyco/opencode-rune` houses **OpenCode (Rune)** (`apps/desktop`, `apps/web`, `apps/installer`) and the shared Rust crates (`crates/*`) that any Rune app can embed by git dependency.
 
 ## Layout (Progressive Disclosure)
 
@@ -13,6 +13,7 @@ Start at the top and go deeper only when a feature needs lower-level control. Se
   - `apps/desktop` (`opencode-desktop`): shared desktop library (`opencode_desktop`) plus thin native binary (`main.rs`), organized into root entry/wiring files and domain folders (`shell/`, `session/`, `workspace/`, `surfaces/`, `dialogs/`, `plugin_host/`, `stories/`). Legacy `App` fields are clustered in `shell/app_state.rs`; new feature state goes in `opencode_kernel::StateSlots` and modal dialogs, Escape layers, commands, and per-frame polls register in `Feature::register`.
   - `apps/web` (`opencode-web`): thin `wasm32`/WebGPU browser entrypoint depending directly on `opencode-desktop` with zero duplicated `features/*` dependencies.
   - `apps/installer` (`opencode-rune-setup`): Windows per-user setup bootstrapper.
+  - `apps/desktop-thin` + `apps/desktop-library`: a packaged Windows build is a thin `opencode-desktop.exe` that loads the app from `opencode-desktop.dll` beside it (`apps/installer/scripts/package.ps1`); `cargo run` and the other platforms build the one-file exe of `apps/desktop`.
   - `apps/browser-engine` (`opencode-browser-engine`): standalone out-of-process CEF sidecar bundle, excluded from the Cargo workspace in root `Cargo.toml`.
 
 Rune comes from `anomalyco/rune` as a git dependency pinned in the root `Cargo.toml`. Keep every `anomalyco/rune` dependency and patch on the same rev (enforced by `scripts/arch-check.sh`); pin only revs on Rune's `dev` branch and land upstream fixes in `anomalyco/rune` first (convention).
@@ -33,6 +34,7 @@ Application code only. This repo has no automated tests of any kind, and none ge
   - `scripts/folder-shape.sh`: enforces prefix-family subfolders and folder breadth (`> 40` warn, `> 60` error).
   - `scripts/dialog-size.sh`: every dialog takes an `opencode_ui::dialog::DialogSize` preset (re-exported as `session_view::dialog::DialogSize`; `Normal` 480 × 368, `Large` 680 × 600, `XLarge` 880 × 680; `opencode_ui::widgets::{sized, sized_modal}`, re-exported as `crate::widgets` in `apps/desktop`), never its own width or height.
   - `scripts/tables-check.sh`: checks `apps/desktop/src/stories/order.rs` against `STORY_LIST`, `apps/desktop/src/shell/commands/order.rs` against registered built-in commands, `crates/opencode-i18n/locales/rune/*.json` coverage and unknown keys against `en.json`, and `cargo run -q -p opencode-plugin-spec -- --check` against `contract.json`.
+  - `scripts/guardrails/cursor-allow.mjs`: the pointer's cursor follows the official app element by element (the arrow on controls; another cursor only where official's source gives one). Every `.cursor(...)` call, text link (`.link`) and selectable text (`.selectable`) under `apps/`, `crates/` and `features/` is listed in `scripts/cursor-allow.txt` (`path | kind | count | the official line that justifies it`); a call that is not listed, a count that differs and a stale line all fail.
 - **Slow / compile checks (run separately):**
   - `scripts/clippy.sh`: zero clippy diagnostics (`-D warnings`) across the workspace and each feature set that compiles different code.
   - `cargo check -p session-view --examples`: keep `session-view`'s standalone examples building.

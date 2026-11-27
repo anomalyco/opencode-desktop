@@ -96,6 +96,16 @@ pub fn label_of(s: &App, key: &ServerKey) -> String {
     list(s).into_iter().find(|e| e.key() == *key).map_or_else(|| crate::servers::runtime::label(key), |e| label(&e.conn))
 }
 
+/// `servers.tag(conn)` (`registry.tsx:346-348`, `tab-nav.tsx:202-207`): the server's label when
+/// two or more servers are in the registry (ready or not) and `key` isn't the built-in server.
+pub fn tag_of(s: &App, key: &ServerKey) -> Option<String> {
+    let all = list(s);
+    if all.len() < 2 {
+        return None;
+    }
+    all.into_iter().find(|e| e.key() == *key).filter(|e| !e.conn.builtin()).map(|e| label(&e.conn))
+}
+
 /// The connection to `conn`'s server the probes and the folder picker use: the app's own as
 /// launch found it, another with its password.
 pub fn server_for(conn: &ServerConn) -> Option<opencode_kit::client::Server> {

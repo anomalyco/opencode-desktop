@@ -30,7 +30,7 @@ mod view;
 pub use keys::key;
 pub use menu::{Indicator, Item, Menu};
 pub use rune::{Align, PopupAnchor, PopupItem, PopupMenu, Side};
-pub use state::{dismiss, open, open_drawn, open_searchable, poll};
+pub use state::{dismiss, open, open_drawn, open_searchable, open_with_field, poll, set_highlight};
 pub use trigger::{MenuButton, menu_button};
 pub use view::{surface, view};
 
@@ -48,6 +48,12 @@ pub(super) const MIN_W: f32 = 96.0;
 
 /// The location card's rows (`session-identity-header.css`): 2 apart, 8 in on both sides.
 pub(super) const CARD: popover::Look = popover::Look { row_gap: 2.0, pad_l: 8.0, pad_r: 8.0, ..MENU };
+
+/// A select's list (`select.css`): 4 in around its rows and 2 between them, at most 12rem tall
+/// (its rows scroll past that) and at least 160 wide.
+pub(super) const SELECT: popover::Look = popover::Look { inset: 4.0, row_gap: 2.0, ..MENU };
+pub(super) const SELECT_MAX_H: f32 = 192.0;
+pub(super) const SELECT_MIN_W: f32 = 160.0;
 
 pub(super) const CONTEXT_MIN_W: f32 = 160.0;
 
@@ -115,11 +121,27 @@ pub(super) type SearchRows<S> = Rc<dyn Fn(&S, &str) -> Menu>;
 pub(super) struct Search<S> {
     pub(super) placeholder: String,
     pub(super) rows: SearchRows<S>,
+    /// A field that edits a value instead of filtering ([`open_with_field`]).
+    pub(super) field: Option<Field<S>>,
 }
 
 impl<S> Clone for Search<S> {
     fn clone(&self) -> Self {
-        Self { placeholder: self.placeholder.clone(), rows: Rc::clone(&self.rows) }
+        Self { placeholder: self.placeholder.clone(), rows: Rc::clone(&self.rows), field: self.field.clone() }
+    }
+}
+
+/// What an editing field draws before its text, what each edit does, and what choosing a radio
+/// row does (the menu stays open, as Kobalte's `Menu.RadioItem` leaves it).
+pub(super) struct Field<S> {
+    pub(super) lead: Rc<dyn Fn(&S, &Pal) -> El>,
+    pub(super) changed: Rc<dyn Fn(&mut S, &str, &mut Tx)>,
+    pub(super) radio: Rc<dyn Fn(&mut S, &str, &mut Tx)>,
+}
+
+impl<S> Clone for Field<S> {
+    fn clone(&self) -> Self {
+        Self { lead: Rc::clone(&self.lead), changed: Rc::clone(&self.changed), radio: Rc::clone(&self.radio) }
     }
 }
 
@@ -136,13 +158,16 @@ pub(super) struct Shown<S> {
     pub(super) opened: focus::Opened,
     /// Live search builder when opened with [`open_searchable`].
     pub(super) search: Option<Search<S>>,
+    /// Optional callback run when a root-level item becomes highlighted by pointer or keys.
+    pub(super) highlight: Option<Rc<dyn Fn(&mut S, &str)>>,
     pub(super) pick: Pick<S>,
 }
 
 impl<S> Shown<S> {
     /// Whether the open menu takes focus, as Kobalte's do: not one whose search field keeps it.
+    /// A menu under an editing field takes it as any menu does; the field takes it when pressed.
     pub(super) fn holds_focus(&self) -> bool {
-        self.search.is_none()
+        self.search.as_ref().is_none_or(|x| x.field.is_some())
     }
 
     /// The menu at `level`: the root (0), or the submenu open that deep.
@@ -232,6 +257,11 @@ impl<S> Popup<S> {
     /// A menu showing now holds the keyboard (Kobalte's focus their items, outside every pane).
     pub fn holds_focus(&self) -> bool {
         self.shown.as_ref().is_some_and(Shown::holds_focus)
+    }
+
+    /// The menu showing now is one under an editing field ([`open_with_field`]).
+    pub(super) fn edits(&self) -> bool {
+        self.shown.as_ref().is_some_and(|m| m.search.as_ref().is_some_and(|x| x.field.is_some()))
     }
 
     /// The element focused as the last [`Menu::remembers_focus`] menu opened: its Edit items

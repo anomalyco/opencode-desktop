@@ -8,26 +8,26 @@ use rune_luau::{Data, HostNode, NodeArgs};
 
 use crate::App;
 use crate::palette::{Pal, kit, pal};
-use crate::plugin_host::{FlyoutEvent, bump, cx, flyout, key_pressed, native, requests, services, submitted};
+use crate::plugin_host::{FlyoutEvent, bump, cx, flyout, input_changed, key_pressed, native, requests, services, submitted};
 
 pub fn all() -> Vec<HostNode> {
-    let mut all = ui_nodes::base_nodes(
+    let mut all = ui_nodes::base_nodes::<App>(
         |id| cx::with_app(|app| crate::keymap::command_chord(app, id)).flatten(),
         |command| cx::with_app(|app| app.catalog().into_iter().find(|c| c.id == command).and_then(|c| c.chord)).flatten(),
     );
     all.extend([
-        HostNode::new("image", services::images::node),
-        HostNode::new("video", services::images::video_node),
-        HostNode::new("shimmer", shimmer),
-        HostNode::new("switch", switch),
-        HostNode::new("field", field),
-        HostNode::new("pill", pill),
-        HostNode::new("settingsRow", settings_row),
-        HostNode::new("settingsList", settings_list),
-        HostNode::new("flyoutRow", flyout_row),
-        HostNode::new("dialogHeader", dialog_header),
-        HostNode::new("markdown", markdown),
-        HostNode::new("genUi", gen_ui),
+        ui_nodes::node("image", services::images::node),
+        ui_nodes::node("video", services::images::video_node),
+        ui_nodes::node("shimmer", shimmer),
+        ui_nodes::node("switch", switch),
+        ui_nodes::node("field", field),
+        ui_nodes::node("pill", pill),
+        ui_nodes::node("settingsRow", settings_row),
+        ui_nodes::node("settingsList", settings_list),
+        ui_nodes::node("flyoutRow", flyout_row),
+        ui_nodes::node("dialogHeader", dialog_header),
+        ui_nodes::node("markdown", markdown),
+        ui_nodes::node("genUi", gen_ui),
     ]);
     all.extend(native::nodes());
     #[cfg(feature = "office")]
@@ -62,7 +62,7 @@ fn switch(a: &mut NodeArgs) -> Result<El, String> {
     let key = a.string("key").unwrap_or("switch").to_owned();
     let s = crate::settings::switch(&p(a), &key, checked);
     if a.flag("disabled") {
-        return Ok(s.disabled(true).layer_opacity(0.5));
+        return Ok(s.disabled(true).layer_opacity(0.5).hit().cursor(rune::Cursor::NotAllowed));
     }
     Ok(a.on_press_with(s, "onChange", vec![("checked", Data::Bool(!checked))]))
 }
@@ -101,9 +101,55 @@ fn field(a: &mut NodeArgs) -> Result<El, String> {
         }
         if a.string("size") == Some("large") {
             input = input.large();
+        } else if a.string("size") == Some("small") {
+            input = input.height(24.0);
         }
         if a.flag("secure") {
             input = input.secure();
+        }
+        if let Some(name) = a.string("icon") {
+            input = input.leading_icon(named_icon(name));
+        }
+        // Desktop's `showClearButton`: the button empties the field, and the editor's watch
+        // reports the change to the plugin.
+        if a.flag("clearable") && !a.flag("disabled") && !a.flag("readOnly") {
+            let clear_plugin = plugin.clone();
+            input = input.clear_button().on_action(move |app: &mut App, tx: &mut Tx| {
+                tx.instant();
+                super::editors::get_mut(app, &clear_plugin, index).replace_text("");
+                bump();
+            });
+        }
+        let handed = handed_keys(a);
+        let focus_down = a.string("focusDown").map(str::to_owned);
+        if !handed.is_empty() || focus_down.is_some() {
+            let key_plugin = plugin.clone();
+            input = input.on_key(move |app: &mut App, ev: &rune::KeyEvent, tx: &mut Tx| {
+                // Keys during IME composition belong to the candidate window.
+                if super::editors::is_composing(app, &key_plugin, index) {
+                    return false;
+                }
+                // Down leaves the field for the list under it, as official's site search does
+                // (`site-chooser.tsx:423-428`); the field gives up its focus so the request wins.
+                if let Some(target) = focus_down.as_deref()
+                    && ev.key == rune::Key::Down
+                    && ev.mods == rune::Mods::default()
+                {
+                    tx.instant();
+                    super::editors::get_mut(app, &key_plugin, index).focused = false;
+                    tx.focus(target, true);
+                    bump();
+                    return true;
+                }
+                let Some(&(_, _, name)) = handed.iter().find(|(key, shift, _)| {
+                    ev.key == *key && ev.mods.shift == *shift && !ev.mods.cmd && !ev.mods.ctrl && !ev.mods.alt
+                }) else {
+                    return false;
+                };
+                tx.instant();
+                key_pressed(app, &key_plugin, index, name, tx);
+                true
+            });
         }
         if let Some(w) = a.number("w").filter(|w| *w > 0.0) {
             input = input.width(Some(w as f32));
@@ -125,19 +171,8 @@ fn field(a: &mut NodeArgs) -> Result<El, String> {
 /// editor's `KeyPressed`.
 fn bare_field(a: &NodeArgs, edit: &rune::TextEdit, plugin: String, index: usize) -> El {
     let pal = p(a);
-    let handed: Vec<rune::Key> = match a.data("keys") {
-        Some(Data::List(keys)) => keys
-            .iter()
-            .filter_map(|k| match k.as_str()? {
-                "ArrowUp" => Some(rune::Key::Up),
-                "ArrowDown" => Some(rune::Key::Down),
-                "Escape" => Some(rune::Key::Escape),
-                _ => None,
-            })
-            .collect(),
-        _ => Vec::new(),
-    };
-    let (on_edit, on_submit, on_key) = (plugin.clone(), plugin.clone(), plugin);
+    let handed = handed_keys(a);
+    let (on_edit, on_change, on_submit, on_key) = (plugin.clone(), plugin.clone(), plugin.clone(), plugin);
     let font = TextStyle::new(13.0, 440.0).lh(16.0).tracking(-0.04);
     let mut input = session_view::style::field(edit, font)
         .spellcheck(false)
@@ -151,16 +186,24 @@ fn bare_field(a: &NodeArgs, edit: &rune::TextEdit, plugin: String, index: usize)
             super::editors::note_side_field(app, &on_edit);
             super::editors::get_mut(app, &on_edit, index)
         })
+        .on_input_change(move |app: &mut App, tx: &mut Tx| input_changed(app, &on_change, index, tx))
         .on_submit(move |app: &mut App, tx: &mut Tx| submitted(app, &on_submit, index, tx));
     // A plugin's field reads the way its text does unless it says otherwise (`dir="auto"`); a
     // secret reads left to right.
     input = input.dir(dir(a).unwrap_or(if a.flag("secure") { rune::Direction::Ltr } else { rune::Direction::Auto }));
     if !handed.is_empty() {
         input = input.on_input_key(move |app: &mut App, ev: &rune::KeyEvent, tx: &mut Tx| {
-            let Some(name) = handed.iter().find(|k| ev.key == **k && !ev.mods.cmd && !ev.mods.ctrl && !ev.mods.alt).map(|k| match k {
-                rune::Key::Up => "ArrowUp",
-                rune::Key::Down => "ArrowDown",
-                _ => "Escape",
+            // Keys during IME composition belong to the candidate window (`panel.tsx:1084`).
+            if super::editors::is_composing(app, &on_key, index) {
+                return false;
+            }
+            // Note Mod+V paste without swallowing it so the next `Changed` cancels inline completion.
+            if ev.key == rune::Key::Command('v') && !ev.mods.shift && !ev.mods.alt {
+                super::editors::mark_pasted(&on_key, index);
+                return false;
+            }
+            let Some(&(_, _, name)) = handed.iter().find(|(key, shift, _)| {
+                ev.key == *key && ev.mods.shift == *shift && !ev.mods.cmd && !ev.mods.ctrl && !ev.mods.alt
             }) else {
                 return false;
             };
@@ -172,12 +215,56 @@ fn bare_field(a: &NodeArgs, edit: &rune::TextEdit, plugin: String, index: usize)
     input
 }
 
+/// The keys `keys` names, which the field hands to its editor's `KeyPressed`: the key, whether
+/// Shift is held, and the name the plugin receives.
+fn handed_keys(a: &NodeArgs) -> Vec<(rune::Key, bool, &'static str)> {
+    let Some(Data::List(keys)) = a.data("keys") else { return Vec::new() };
+    keys.iter()
+        .filter_map(|k| match k.as_str()? {
+            "ArrowUp" => Some((rune::Key::Up, false, "ArrowUp")),
+            "ArrowDown" => Some((rune::Key::Down, false, "ArrowDown")),
+            "Escape" => Some((rune::Key::Escape, false, "Escape")),
+            "Tab" => Some((rune::Key::Tab, false, "Tab")),
+            "Shift+Tab" => Some((rune::Key::Tab, true, "Shift+Tab")),
+            "Shift+Delete" => Some((rune::Key::Delete, true, "Shift+Delete")),
+            "Shift+Backspace" => Some((rune::Key::Backspace, true, "Shift+Backspace")),
+            "Shift+Enter" => Some((rune::Key::Enter, true, "Shift+Enter")),
+            _ => None,
+        })
+        .collect()
+}
+
+fn step_filter_highlight(list: &[String], current: Option<&str>, down: bool) -> Option<String> {
+    if list.is_empty() {
+        return None;
+    }
+    let cur = current.and_then(|p| list.iter().position(|x| x == p)).unwrap_or(0);
+    let next = if down { (cur + 1).min(list.len() - 1) } else { cur.saturating_sub(1) };
+    Some(list[next].clone())
+}
+
+fn clear_filter_highlight(app: &mut App, field_key: &str) {
+    let Some(sid) = app.active_session_id().map(str::to_owned) else { return };
+    if field_key == "files-filter" {
+        if let Some(ws) = app.kernel.slots.get_mut(&crate::files::FILES).sessions.get_mut(&sid) {
+            ws.highlighted_filter_path = None;
+        }
+    } else if field_key == "review-filter"
+        && let Some(sr) = app.kernel.slots.get_mut(&crate::review::REVIEW).sessions.get_mut(&sid)
+    {
+        sr.highlighted_filter_path = None;
+        sr.stamp += 1;
+    }
+}
+
 /// The `filter` variant: a panel sidebar's filter (`review::chrome::filter_field`). Escape clears
-/// it and keeps the keyboard; Enter submits.
+/// it and keeps the keyboard; Up/Down move the filtered list highlight (`file/list.tsx:25-50`,
+/// `review/panel.tsx:424-430`); Enter opens/selects the highlighted match.
 fn filter_field(a: &NodeArgs, edit: &rune::TextEdit, plugin: String, index: usize) -> El {
     let pal = p(a);
     let placeholder = a.string("placeholder").unwrap_or(opencode_i18n::t!("ui.sessionReviewV2.filterFiles")).to_owned();
     let key = a.string("key").unwrap_or("filter").to_owned();
+    let (key_sub, key_clear, key_k) = (key.clone(), key.clone(), key.clone());
     let (on_edit, on_submit, on_key, on_clear) = (plugin.clone(), plugin.clone(), plugin.clone(), plugin);
     crate::review::chrome::filter_field(
         &pal,
@@ -186,13 +273,67 @@ fn filter_field(a: &NodeArgs, edit: &rune::TextEdit, plugin: String, index: usiz
         &format!("{key}-inner"),
         &placeholder,
         move |app: &mut App| super::editors::get_mut(app, &on_edit, index),
-        move |app: &mut App, tx: &mut Tx| submitted(app, &on_submit, index, tx),
+        move |app: &mut App, tx: &mut Tx| {
+            let query = super::editors::get_mut(app, &on_submit, index).text.trim().to_owned();
+            if !query.is_empty()
+                && let Some(sid) = app.active_session_id().map(str::to_owned)
+            {
+                if key_sub == "files-filter" {
+                    let list = app.filtered_files(&sid, &query);
+                    let pick = app
+                        .kernel
+                        .slots
+                        .get(&crate::files::FILES)
+                        .sessions
+                        .get(&sid)
+                        .and_then(|w| w.highlighted_filter_path.clone())
+                        .filter(|p| list.contains(p))
+                        .or_else(|| list.first().cloned());
+                    if let Some(path) = pick {
+                        tx.instant();
+                        crate::files::ops::open_workspace_file_or_page(app, &path, false, tx);
+                        bump();
+                        return;
+                    }
+                } else if key_sub == "review-filter" {
+                    let all: Vec<String> = app
+                        .kernel
+                        .slots
+                        .get(&crate::review::REVIEW)
+                        .sessions
+                        .get(&sid)
+                        .map(|r| r.meta.iter().map(|m| m.path.clone()).collect())
+                        .unwrap_or_default();
+                    let list = crate::review::data::filter_review_files(&all, &query);
+                    let pick = app
+                        .kernel
+                        .slots
+                        .get(&crate::review::REVIEW)
+                        .sessions
+                        .get(&sid)
+                        .and_then(|sr| sr.highlighted_filter_path.clone())
+                        .filter(|p| list.contains(p))
+                        .or_else(|| list.first().cloned());
+                    if let Some(path) = pick {
+                        tx.instant();
+                        if let Some(sr) = app.kernel.slots.get_mut(&crate::review::REVIEW).sessions.get_mut(&sid) {
+                            sr.show(&path);
+                            sr.tree.reveal(&path, tx);
+                        }
+                        bump();
+                        return;
+                    }
+                }
+            }
+            submitted(app, &on_submit, index, tx);
+        },
         move |app: &mut App, tx: &mut Tx| {
             tx.instant();
             let edit = super::editors::get_mut(app, &on_clear, index);
             let focused = edit.focused;
             edit.replace_text("");
             edit.focused = focused;
+            clear_filter_highlight(app, &key_clear);
             bump();
         },
         // Desktop's filter (`session-review-v2.tsx`, a `type="search"` input) marks no spelling.
@@ -209,6 +350,66 @@ fn filter_field(a: &NodeArgs, edit: &rune::TextEdit, plugin: String, index: usiz
             if [Bind::TabPrev, Bind::TabNext, Bind::PaneTabPrev, Bind::PaneTabNext].iter().any(|b| b.matches_tx(ev, tx)) {
                 return app.panels_key(ev, tx);
             }
+            if matches!(ev.key, rune::Key::Down | rune::Key::Up) && ev.mods == rune::Mods::default() {
+                if super::editors::is_composing(app, &on_key, index) {
+                    return false;
+                }
+                let query = super::editors::get_mut(app, &on_key, index).text.trim().to_owned();
+                if query.is_empty() {
+                    return false;
+                }
+                let Some(sid) = app.active_session_id().map(str::to_owned) else {
+                    return false;
+                };
+                let down = ev.key == rune::Key::Down;
+                if key_k == "files-filter" {
+                    let list = app.filtered_files(&sid, &query);
+                    let cur = app
+                        .kernel
+                        .slots
+                        .get(&crate::files::FILES)
+                        .sessions
+                        .get(&sid)
+                        .and_then(|w| w.highlighted_filter_path.clone());
+                    if let Some(next) = step_filter_highlight(&list, cur.as_deref(), down) {
+                        tx.instant();
+                        if let Some(ws) = app.kernel.slots.get_mut(&crate::files::FILES).sessions.get_mut(&sid) {
+                            ws.highlighted_filter_path = Some(next.clone());
+                        }
+                        tx.scroll_into_view(format!("ff:{next}"));
+                        bump();
+                        return true;
+                    }
+                } else if key_k == "review-filter" {
+                    let all: Vec<String> = app
+                        .kernel
+                        .slots
+                        .get(&crate::review::REVIEW)
+                        .sessions
+                        .get(&sid)
+                        .map(|r| r.meta.iter().map(|m| m.path.clone()).collect())
+                        .unwrap_or_default();
+                    let list = crate::review::data::filter_review_files(&all, &query);
+                    let cur = app
+                        .kernel
+                        .slots
+                        .get(&crate::review::REVIEW)
+                        .sessions
+                        .get(&sid)
+                        .and_then(|sr| sr.highlighted_filter_path.clone());
+                    if let Some(next) = step_filter_highlight(&list, cur.as_deref(), down) {
+                        tx.instant();
+                        if let Some(sr) = app.kernel.slots.get_mut(&crate::review::REVIEW).sessions.get_mut(&sid) {
+                            sr.highlighted_filter_path = Some(next.clone());
+                            sr.stamp += 1;
+                        }
+                        tx.scroll_into_view(format!("rf:{next}"));
+                        bump();
+                        return true;
+                    }
+                }
+                return false;
+            }
             if ev.key != rune::Key::Escape {
                 return false;
             }
@@ -218,6 +419,7 @@ fn filter_field(a: &NodeArgs, edit: &rune::TextEdit, plugin: String, index: usiz
             if !edit.text.is_empty() {
                 edit.replace_text("");
             }
+            clear_filter_highlight(app, &key_k);
             bump();
             true
         },
@@ -266,10 +468,17 @@ fn settings_list(a: &mut NodeArgs) -> Result<El, String> {
     })
 }
 
-/// A popover row that opens popover `popover` beside itself, as Session details' Extensions rows
-/// do (`session-summary-row session-service-trigger`, details.css): its icon, label, a danger dot
-/// (`alert`), the count (`detail`) and the chevron, lit while its list shows. The pointer
-/// coming onto it, or a click, shows its list ([`crate::plugin_host::Flyout`]).
+/// Official `Menu.SubTrigger` right-pointing triangle (`menu.tsx:53-63`: `M6 4L10 8L6 12V4Z`).
+static MENU_SUB_TRIANGLE: rune::Icon = rune::Icon {
+    name: "oc-menu-sub-triangle",
+    view: 16.0,
+    body: r#"<path d="M6 4L10 8L6 12V4Z" fill="currentColor"/>"#,
+};
+
+/// A popover row that opens popover `popover` beside itself: either a Session details service row
+/// (`icon` set -> `chevron-right`) or a `Menu.SubTrigger` row (`icon` omitted -> filled `▸`
+/// triangle from `menu.tsx:53-63`). The pointer coming onto it, or a click, shows its list
+/// ([`crate::plugin_host::Flyout`]).
 fn flyout_row(a: &mut NodeArgs) -> Result<El, String> {
     let pal = p(a);
     let words = a.string("text").unwrap_or_default().to_owned();
@@ -279,31 +488,41 @@ fn flyout_row(a: &mut NodeArgs) -> Result<El, String> {
         cx::read(cx::Dep::Flyout(plugin.clone()));
         cx::with_app(|app| app.plugins.overlay.flyout_row(plugin) == Some(key.as_str())).unwrap_or(false)
     });
+    let lead_icon = a.string("icon").map(str::to_owned);
+    let menu_style = lead_icon.is_none();
+    let height = a.number("h").map_or(28.0, |n| n as f32);
+    let pl = a.number("pl").map_or(12.0, |n| n as f32);
+    let pr = a.number("pr").map_or(if menu_style { 6.0 } else { 8.0 }, |n| n as f32);
+    let radius = a.number("radius").map_or(4.0, |n| n as f32);
     let mut r = row()
         .role("button")
         .label(words.clone())
         .w_full()
-        .min_h(28.0)
-        .pl(12.0)
-        .pr(8.0)
-        .py(4.0)
+        .h(height)
+        .pl(pl)
+        .pr(pr)
         .gap(8.0)
         .center_y()
-        .radius(4.0)
+        .radius(radius)
         .hover_motion(rune::Anim::INSTANT, rune::Anim::INSTANT);
     // An open row's fill is the hover fill (`[data-expanded]`), which the pointer doesn't add to.
     r = if expanded { r.fill(pal.hover) } else { r.hover(pal.hover) };
-    if let Some(name) = a.string("icon") {
+    if let Some(name) = lead_icon.as_deref() {
         r = r.child(rune::icon(named_icon(name), 16.0).color(pal.icon_muted));
     }
-    r = r.child(text(words).font(TextStyle::new(13.0, 440.0).lh(16.0)).color(pal.text).truncate().grow(1.0).shrink().min_w(0.0));
+    let font = if menu_style { crate::view::UI } else { TextStyle::new(13.0, 440.0).lh(16.0) };
+    r = r.child(text(words).font(font).color(pal.text).truncate().grow(1.0).shrink().min_w(0.0));
     if a.flag("alert") {
         r = r.child(el().w(6.0).h(16.0).center().child(el().size(6.0, 6.0).radius(3.0).fill(crate::widgets::status_ink(&pal, "failed"))));
     }
     if let Some(detail) = a.string("detail").filter(|d| !d.is_empty()) {
         r = r.child(text(detail.to_owned()).font(TextStyle::new(12.0, 440.0).lh(16.0).features("\"tnum\"")).color(pal.faint).single_line());
     }
-    r = r.child(rune::icon(crate::plugin_host::icons::resolve("", "chevron-right"), 16.0).color(pal.icon_muted).ml(4.0));
+    r = if menu_style {
+        r.child(rune::icon(&MENU_SUB_TRIANGLE, 16.0).color(pal.faint))
+    } else {
+        r.child(rune::icon(crate::plugin_host::icons::resolve("", "chevron-right"), 16.0).color(pal.icon_muted).ml(4.0))
+    };
     let (Some(plugin), Some(popover)) = (plugin, a.string("popover").map(str::to_owned)) else { return Ok(r) };
     let side = match a.string("side") {
         Some("left") => rune::Side::Left,

@@ -2,6 +2,7 @@ use opencode_kit::model::{self, InboxItem, Message, Part, Transcript};
 use rune::{Color, El, TextStyle, Tx, col, el, row, text};
 
 use crate::TimelineHost;
+use crate::focus::FocusExt as _;
 use crate::fold::Fold;
 use crate::palette::Pal;
 use crate::style::{BUBBLE, INSTANT, interrupted_label};
@@ -10,12 +11,11 @@ pub use crate::style::{BUBBLE_MAX, markdown_style, markdown_tinted, markdown_wit
 /// Where a prompt's bubble sits in its run (see `user_bubble`), and where it lays out.
 #[derive(Clone, Copy)]
 pub struct Place {
-    pub tight: bool,
     pub above: bool,
     pub below: bool,
-    /// A reply's work sits right above it: the room it stands under it (`rhythm::L`, less a
-    /// footer's room), else 0.
-    pub reply: f32,
+    /// The room over the bubble in its own row: none under a row that holds it (`rhythm`), 8
+    /// where it starts the session.
+    pub top: f32,
     pub fold: Fold,
 }
 
@@ -59,7 +59,7 @@ pub fn default_user_menu<S: TimelineHost>(s: &S, p: &Pal, id: &str, body: &str) 
 /// pressed fill while its menu is `open`, which no hover or press adds to, as
 /// `:not([data-expanded])` keeps Desktop's hover off it. The host adds the glyph and the press.
 pub fn user_menu_button(p: &Pal, key: String, label: &str, open: bool) -> El {
-    let b = row().key(key).role("button").label(label.to_owned()).size(20.0, 20.0).center().radius(4.0);
+    let b = row().key(key).role("button").label(label.to_owned()).size(20.0, 20.0).center().radius(4.0).focus_inset(p);
     if open { b.fill(p.pressed) } else { b.hover(p.hover).press(p.pressed).hover_motion(INSTANT, INSTANT) }
 }
 
@@ -111,7 +111,7 @@ pub fn prompt_meta<S: TimelineHost>(s: &S, t: &Transcript, message: Option<usize
 /// `message-part.css:1931-1967`), or in its place when it has none.
 #[allow(clippy::too_many_arguments)]
 pub fn user_bubble<S: TimelineHost>(s: &S, p: &Pal, session: &str, id: &str, body: &str, place: Place, glow: f32, pending: bool, quotes: Option<El>, meta: &[(String, bool)]) -> El {
-    let Place { tight, above, below, reply, fold } = place;
+    let Place { above, below, top: over, fold } = place;
     let menu = s.user_menu(p, session, id, body, pending);
     let open = s.user_menu_open_on(id);
     let (top, end) = (if above { 4.0 } else { 10.0 }, if below { 4.0 } else { 10.0 });
@@ -124,7 +124,7 @@ pub fn user_bubble<S: TimelineHost>(s: &S, p: &Pal, session: &str, id: &str, bod
         .py(8.0)
         .corners([10.0, top, end, 10.0])
         .fill(fill)
-        .hover_group()
+        .hover_group_focus()
         // The bubble stays in the timeline's direction, so its tightened corners always face the
         // timeline's outer wall; its lines read their own way inside it (`dir_by_paragraph`).
         .hover_motion(INSTANT, INSTANT);
@@ -142,9 +142,18 @@ pub fn user_bubble<S: TimelineHost>(s: &S, p: &Pal, session: &str, id: &str, bod
     // Mentions read as badges; a badge copies as its text.
     let (shown, badges, links, paths) = crate::user_parts::bubble_badges(s, p, id, body);
     let highlights = if !pending { s.find_text_highlights(p, &format!("u-{id}")) } else { Vec::new() };
-    // File and folder badges, and the paths, calls, flags and file names typed around them, each
-    // keep their own left-to-right order in the line.
-    let units: Vec<_> = rune::text::ltr_units(&shown).into_iter().filter(|u| !badges.iter().any(|(r, _)| r.start < u.end && u.start < r.end)).collect();
+    // File and folder badges, and (when the prompt contains RTL text) the paths, calls, flags
+    // and file names typed around them, each keep their own left-to-right order in the line.
+    // Pure-LTR text needs no LRI/PDI isolates around ASCII tokens (`message-part.css:176,192-198`),
+    // avoiding unnecessary run splits that perturb kerning and subpixel glyph placement.
+    let units: Vec<_> = if has_rtl(&shown) {
+        rune::text::ltr_units(&shown)
+            .into_iter()
+            .filter(|u| !badges.iter().any(|(r, _)| r.start < u.end && u.start < r.end))
+            .collect()
+    } else {
+        Vec::new()
+    };
     let mut words = text(shown.clone()).key(format!("text-{id}")).font(BUBBLE).color(ink).wrap_anywhere().pills(badges).text_highlights(highlights);
     for r in paths.into_iter().chain(units) {
         words = words.isolate(r, rune::Direction::Ltr);
@@ -172,9 +181,20 @@ pub fn user_bubble<S: TimelineHost>(s: &S, p: &Pal, session: &str, id: &str, bod
     // Each line reads in the direction of its own words, inside the bubble's
     // (`message-part.css:176`, `:224`: `unicode-bidi: plaintext`).
     let words = readable(p, words).dir_by_paragraph();
-    let words = crate::fold::view(s, p, id, &shown, words, fold, quotes.is_some() && !body.trim().is_empty());
+    let inline = quotes.is_some() && s.inline_quotes();
+    let has_body = !body.trim().is_empty();
+    // Inline quotes follow the words inside the fold, 8 pt under them, so Collapse long messages
+    // folds the whole bubble; without words they give the message a bubble of its own
+    // (`message-content.tsx` `renderBody`, `bubble`).
+    let (words, quotes) = if inline && has_body {
+        (col().key("body").min_w(0.0).child(words).children(quotes.map(|q| q.mt(8.0))), None)
+    } else {
+        (words, quotes)
+    };
+    let words = crate::fold::view(s, p, id, &shown, words, fold, quotes.is_some() && has_body);
     let mut face = match quotes {
-        Some(cards) if body.trim().is_empty() => cards.key("bubble"),
+        Some(quotes) if inline => bubble.child(quotes),
+        Some(cards) if !has_body => cards.key("bubble"),
         Some(cards) => bubble.w(342.0).pb(12.0).children(words).child(cards),
         None => bubble.children(words),
     };
@@ -189,7 +209,7 @@ pub fn user_bubble<S: TimelineHost>(s: &S, p: &Pal, session: &str, id: &str, bod
         let under = el().key("menu-under").size(20.0, 20.0).fill(fill).child(button);
         let corner = if rtl { row().pin(Some(MENU_INSET), Some(MENU_INSET), None, None).child(under).child(fade) } else { row().pin(None, Some(MENU_INSET), Some(MENU_INSET), None).child(fade).child(under) };
         let corner = corner.key("menu").unmirrored().dir(rune::Direction::Ltr).h(20.0).corners([4.0; 4]);
-        face = face.child(if open { corner.opacity(1.0).opacity_motion(INSTANT) } else { corner.group_opacity(0.0, 1.0) });
+        face = face.child(if open || crate::style::hover_none() { corner.opacity(1.0).opacity_motion(INSTANT) } else { corner.group_opacity(0.0, 1.0) });
     }
     // A right-click anywhere on the bubble opens the chevron's menu, at the pointer.
     let mut face = crate::images::menu::on_message::<S>(face, session, id);
@@ -226,7 +246,7 @@ pub fn user_bubble<S: TimelineHost>(s: &S, p: &Pal, session: &str, id: &str, bod
     }
     let c = col()
         .w_full()
-        .pt(if above { 4.0 } else if tight { 8.0 } else if reply > 0.0 { reply } else { 16.0 })
+        .pt(over)
         .child(row().w_full().justify_end().child(row().w_frac(0.82).justify_end().child(face)));
     match status {
         Some(status) => c.child(row().key("actions").w_full().h(20.0).mt(8.0).justify_end().child(status)),
@@ -246,6 +266,27 @@ pub fn user_bubble<S: TimelineHost>(s: &S, p: &Pal, session: &str, id: &str, bod
 /// A steer's Pending, under its bubble's trailing edge.
 fn pending_label(p: &Pal) -> El {
     text(opencode_i18n::t!("ui.message.pending")).font(PROMPT_META).color(p.faint)
+}
+
+/// Whether `s` contains any right-to-left script character or bidi override/isolate mark
+/// (UAX #9 R / AL / RLE / RLO / RLI). Pure-LTR messages already resolve at bidi level 0 under
+/// `dir_by_paragraph`, so isolating ASCII `ltr_units` only splits shaping runs unnecessarily.
+fn has_rtl(s: &str) -> bool {
+    !s.is_ascii()
+        && s.chars().any(|c| {
+            matches!(
+                c as u32,
+                0x0590..=0x08FF
+                    | 0x200F
+                    | 0x202B
+                    | 0x202E
+                    | 0x2067
+                    | 0xFB1D..=0xFDFF
+                    | 0xFE70..=0xFEFF
+                    | 0x10800..=0x10FFF
+                    | 0x1E800..=0x1EFFF
+            )
+        })
 }
 
 /// The hover group a reply's footer shares with the reply text above it (separate virtual
@@ -305,15 +346,18 @@ pub fn turn_footer<S: TimelineHost>(s: &S, p: &Pal, t: &Transcript, message: usi
         Some(Part::Text { text }) => text.clone(),
         _ => String::new(),
     };
+    let code_tail = if ends_with_code(&body) { 16.0 } else { 0.0 };
     let copy_key = format!("copy-{}-{part}", a.id);
     let key = copy_key.clone();
-    let button = row().key("copy").role("button").label_static(opencode_i18n::t!("ui.message.copyResponse"))
-        .size(COPY, COPY).center().radius(4.0).hover(p.hover).press(p.pressed).hover_motion(INSTANT, INSTANT)
+    let done = crate::copied::is_copied(s, &copy_key);
+    let label = if done { opencode_i18n::t!("ui.message.copied") } else { opencode_i18n::t!("ui.message.copyResponse") };
+    let button = row().key("copy").role("button").label_static(label).help(label).help_above().help_open(done)
+        .size(COPY, COPY).center().radius(4.0).focus_inset(p).hover(p.hover).press(p.pressed).hover_motion(INSTANT, INSTANT)
         .on_press_tx(move |s: &mut S, tx: &mut Tx| {
             tx.copy(body.clone());
             crate::copied::mark_copied(s, key.clone(), tx);
         })
-        .child(crate::copied::glyph(s, &copy_key, COPY_GLYPH, p.muted))
+        .child(crate::copied::glyph(s, &copy_key, COPY_GLYPH, p.icon_muted))
         .ml(COPY_AT.0);
     let interrupted = a.failure.as_ref().is_some_and(|f| super::interrupted(&f.kind));
     let mut items = reply_meta(s, t, message);
@@ -327,7 +371,7 @@ pub fn turn_footer<S: TimelineHost>(s: &S, p: &Pal, t: &Transcript, message: usi
         }
         meta = meta.child(text(label).key(format!("item{k}")).font(META).color(p.faint));
     }
-    let wrapper = row().key("reply-footer").h(COPY).mt(COPY_AT.1).gap(4.0).center_y();
+    let wrapper = row().key("reply-footer").h(COPY).mt(COPY_AT.1 + code_tail).gap(4.0).center_y();
     let wrapper = if interrupted { wrapper.w_full().child(rune::spacer()) } else { wrapper };
     if keep_copy {
         wrapper.child(button).child(crate::style::hover_reveal(meta))
@@ -400,15 +444,27 @@ fn reply_meta<S: TimelineHost>(s: &S, t: &Transcript, message: usize) -> Vec<(St
 pub fn turn_actions<S: TimelineHost>(s: &S, p: &Pal, busy: bool, _asking: bool, last: bool, session: &str, index: usize, message: &Message) -> El {
     // These share a footprint and swap at once: a crossfade would lay the copy icon's outline
     // over the W in Working.
-    let has_text = matches!(message, Message::Assistant(a) if a.parts.iter().any(|part| matches!(part, Part::Text { text } if !text.trim().is_empty())));
+    let last_text = match message {
+        Message::Assistant(a) => a.parts.iter().rev().find_map(|part| match part {
+            Part::Text { text } if !text.trim().is_empty() => Some(text.as_str()),
+            _ => None,
+        }),
+        _ => None,
+    };
+    let has_text = last_text.is_some();
+    let code_tail = if last_text.is_some_and(ends_with_code) { 16.0 } else { 0.0 };
     let copy_key = format!("copy-{}", message.id());
     use crate::working::{COPY, COPY_AT, COPY_GLYPH};
     let mut button = row().key("copy").role("button").label_static(opencode_i18n::t!("ui.message.copyResponse"))
-        .size(COPY, COPY).center().radius(4.0).hover(p.hover).press(p.pressed)
+        .size(COPY, COPY).center().radius(4.0)
         .opacity(if busy || !has_text { 0.0 } else { 1.0 })
         .opacity_motion(INSTANT)
-        .child(crate::copied::glyph(s, &copy_key, COPY_GLYPH, p.muted));
+        .child(crate::copied::glyph(s, &copy_key, COPY_GLYPH, p.icon_muted));
     if !busy && has_text {
+        let done = crate::copied::is_copied(s, &copy_key);
+        let label = if done { opencode_i18n::t!("ui.message.copied") } else { opencode_i18n::t!("ui.message.copyResponse") };
+        button = button.label_static(label).help(label).help_above().help_open(done)
+            .focus_inset(p).hover(p.hover).press(p.pressed).hover_motion(INSTANT, INSTANT);
         let session = session.to_owned();
         let id = message.id().to_owned();
         button = button.on_press_tx(move |s: &mut S, tx: &mut Tx| {
@@ -434,6 +490,8 @@ pub fn turn_actions<S: TimelineHost>(s: &S, p: &Pal, busy: bool, _asking: bool, 
                 crate::copied::mark_copied(s, copy_key.clone(), tx);
             }
         });
+    } else {
+        button = button.inert().a11y_hidden();
     }
     // One reserved tail: completion crossfades in place rather than first removing Working's
     // height and then adding actions. The scroll endpoint cannot reverse during this handoff.
@@ -464,44 +522,88 @@ pub fn turn_actions<S: TimelineHost>(s: &S, p: &Pal, busy: bool, _asking: bool, 
     // A finished reply's footer (`text-part-copy-wrapper`: 8 under it, 20 tall) sits over the
     // Working lane, which Desktop's timeline tail keeps empty under it (`virtualizer.tsx:152`).
     // Input waiting under the turn lands at once, so the footer doesn't push it down meanwhile.
+    let copy_y = COPY_AT.1 + code_tail;
     let footer = if busy || !last || !(has_text || interrupted) {
         0.0
     } else if sources.is_some() && !interrupted {
         16.0 + COPY
     } else {
-        COPY_AT.1 + COPY
+        copy_y + COPY
     };
-    let working = busy && !crate::working::thinking(s, session);
+    // A thought stands in for plain "Working", but a wait ("Waiting for approval" / "Waiting for answer")
+    // still shows so the user sees what to act on (`message-timeline.tsx:491-496`).
+    let working = busy && (s.session_waiting(session).is_some() || s.working_label_for(session).is_some() || !crate::working::thinking(s, session));
     let lane = el().w_full().h(footer + crate::working::LANE).token_motion(crate::knobs::actions_tail(s.knobs()))
         .hover_group_shared(REPLY_HOVER)
         .hover_group_focus()
         .hover_motion(INSTANT, INSTANT)
-        .child(crate::working::row(s, p, session, working).key("working").absolute(0.0, crate::working::LANE_PAD).opacity(if working { 1.0 } else { 0.0 }).opacity_motion(INSTANT));
+        .child(status_row(s, p, session, working, busy));
     if interrupted {
         // A stopped turn's footer runs to the reply's end edge, "Model · 3s · Interrupted"
         // after Copy (`text-part-copy-wrapper[data-interrupted]`, `message-part.css:652-655`).
         // Interrupted stays in view and rises out of Working's place as the run settles.
-        let mut tail = row().key("tail").pin(None, Some(COPY_AT.1), Some(0.0), None).h(COPY).gap(4.0).center_y();
+        let mut tail = row().key("tail").pin(None, Some(copy_y), Some(0.0), None).h(COPY).gap(4.0).center_y();
         if has_text {
             tail = tail.child(button);
             if !items.is_empty() {
                 tail = tail.child(meta(items)).child(crate::style::hover_reveal(text("\u{00b7}").key("sep-interrupted").font(META).color(p.faint)));
             }
         }
-        return lane.child(tail.child(interrupted_label(p))).children(s.turn_tail_extra(p, session, busy));
+        return lane.child(tail.child(interrupted_label(p)));
     }
-    let (dx, y) = match &sources {
+    let (x, y) = match &sources {
         Some(c) => (chip_width(c) + 8.0, 16.0),
-        None => (0.0, COPY_AT.1),
+        None => (COPY_AT.0, copy_y),
     };
     let lane = match &sources {
         Some(c) => lane.child(crate::sources_chip::chip(s, p, c).absolute(0.0, 16.0)),
         None => lane,
     };
-    let button = button.absolute(COPY_AT.0 + dx, y);
+    let button = button.absolute(x, y);
     lane.child(button)
-        .children((!items.is_empty()).then(|| meta(items).absolute(COPY_AT.0 + dx + COPY + 4.0, y)))
-        .children(s.turn_tail_extra(p, session, busy))
+        .children((!items.is_empty()).then(|| meta(items).absolute(x + COPY + 4.0, y)))
+}
+
+/// The lane's row, as official's `StatusLane` lays it out: Working's words, then what the host
+/// puts beside them (the background hint), 8 apart and centred on the 16 pt line, which sits
+/// at `LANE_TEXT_TOP` either way. Hidden, Working leaves the row's flow but keeps its place,
+/// so the hint starts the lane while a thought stands in for the words.
+fn status_row<S: TimelineHost>(s: &S, p: &Pal, session: &str, working: bool, busy: bool) -> El {
+    use crate::working::{H, LINE, ROW_TOP};
+    let words = crate::working::row(s, p, session, working).key("working").opacity(if working { 1.0 } else { 0.0 }).opacity_motion(INSTANT);
+    let words = if working { words } else { words.absolute(0.0, (H - LINE) / 2.0) };
+    row().key("status").absolute(0.0, ROW_TOP).h(H).gap(8.0).center_y().child(words).children(s.turn_tail_extra(p, session, busy))
+}
+
+/// Whether a Markdown reply ends with a fenced code block (`pre` inside `[data-component="markdown-code"]`
+/// keeps its `margin-bottom: 24px`, collapsing with `[data-slot="text-part-copy-wrapper"]`'s `margin-top: 8px`
+/// to `24px`, i.e. 16 pt below `COPY_AT.1`, `markdown.css:486-488`).
+fn ends_with_code(src: &str) -> bool {
+    let mut fence: Option<(u8, usize)> = None;
+    let mut last_code = false;
+    for line in src.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        let bytes = trimmed.as_bytes();
+        let mark = bytes[0];
+        let run = bytes.iter().take_while(|&&b| b == mark).count();
+        if let Some((open, len)) = fence {
+            if mark == open && run >= len && bytes[run..].iter().all(|b| b.is_ascii_whitespace()) {
+                fence = None;
+                last_code = true;
+            }
+            continue;
+        }
+        if (mark == b'`' || mark == b'~') && run >= 3 && (mark == b'~' || !bytes[run..].contains(&b'`')) {
+            fence = Some((mark, run));
+            last_code = true;
+        } else {
+            last_code = false;
+        }
+    }
+    last_code
 }
 
 /// The Sources chip's width: 2 in, its tiles (or the globe), 6, its words, 8 out.
@@ -537,20 +639,54 @@ pub fn markdown_view_find<S: TimelineHost>(s: &S, p: &Pal, row_key: &str, src: &
     // A reply with a ```ui outline in it draws it as parts (`genui`); any other takes this path.
     let media = crate::images::markdown::MdMedia { message: message.map(std::rc::Rc::from), scope: Some(std::rc::Rc::from(row_key)), ..crate::images::md_media(s) };
     let render = |body: &str, section_hits, highlights| {
-        crate::genui::reply(s, p, body, fade, streaming, section_hits, &tips, links.clone()).unwrap_or_else(|| {
-            markdown_with_highlights::<S>(p, body, fade, streaming, p.text, crate::genui::width(s), highlights, crate::copied::current(s), Some(media.clone()), &tips, prompt, links.clone())
+        crate::genui::reply(s, p, row_key, body, fade, streaming, section_hits, &tips, links.clone()).unwrap_or_else(|| {
+            crate::style::markdown_styled_wrap::<S, _>(
+                p,
+                body,
+                fade,
+                streaming,
+                markdown_style(p, p.text, crate::genui::width(s)),
+                highlights,
+                crate::copied::current(s),
+                Some(media.clone()),
+                &tips,
+                prompt,
+                links.clone(),
+                crate::style::CodeWrap::of(s, row_key),
+            )
         })
     };
-    let el = crate::video::reply(s, p, row_key, src, streaming, |range| {
+    let el = crate::video::reply(s, p, row_key, src, streaming, |range, suffix| {
         let marks = crate::genui::hits_in(hits, &range);
         let active = marks.iter().position(|(_, _, on)| *on);
         let ranges: Vec<_> = marks.iter().map(|(_, m, _)| m.clone()).collect();
         let highlights = marks.iter().map(|(i, m, on)| (m.as_slice(), crate::style::markdown_mark(p, *i, *on))).collect();
+        let owned;
+        let segment = if suffix.is_empty() {
+            &src[range.clone()]
+        } else {
+            owned = format!("{}{suffix}", &src[range.clone()]);
+            owned.as_str()
+        };
+        let seg_scope = format!("{row_key}-v-{}", range.start);
         // Only segments with a generated UI block need its own Find ranges.
-        if let Some(view) = crate::genui::reply(s, p, &src[range.clone()], fade, streaming, hits.map(|_| (ranges.as_slice(), active)), &tips, links.clone()) {
+        if let Some(view) = crate::genui::reply(s, p, &seg_scope, segment, fade, streaming, hits.map(|_| (ranges.as_slice(), active)), &tips, links.clone()) {
             return view;
         }
-        markdown_with_highlights::<S>(p, &src[range], fade, streaming, p.text, crate::genui::width(s), highlights, crate::copied::current(s), Some(media.clone()), &tips, prompt, links.clone())
+        crate::style::markdown_styled_wrap::<S, _>(
+            p,
+            segment,
+            fade,
+            streaming,
+            markdown_style(p, p.text, crate::genui::width(s)),
+            highlights,
+            crate::copied::current(s),
+            Some(media.clone()),
+            &tips,
+            prompt,
+            links.clone(),
+            crate::style::CodeWrap::of(s, &seg_scope),
+        )
     }).unwrap_or_else(|| render(src, hits, s.find_markdown_highlights(p, row_key)));
     match message {
         Some(id) => crate::images::menu::on_message::<S>(el, "", id),

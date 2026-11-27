@@ -37,14 +37,67 @@ macro_rules! choice {
 pub use crate::choice;
 
 choice! {
-    /// Where a new session starts (`workspaces.defaultDestination`).
-    Destination { LastUsed => "last-used", "settings.workspaces.default.lastUsed", Local => "local", "settings.workspaces.default.local", New => "new", "settings.workspaces.default.new" } default LastUsed
+    /// Where Ctrl+N and New session start a draft (`workspaces.startIn`): the project on screen
+    /// (or the last one looked at), or the server's default directory (`GET /api/location`).
+    StartIn { Project => "project", "rune.settings.newSession.startIn.project", Directory => "directory", "rune.settings.newSession.startIn.directory" } default Project
+}
+
+choice! {
+    /// Which checkout of the current project a new draft uses (`workspaces.worktree`).
+    Worktree { Default => "default", "rune.settings.newSession.worktree.default", New => "new", "rune.settings.newSession.worktree.new", LastUsed => "last-used", "rune.settings.newSession.worktree.lastUsed" } default Default
+}
+
+impl Worktree {
+    /// The setting this replaced (`workspaces.defaultDestination`): only an explicit New
+    /// worktree carries over, since Last used was written for everyone as the old default.
+    pub fn migrate(old: Option<&str>) -> Worktree {
+        match old {
+            Some("new") => Worktree::New,
+            _ => Worktree::Default,
+        }
+    }
 }
 
 choice! {
     /// What Enter does while the agent works (`general.followUpBehavior`); the alternate chord does
     /// the other.
     FollowUp { Queue => "queue", "settings.general.row.followUpBehavior.queue", Steer => "steer", "settings.general.row.followUpBehavior.steer" } default Steer
+}
+
+/// The key that moves a question dock on, or submits it on the last question
+/// (`general.questionSubmitKey`, anomalyco/opencode#66169); the other Enter selects an answer or
+/// starts a new line in the typed one. Saved by its chord, which Settings shows as its label.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum QuestionSubmitKey {
+    #[default]
+    Enter,
+    ModEnter,
+}
+
+impl QuestionSubmitKey {
+    pub const ALL: [QuestionSubmitKey; 2] = [QuestionSubmitKey::Enter, QuestionSubmitKey::ModEnter];
+
+    /// The saved name, which is the key's chord too.
+    pub fn name(self) -> &'static str {
+        match self {
+            QuestionSubmitKey::Enter => "enter",
+            QuestionSubmitKey::ModEnter => "mod+enter",
+        }
+    }
+
+    /// Desktop's default when missing or unknown.
+    pub fn parse(name: Option<&str>) -> Self {
+        Self::ALL.into_iter().find(|c| Some(c.name()) == name).unwrap_or_default()
+    }
+
+    /// The Enter that does the other thing, as the row's description names it
+    /// (`settings/general/general.tsx:153-155`).
+    pub fn other(self) -> &'static str {
+        match self {
+            QuestionSubmitKey::Enter => "shift+enter",
+            QuestionSubmitKey::ModEnter => "enter",
+        }
+    }
 }
 
 choice! {
@@ -73,15 +126,21 @@ choice! {
     /// sessions in place of tabs, or Consolidated's navigation prototype (pinned sessions & groups,
     /// and Tabs or List). `Projects` is retired (#64727) and omitted from [`Organize::options`];
     /// keeping the variant preserves a saved `"projects"` value until the user picks a new option
+    /// (its label, never offered, is Home's `home.projects`: official dropped the old one)
     /// while [`Organize::effective`] resolves it to Consolidated (local/dev) or Customize.
-    Organize { List => "list", "settings.experimental.sidebarOrganize.list", Projects => "projects", "settings.experimental.sidebarOrganize.projects", Customize => "customize", "settings.experimental.sidebarOrganize.customize", Recent => "recent", "settings.experimental.sidebarOrganize.recent", Consolidated => "consolidated", "settings.experimental.sidebarOrganize.consolidated" } default List
+    Organize { List => "list", "settings.experimental.sidebarOrganize.list", Projects => "projects", "home.projects", Customize => "customize", "settings.experimental.sidebarOrganize.customize", Recent => "recent", "settings.experimental.sidebarOrganize.recent", Consolidated => "consolidated", "settings.experimental.sidebarOrganize.consolidated" } default List
 }
 
 impl Organize {
     /// What Settings offers (`sidebarOrganizeOptions`, `settings/model.tsx`): Recent and
-    /// Consolidated only in local and dev desktop builds (`recentSessionsAvailable`).
+    /// Consolidated only in local and dev desktop builds (`recentSessionsAvailable`). A PR
+    /// build (channel `pr-<n>`) offers what a dev build does: it is an internal build of a
+    /// change on its way to `dev`, and it has to be able to show what that change does there.
+    /// Official has no such channel. This is Settings' own copy of the channel
+    /// (`SettingsConfig`); the updater and the app's folders read theirs and are not asked here.
     pub fn options() -> &'static [Organize] {
-        if !cfg!(target_arch = "wasm32") && matches!(crate::build_channel(), "local" | "dev") {
+        let channel = crate::build_channel();
+        if !cfg!(target_arch = "wasm32") && (matches!(channel, "local" | "dev") || channel.starts_with("pr-")) {
             &[Organize::List, Organize::Customize, Organize::Recent, Organize::Consolidated]
         } else {
             &[Organize::List, Organize::Customize]
@@ -107,6 +166,12 @@ choice! {
     /// The navigation prototype's layout (`appearance.navigation`, Settings › Preferences ›
     /// Navigation, #64668): keep active sessions as tabs, or see every session in one list.
     Navigation { Tabs => "tabs", "settings.general.row.navigation.tabs", List => "list", "settings.general.row.navigation.list" } default Tabs
+}
+
+choice! {
+    /// How Consolidated's open tabs are grouped (`appearance.tabGrouping`, Settings > Preferences >
+    /// Group tabs, anomalyco/opencode#66350): not at all, by their project, or by their server.
+    TabGrouping { None => "none", "settings.general.row.tabGrouping.none", Project => "project", "settings.general.row.tabGrouping.project", Server => "server", "settings.general.row.tabGrouping.server" } default None
 }
 
 /// Desktop's sound effects (`shell/notifications/sound.ts`), by id and label key.

@@ -9,7 +9,10 @@
 //! 4. The Start menu shortcut (and the desktop one), the Apps & features entry, the app's URL
 //!    scheme (`opencode-rune://`, never `opencode://`) and the toasts' name and icon are
 //!    registered (`win_install::register`).
-//! 5. "Launch OpenCode (Rune)" on the last page starts it.
+//! 5. A process is made from the installed exe and ended before it runs, while the last page
+//!    shows: Windows Defender's check of the new file is over before the person's own first
+//!    start (`install::first_start`).
+//! 6. "Launch OpenCode (Rune)" on the last page starts it.
 //!
 //! The browser engine isn't in the setup: the app downloads it in the background once it's idle
 //! (`browser_pane::prefetch`), into the engine folder every OpenCode (Rune) build shares.

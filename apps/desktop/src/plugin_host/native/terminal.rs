@@ -22,6 +22,8 @@ pub fn build(lua: &Lua, vmx: &std::rc::Rc<super::super::vm::Vmx>, t: &Table) -> 
             let row = |id: &str, title: String, number: usize, hidden: bool| map([("id", Data::String(id.to_owned())), ("title", Data::String(title)), ("number", Data::Integer(number as i64)), ("hidden", Data::Bool(hidden))]);
             let ws = app.kernel.slots.get(&crate::terminal::TERMINAL).workspaces.get(&app.terminal_workspace_key_for_session(&sid));
             Ok(match ws {
+                // Still being listed by the server: the tabs the strip holds stay, as before it was asked.
+                Some(ws) if ws.call == crate::terminal::calls::Call::Listing => open.iter().map(|id| row(id, String::new(), 0, true)).collect(),
                 Some(ws) if !ws.tabs.is_empty() || ws.failure.is_none() => ws.tabs.iter().map(|t| row(&t.id, t.title.trim().to_owned(), t.title_number, false)).collect(),
                 Some(_) => open.iter().map(|id| row(id, String::new(), 0, false)).collect(),
                 None => open.iter().map(|id| row(id, String::new(), 0, true)).collect(),
@@ -163,7 +165,7 @@ pub fn version(app: &App, session: &str) -> u64 {
     let mut h = std::hash::DefaultHasher::new();
     match app.kernel.slots.get(&crate::terminal::TERMINAL).workspaces.get(&app.terminal_workspace_key_for_session(session)) {
         Some(ws) => {
-            (&ws.active, &ws.failure).hash(&mut h);
+            (&ws.active, &ws.failure, ws.call == crate::terminal::calls::Call::Listing).hash(&mut h);
             ws.tabs.iter().for_each(|t| (&t.id, &t.title, t.title_number).hash(&mut h));
         }
         None => 0u8.hash(&mut h),
@@ -173,15 +175,15 @@ pub fn version(app: &App, session: &str) -> u64 {
 
 /// The version of what `Dep::TerminalScreen(session)` reads, the surfaces and labels: each
 /// screen (a new snapshot each time the shell draws), its status, scroll and selection drag, the
-/// cursor's blink, the bell's flash, the find bar, the link under the pointer, where the keyboard
-/// is, and a rename.
+/// cursor's blink, the bell's flash, the find bar, the link under the pointer, the quote last
+/// taken (its mark), where the keyboard is, and a rename.
 pub fn screen_version(app: &App, session: &str) -> u64 {
     let mut h = std::hash::DefaultHasher::new();
     version(app, session).hash(&mut h);
     if let Some(ws) = app.kernel.slots.get(&crate::terminal::TERMINAL).workspaces.get(&app.terminal_workspace_key_for_session(session)) {
         ws.tabs.iter().for_each(|t| {
             (t.session.generation(), t.session.revealed(), t.session.cursor_offset(), t.drag, t.mount, t.scroll_px_accum.to_bits(), &t.preedit).hash(&mut h);
-            (t.find.is_some(), t.hover).hash(&mut h);
+            (t.find.is_some(), t.hover, t.quote_source()).hash(&mut h);
         });
     }
     let now = *app.clock;

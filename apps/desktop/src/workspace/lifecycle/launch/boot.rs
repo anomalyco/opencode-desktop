@@ -50,6 +50,50 @@ pub fn write_profile() {
     }
 }
 
+/// `opencode-desktop --warm-gpu`: what the setup runs once after an install, in a process nobody
+/// waits for (`apps/installer` `first_start`). It makes the GPU device and Rune's pipelines
+/// with no window (`rune::warm_gpu_cache`) and exits. Direct3D keeps what that leaves (its
+/// shader-cache databases, made with 184 flushed commits inside `D3D12CreateDevice`, and the
+/// driver's compiled pipelines) per user and per exe path, so the person's first launch takes its
+/// window over to the GPU about 0.1 s after its first frame, as a later launch does, not after
+/// 1 to 2.5 s with three or four threads busy beside their first keys. An update at the same path
+/// keeps the cache. Nothing else of the app starts: no storage, no instance claim, no server.
+#[cfg(windows)]
+pub fn warm_gpu_if_asked() {
+    if std::env::args().nth(1).as_deref() != Some("--warm-gpu") {
+        return;
+    }
+    let code = match rune::warm_gpu_cache() {
+        Ok(()) => 0,
+        Err(why) => {
+            eprintln!("opencode-rune: the GPU's cache was not made: {why}");
+            1
+        }
+    };
+    std::process::exit(code);
+}
+/// Windows: the app does not keep its own install folder as its working folder.
+///
+/// A process holds its working folder open, and so does every child that inherits it (the
+/// server, the browser engine, a shell). Started with the install folder as the working folder
+/// (a double-click on the exe of an unpacked build; a script), the app and the children that
+/// outlive it kept that folder from being renamed, which is how an update swaps it: the update's
+/// helper was refused (`ERROR_SHARING_VIOLATION`) for as long as one of them lived, 0.30, 0.55
+/// and 4.55 s from the old app's exit to the swap for holds of 0.12, 0.3 and 4.3 s, and never
+/// when the child stayed (the update then fails after its last try). The Start menu shortcut
+/// starts the app in the home folder; here any start from inside the install folder goes there.
+#[cfg(windows)]
+pub fn leave_install_folder() {
+    let (Ok(cwd), Ok(exe)) = (std::env::current_dir(), std::env::current_exe()) else { return };
+    let Some(root) = exe.parent() else { return };
+    let inside = |path: &std::path::Path| path.to_string_lossy().to_lowercase().starts_with(&root.to_string_lossy().to_lowercase());
+    if !inside(&cwd) {
+        return;
+    }
+    if let Some(home) = std::env::var_os("USERPROFILE").map(std::path::PathBuf::from).filter(|home| home.is_dir() && !inside(home)) {
+        std::env::set_current_dir(home).ok();
+    }
+}
 /// `opencode-desktop --version`: the version and the release channel it was built for.
 #[cfg(not(target_arch = "wasm32"))]
 pub fn print_version_if_asked() {
@@ -65,9 +109,55 @@ pub fn print_version_if_asked() {
     }
 }
 
+/// `opencode-desktop --unwind-check`: panics 17 frames deep, each frame holding a destructor,
+/// once under `catch_unwind` and once on a thread, and says whether both ended as panics do and
+/// every destructor ran; exit 0 when they did. The packaged macOS build changes how its
+/// functions' unwind entries are stored (`scripts/rustc-compact-unwind.sh`), and the app relies
+/// on a panic staying where it is caught; `smoke-app.sh` runs this on every packaged build.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn unwind_check_if_asked() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    if std::env::args().nth(1).as_deref() != Some("--unwind-check") {
+        return;
+    }
+    static DROPPED: AtomicUsize = AtomicUsize::new(0);
+    struct Guard;
+    impl Drop for Guard {
+        fn drop(&mut self) {
+            DROPPED.fetch_add(1, Ordering::Relaxed);
+        }
+    }
+    #[inline(never)]
+    fn deep(level: usize) -> usize {
+        let _guard = Guard;
+        let below = if std::hint::black_box(level) == 0 { panic!("the unwind check's own panic") } else { deep(level - 1) };
+        std::hint::black_box(below + 1)
+    }
+    let hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(|_| {}));
+    let caught = std::panic::catch_unwind(|| deep(16)).is_err();
+    let alone = std::thread::spawn(|| deep(16)).join().is_err();
+    std::panic::set_hook(hook);
+    let dropped = DROPPED.load(Ordering::Relaxed);
+    std::io::Write::write_fmt(
+        &mut std::io::stdout(),
+        format_args!(
+            "unwind: a panic 17 frames deep was {}, a panicking thread {}, {dropped} of 34 destructors ran\n",
+            if caught { "caught" } else { "not caught" },
+            if alone { "ended alone" } else { "did not end as a panic" }
+        ),
+    )
+    .ok();
+    std::process::exit(if caught && alone && dropped == 34 { 0 } else { 1 });
+}
 /// Window title (`"OpenCode (Rune)"` on `main`, `"OpenCode (Rune) · <branch>"` on PR builds).
 pub fn window_title() -> &'static str {
-    option_env!("OPENCODE_RUNE_WINDOW_TITLE").unwrap_or("OpenCode (Rune)")
+    // Stable and beta builds name themselves after their channel (`win_install::default_name`).
+    #[cfg(not(target_arch = "wasm32"))]
+    let fallback = win_install::default_name(option_env!("OPENCODE_RUNE_BUILD_CHANNEL"));
+    #[cfg(target_arch = "wasm32")]
+    let fallback = "OpenCode (Rune)";
+    option_env!("OPENCODE_RUNE_WINDOW_TITLE").unwrap_or(fallback)
 }
 
 /// The build's identity: its name, its app id (the Windows AppUserModelID, the uninstall
@@ -107,26 +197,35 @@ pub fn instance_id() -> String {
     format!("{}-{tag}", product().family())
 }
 
-/// Windows: the windows' title bar, taskbar and Alt+Tab icon, from the exe's own icon resource
-/// (`build.rs`), so nothing is decoded or resized at launch.
+/// Windows: the windows' title bar, taskbar and Alt+Tab icon, from icon resource 1 of the module
+/// this code is linked into: the one-file exe, or a packaged build's library (its `build.rs`).
 #[cfg(target_os = "windows")]
 pub fn apply_app_icon() {
     rune::set_app_icon_resource(1);
 }
 
-/// Sets the Dock icon from the enclosing `.app`'s `Contents/Resources/icon.icns` (preserving PR
-/// icon badges) when bundled, or the embedded default icon during `cargo run`.
+/// Sets the Dock icon to the embedded default during `cargo run`. A bundle names its own
+/// (`CFBundleIconFile`: `Contents/Resources/icon.icns`, a PR build's with its badge), and the Dock
+/// shows that without being asked: setting the same image again read and checked 1.4 MB in `main`
+/// (11,100 µs) and had AppKit render it on the main thread before `applicationDidFinishLaunching`
+/// (21,400 µs; a bare AppKit app with one window, M4: its window came 19,000 µs later).
+/// A packaged macOS app (`cfg(bundle_assets)`) is always in its bundle and carries no second copy
+/// of the icon in its exe (1.4 MiB).
+///
+/// Linux: the desktop finds the app's icon by the window's application id (Wayland `app_id`, X11
+/// `WM_CLASS`), matched to `opencode-rune.desktop`, as Desktop's `StartupWMClass: appId` does.
 #[cfg(all(not(target_os = "windows"), not(target_arch = "wasm32")))]
 pub fn apply_app_icon() {
-    let bundled = std::env::current_exe()
-        .ok()
-        .and_then(|exe| std::fs::read(exe.parent()?.parent()?.join("Resources/icon.icns")).ok());
-    match bundled {
-        Some(bytes) => {
-            let _ = rune::set_app_icon(bytes.as_slice());
-        }
-        None => {
-            let _ = rune::set_app_icon(include_bytes!("../../../../assets/icon.icns").as_slice());
+    #[cfg(target_os = "linux")]
+    rune::set_app_id("opencode-rune");
+    #[cfg(not(bundle_assets))]
+    {
+        let bundled = std::env::current_exe()
+            .ok()
+            .and_then(|exe| Some(exe.parent()?.parent()?.join("Resources/icon.icns")))
+            .is_some_and(|icon| icon.is_file());
+        if !bundled {
+            rune::set_app_icon(include_bytes!("../../../../assets/icon.icns").as_slice()).ok();
         }
     }
 }
@@ -156,7 +255,7 @@ pub fn deferred() -> bool {
     DEFERRED.load(Ordering::Relaxed)
 }
 
-/// What [`First::fetch`] reads, the projects first.
+/// What [`First::fetch`] reads; the projects' answer says whether the server is OpenCode's.
 const FIRST_READS: [&str; 7] =
     ["/api/project", "/api/session?limit=120", "/api/model", "/api/agent", "/api/provider", "/api/session/active", "/api/config"];
 
@@ -191,19 +290,23 @@ impl First {
         #[cfg(target_arch = "wasm32")]
         server.start_gets(&FIRST_READS);
         let [projects, paths @ ..] = FIRST_READS;
-        let projects = get(projects).inspect_err(|_| {
-            #[cfg(target_arch = "wasm32")]
-            server.forget_gets();
-        })?;
         // A page has no threads: its fiber takes up the answers one after another, but the
         // browser asked for them all at once.
         #[cfg(target_arch = "wasm32")]
-        let [sessions, models, agents, providers, active, config] = paths.map(|path| get(path).ok());
-        // Once the project probe succeeds these reads are independent. A slow catalog
-        // mustn't add its whole round trip to each successive startup read.
+        let (projects, [sessions, models, agents, providers, active, config]) = {
+            let projects = get(projects).inspect_err(|_| server.forget_gets())?;
+            (projects, paths.map(|path| get(path).ok()))
+        };
+        // All seven at once: each is its own round trip, and one after another they add up. The
+        // projects' read was asked alone first and the other six after its answer: against a
+        // server 300 ms away that was a round trip (300 ms) before the others started.
         #[cfg(not(target_arch = "wasm32"))]
-        let [sessions, models, agents, providers, active, config] =
-            std::thread::scope(|scope| paths.map(|path| scope.spawn(move || get(path).ok())).map(|task| task.join().ok().flatten()));
+        let (projects, [sessions, models, agents, providers, active, config]) = std::thread::scope(|scope| {
+            let rest = paths.map(|path| scope.spawn(move || get(path).ok()));
+            (get(projects), rest.map(|task| task.join().ok().flatten()))
+        });
+        #[cfg(not(target_arch = "wasm32"))]
+        let projects = projects?;
         Ok(First { projects, sessions, models, agents, providers, active, config })
     }
 }
@@ -218,10 +321,81 @@ pub struct Ready {
     /// Nothing accepted a connection at the address, and the reach watcher tries it from now on
     /// (`Server::watch_reach`): the launch waits for it rather than trying on a timer.
     pub refused: bool,
+    /// The restored session's newest page, asked for beside the first reads, for the session's
+    /// reader to take up when the window connects (`Pages::live`).
+    pub page: Option<session_pages::Early>,
+}
+
+/// The path of session `id`'s newest page, as its reader asks for it.
+fn newest_page(id: &str) -> String {
+    format!("/api/session/{id}/message?limit={}&order=desc", session_pages::LATEST)
+}
+
+/// Asks `server` for the restored session's newest page (`page`, its path) without waiting for
+/// it. A page's reader asks for its own (`start_first_reads` asked for the rest as it started).
+fn ask_page(server: &Server, page: Option<String>) -> Option<session_pages::Early> {
+    #[cfg(target_arch = "wasm32")]
+    {
+        let _ = (server, page);
+        None
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    page.and_then(|path| session_pages::Early::ask(server, path))
+}
+
+/// What the head start finds, as it finds it.
+#[cfg(not(target_arch = "wasm32"))]
+struct Head {
+    /// The registered service's address once it took a connection: none when no service is
+    /// registered or nothing accepts connections there.
+    reach: Receiver<Option<String>>,
+    /// Its first reads, when it took the connection.
+    first: Receiver<Result<First, String>>,
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+static HEAD: std::sync::Mutex<Option<Head>> = std::sync::Mutex::new(None);
+
+/// From the top of `main`, for a window that will find its server through `service.json`: the
+/// registered service is asked for the first reads now, on a thread, while the app's state
+/// loads, its plugins start and its window is made (about 19 ms of a warm launch). The launch's
+/// first probe takes the answers up (`spawn_probe_waking`); nothing here needs the app's state.
+/// The service's answers to them are the proof that it is OpenCode's: `/api/info` isn't asked
+/// first, which was a round trip of its own.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn head_start() {
+    // As `App::load` decides a live window, and `spawn_probe_waking` that it discovers its server.
+    if crate::arg("--server").is_some() || crate::arg("--fixture").is_some() || crate::demo::requested() {
+        return;
+    }
+    let (reached, reach) = std::sync::mpsc::channel();
+    let (read, first) = std::sync::mpsc::channel();
+    let work = move || {
+        let default = Server::new(&opencode_kit::client::default_server());
+        let candidate = opencode_kit::local_service::registered(&default).filter(Server::reachable);
+        reached.send(candidate.as_ref().map(|c| c.base.clone())).ok();
+        let Some(candidate) = candidate else { return };
+        REACHED.store(true, Ordering::Relaxed);
+        rune::marks::mark("reads.head.asked");
+        read.send(First::fetch(&candidate)).ok();
+        rune::marks::mark("reads.head.in");
+    };
+    if std::thread::Builder::new().name("opencode-first-head".into()).spawn(work).is_ok() {
+        *HEAD.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some(Head { reach, first });
+    }
 }
 
 /// When the probe's thread found the server taking connections, set once from that thread.
 pub type Accepted = std::sync::Arc<std::sync::OnceLock<Instant>>;
+
+/// Whether a server took this launch's connection: the head start's, or a probe's.
+static REACHED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Whether a server took a connection of this launch's (it may not have answered yet): what
+/// the saved session list waits for before it stands in for the server's (`saved_list`).
+pub(super) fn reached() -> bool {
+    REACHED.load(Ordering::Relaxed)
+}
 
 /// How long the launch's first reads may wait on a server that took their connection before the
 /// window says it's slow (`Link::Slow`): a server that accepts and holds every request would
@@ -235,14 +409,16 @@ pub const FIRST_PATIENCE: Duration = Duration::from_millis(1500);
 pub const GRACE: Duration = Duration::from_secs(5);
 
 /// The server `server` stands for (`service.json` when `discover`), probed until it answers or
-/// `grace` runs out; true when it answered.
-fn probe(server: &Server, discover: bool, grace: Duration) -> (Server, bool) {
+/// `grace` runs out; true when it answered. `registered_up`: what the caller has just found at
+/// the registered service's address, for the first try.
+fn probe(server: &Server, discover: bool, grace: Duration, mut registered_up: Option<bool>) -> (Server, bool) {
     let start = Instant::now();
     let mut pause = Duration::from_millis(250);
     loop {
-        let actual = if discover { opencode_kit::local_service::discover_local_server(server) } else { server.clone() };
         let tried = Instant::now();
-        if actual.reachable() {
+        // Finding the server tried its address: it isn't tried again here.
+        let (actual, up) = if discover { opencode_kit::local_service::discover_local_reach(server, registered_up.take()) } else { (server.clone(), None) };
+        if up.unwrap_or_else(|| actual.reachable()) {
             return (actual, true);
         }
         let left = grace.saturating_sub(start.elapsed());
@@ -263,12 +439,17 @@ fn probe(server: &Server, discover: bool, grace: Duration) -> (Server, bool) {
 }
 
 /// The probe, Desktop Beta's tabs and the first reads, on a thread; the window wakes for them.
-pub(super) fn spawn_probe(s: &App, beta_tabs: bool, fallback_fixture: bool, grace: Duration) -> (Receiver<Ready>, Accepted) {
+pub(super) fn spawn_probe(s: &App, beta_tabs: bool, fallback_fixture: bool, grace: Duration, retry: bool) -> (Receiver<Ready>, Accepted) {
+    spawn_probe_waking(s, beta_tabs, fallback_fixture, grace, retry, s.launch.inbox_wake.clone().or_else(|| (*s.waker).clone()))
+}
+
+/// [`spawn_probe`], waking through `wake`.
+pub(super) fn spawn_probe_waking(s: &App, beta_tabs: bool, fallback_fixture: bool, grace: Duration, retry: bool, wake: Option<rune::Waker>) -> (Receiver<Ready>, Accepted) {
     let (out, rx) = std::sync::mpsc::channel();
     let accepted = Accepted::default();
     let Source::Live { server, .. } = &*s.source else { return (rx, accepted) };
     let took = accepted.clone();
-    let (server, wake) = (server.clone(), s.launch.inbox_wake.clone().or_else(|| (*s.waker).clone()));
+    let server = server.clone();
     // Only the app's own server may stand down for the fixture, or move to the port
     // `service.json` names.
     let own = crate::servers::runtime::active(s).is_sidecar();
@@ -286,30 +467,95 @@ pub(super) fn spawn_probe(s: &App, beta_tabs: bool, fallback_fixture: bool, grac
     let now = server.gets_in(&FIRST_READS);
     #[cfg(not(target_arch = "wasm32"))]
     let now = false;
+    // The session the window restores, when it's the app's own server's: its newest page is
+    // read with the first reads, not a round trip after them.
+    let page = match &*s.route {
+        Route::Session { id, server } if server == crate::servers::runtime::active(s) && own => Some(newest_page(id)),
+        _ => None,
+    };
+    // The launch's first probe takes up what `head_start` asked for from the top of `main`.
+    #[cfg(not(target_arch = "wasm32"))]
+    let head = if discover_local { HEAD.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take() } else { None };
     let work = move || {
-        let (actual, reached) = probe(&server, discover_local, grace);
+        // What the head start found at the registered service's address, for the probe below.
+        #[cfg(not(target_arch = "wasm32"))]
+        let mut registered_up = None;
+        #[cfg(target_arch = "wasm32")]
+        let registered_up = None;
+        // The registered service's answers to the first reads say it is OpenCode's. One that
+        // fails them, or isn't there, is found the long way below, as every later probe is.
+        #[cfg(not(target_arch = "wasm32"))]
+        if let Some(head) = head
+            && let Ok(reach) = head.reach.recv()
+        {
+            registered_up = Some(reach.is_some());
+            let candidate = opencode_kit::local_service::registered(&server).filter(|c| reach.as_deref() == Some(c.base.as_str()));
+            if let Some(candidate) = candidate {
+                took.set(Instant::now()).ok();
+                if let Some(w) = &wake {
+                    w();
+                }
+                // Beside the head start's reads, not after them: with a server 300 ms away the
+                // page was a second round (asked at 333 ms, in at 645 ms).
+                let early = ask_page(&candidate, page.clone());
+                if let Ok(first @ Ok(_)) = head.first.recv() {
+                    let beta_tabs = beta_tabs.then(crate::tabs::from_beta).flatten();
+                    out.send(Ready { server: Some(candidate), beta_tabs, first: Some(first), refused: false, page: early }).ok();
+                    if let Some(w) = wake {
+                        w();
+                    }
+                    return;
+                }
+            }
+        }
+        // When managing the local background service (windowed run with no explicit --server /
+        // OPENCODE_SERVER_URL), ensure `opencode serve --service` is running just like official
+        // Desktop (`packages/desktop/src/main/service/background-service.ts`).
+        #[cfg(not(target_arch = "wasm32"))]
+        let sidecar_result = if discover_local && crate::servers::sidecar::managed() {
+            Some(if retry { crate::servers::sidecar::reconnect() } else { crate::servers::sidecar::connection() })
+        } else {
+            None
+        };
+        #[cfg(target_arch = "wasm32")]
+        let sidecar_result: Option<Result<Server, String>> = { let _ = retry; None };
+
+        let (actual, reached, start_err) = match sidecar_result {
+            Some(Ok(actual)) => (actual, true, None),
+            Some(Err(err)) => {
+                // Fall back to a single non-waiting check of `:4096` in case a plain server is up.
+                let (actual, reached) = probe(&server, discover_local, Duration::ZERO, registered_up);
+                (actual, reached, Some(err))
+            }
+            None => {
+                let (actual, reached) = probe(&server, discover_local, grace, registered_up);
+                (actual, reached, None)
+            }
+        };
         let ready = if !reached {
             if fallback {
-                Ready { server: None, beta_tabs: None, first: None, refused: false }
+                Ready { server: None, beta_tabs: None, first: None, refused: false, page: None }
             } else {
-                let msg = format!("No OpenCode server responded at {}", actual.base);
+                let msg = start_err.unwrap_or_else(|| format!("No OpenCode server responded at {}", actual.base));
                 // `service.json` may name another port next time, so a discovered server keeps
                 // its timer.
                 let refused = !discover_local;
                 if refused {
                     actual.watch_reach(wake.clone());
                 }
-                Ready { server: Some(actual), beta_tabs: None, first: Some(Err(msg)), refused }
+                Ready { server: Some(actual), beta_tabs: None, first: Some(Err(msg)), refused, page: None }
             }
         } else {
             // The window counts its patience from here (`poll`).
+            REACHED.store(true, Ordering::Relaxed);
             took.set(Instant::now()).ok();
             if let Some(w) = &wake {
                 w();
             }
             let beta_tabs = beta_tabs.then(crate::tabs::from_beta).flatten();
+            let page = ask_page(&actual, page);
             let first = First::fetch(&actual);
-            Ready { server: Some(actual), beta_tabs, first: Some(first), refused: false }
+            Ready { server: Some(actual), beta_tabs, first: Some(first), refused: false, page }
         };
         out.send(ready).ok();
         if let Some(w) = wake {
@@ -348,8 +594,19 @@ impl App {
         // Markdown images read through the server as Desktop's `readLocalImage` does; web
         // images and link favicons come from the web, as the browser fetches them for Desktop.
         let files = server.clone();
+        #[cfg(not(target_arch = "wasm32"))]
+        let home = (!self.home.is_empty()).then(|| (*self.home).clone());
         self.composer_ext.attach.markdown.set_fetch(
             std::sync::Arc::new(move |directory: &str, path: &str| {
+                #[cfg(not(target_arch = "wasm32"))]
+                if files.is_local() {
+                    let root = opencode_feature_open_in::pinned_local_root(directory, home.as_deref())
+                        .unwrap_or_else(|| directory.to_owned());
+                    let abs = opencode_kit::path::absolute(&root, path);
+                    if !browser_policy::verify_local_path(&abs).is_ok_and(|v| v.is_file) {
+                        return Err("refused non-local or unsafe image path".to_owned());
+                    }
+                }
                 let encoded = crate::review::data::encode_fs_path(path);
                 files
                     .get_bytes(&format!("/api/fs/read/{encoded}?location%5Bdirectory%5D={}", crate::switcher::encode(directory)))
@@ -367,6 +624,10 @@ impl App {
             *self.projects = opencode_kit::model::parse_projects(&f.projects);
         }
         if let Some(sessions) = &f.sessions {
+            // The saved list stood in for this one: a session the server no longer lists goes.
+            if let Some(saved) = self.launch.saved_list.take() {
+                saved.retire(&mut self.sessions);
+            }
             self.refresh_recent();
             self.sessions_listed(opencode_kit::model::parse_sessions(sessions));
         }
@@ -380,6 +641,7 @@ impl App {
                 .map(|(k, _)| k.clone())
                 .filter(|id| !self.stops.pending(id))
                 .collect();
+            self.stops.active_sync.mark_boot_synced();
         }
         crate::windows::peer::touch(self);
         // A fresh profile has used no projects yet: Home lists none, as Desktop's
@@ -410,7 +672,7 @@ pub(super) fn connect(s: &mut App, tx: &mut Tx) {
     missing.dedup();
     s.set_media_fetch();
     if let (Source::Live { server, requests, writes, .. }, Some(waker)) = (&mut *s.source, (*s.waker).clone()) {
-        s.pages.set(session_pages::Pages::live(server.clone(), waker.clone()));
+        s.pages.set(session_pages::Pages::live(server.clone(), waker.clone(), s.launch.early_page.take(), s.composer_ext.attach.store.image_cache()));
         let inbox_wake = s.launch.inbox_wake.clone().unwrap_or(waker);
         let (r, w, inbox) = crate::windows::connect(server, inbox_wake.clone());
         *writes = Some(w);
@@ -426,7 +688,12 @@ pub(super) fn connect(s: &mut App, tx: &mut Tx) {
         crate::windows::peer::join(s, Some(inbox_wake.clone()));
         // A window that started in its opener's copy was woken plainly until now.
         crate::windows::peer::set_waker(s, inbox_wake);
-        s.list_unlisted_worktrees();
+        // Home's provider tip waits for the default location's integrations (`home::tip`), which
+        // are otherwise read only when Connect or Settings opens: with only the free models, read them now.
+        if !s.composer_ext.pickers.models.iter().any(|m| m.provider != "opencode") {
+            s.sync_catalogs(None);
+        }
+        super::onboarding::first_launch(s, tx);
         // The session open at last quit (see `restore`) subscribes like a click on its tab.
         if let Route::Session { id, server } = (*s.route).clone()
             && server == *crate::servers::runtime::active(s)
@@ -438,6 +705,7 @@ pub(super) fn connect(s: &mut App, tx: &mut Tx) {
             s.open(&id, tx);
         }
     }
+
     // `--session <id or title words>` opens a session of the app's own server at start; in a
     // browser, of the page's server (`?session=`, the address a session's page has).
     if let Some(raw) = arg("--session").filter(|_| cfg!(target_arch = "wasm32") || crate::servers::runtime::active(s).is_sidecar()) {
@@ -452,14 +720,29 @@ pub(super) fn connect(s: &mut App, tx: &mut Tx) {
             s.open(&id, tx);
         }
     }
+    // Every Git project's worktrees, one read each on the connection's one fetch thread, which
+    // answers in the order asked: after the open session's own reads (its inbox, its subagents,
+    // the permission or question it waits on), not before them. Asked first, 40 projects held
+    // those back from 111 to 214 ms after the process started (a real server, each read 1-2 ms),
+    // so a session waiting on a permission showed its dock that late.
+    s.list_unlisted_worktrees();
+    // What the server lists now is kept for the next launch's first frame, after this frame
+    // and the next ones have drawn it (`launch::saved_write`).
+    s.launch.saved_write = super::SavedWrite::Owed { at: *s.clock + super::SAVED_WRITE_AFTER.as_secs_f64() };
+    tx.wake_after(super::SAVED_WRITE_AFTER);
     // Small newest pages, on the speculative lane after foreground startup work is queued.
     let mut recent: Vec<_> = s.sessions.iter().filter(|s| s.parent.is_none()).collect();
     recent.sort_by_key(|s| std::cmp::Reverse(s.updated));
     for session in recent.into_iter().take(session_pages::WARM) {
         s.prefetch_page(&session.id);
     }
-    // Deterministic headless snapshots have no wall-clock event loop to await the worker.
-    if headless()
+    // Deterministic headless snapshots have no wall-clock event loop to await the worker, so
+    // they read the open session inline. A `--realtime` probe stands in for a window and has
+    // one: `open` above already asked for both on the fetch thread, and a read here held its
+    // frame for a whole round trip, twice (5 and 10 s behind a server that answers in 5 s),
+    // which no window does.
+    let inline = headless() && !crate::realtime();
+    if inline
         && let (Route::Session { id, server: on }, Source::Live { server, .. }) = (&*s.route, &*s.source)
         && on == crate::servers::runtime::active(s)
         && !s.transcripts.contains_key(id)
@@ -468,7 +751,7 @@ pub(super) fn connect(s: &mut App, tx: &mut Tx) {
         s.transcripts.insert(id.clone(), Transcript { session: id.clone(), messages: opencode_kit::model::parse_messages(&v) });
     }
     // And what waits in its inbox: steers, and shells and subagents that came back.
-    if headless()
+    if inline
         && let (Route::Session { id, server: on }, Source::Live { server, .. }) = (&*s.route, &*s.source)
         && on == crate::servers::runtime::active(s)
         && let Ok(v) = server.read(&format!("/api/session/{id}/inbox"))
@@ -482,3 +765,4 @@ pub(super) fn connect(s: &mut App, tx: &mut Tx) {
         crate::subagents::jobs::list(s, &id);
     }
 }
+

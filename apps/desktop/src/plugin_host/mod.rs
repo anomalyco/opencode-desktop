@@ -24,7 +24,7 @@ pub(crate) mod runtime;
 pub mod services;
 pub(crate) mod ui;
 
-pub use opencode_plugin_runtime::{catalogs, flyout, icons, images, machines, process, reveal, tasks};
+pub use opencode_plugin_runtime::{catalogs, flyout, icons, images, machines, process, tasks};
 
 pub use bridge::{commands, console, cx, project_request, requests, server_sources, servers, stores};
 pub(crate) use bridge::contrib;
@@ -52,8 +52,7 @@ pub use contrib::{
 pub use flyout::{Flyout, FlyoutEvent, Overlay};
 pub use machines::{Hot, HotEffect, Life, LifeEffect, LifeEvent, Trust, TrustEffect, TrustEvent};
 pub use plugin::Half;
-pub use reveal::reveal;
-pub use runtime::boot::{boot_builtin, doze_owed, first_frame, setup};
+pub use runtime::boot::{boot_builtin, doze_owed, ensure_plugin_running, first_frame, setup};
 pub use runtime::lifecycle::{drive, fire_named, poll, reload, step_trust, toggle};
 pub use servers::{
     ServerRec, all as contributed_servers, authenticating as server_authenticating, changed as servers_changed,
@@ -61,9 +60,9 @@ pub use servers::{
 };
 pub use sources::{Origin, Tier};
 pub use surfaces::{
-    dialog_card, dialog_view_in, file_viewer, pill_views, popover_view, settings_page, settings_page_actions,
-    settings_page_icon, settings_page_ids, settings_page_key, settings_page_title, settings_pages, sidebar_items, slot,
-    slot_with, titlebar_items,
+    dialog_card, dialog_view_in, file_viewer, has_live_settings_section, pill_views, popover_view, settings_page,
+    settings_page_actions, settings_page_icon, settings_page_ids, settings_page_key, settings_page_title,
+    settings_pages, sidebar_items, slot, slot_with, titlebar_items,
 };
 pub use trust::dialog as trust_dialog;
 pub use ui::view::settings_section;
@@ -91,6 +90,10 @@ pub fn surfaces_version(app: &App) -> u64 {
     use std::hash::{Hash, Hasher};
     let mut h = std::hash::DefaultHasher::new();
     epoch().hash(&mut h);
+    crate::updater::revision(app).hash(&mut h);
+    app.plugins.titlebar_hover.hash(&mut h);
+    app.plugins.titlebar_drops.hash(&mut h);
+    app.plugins.titlebar_focus.hash(&mut h);
     for p in app.plugins.list.iter() {
         p.half.surface_version(p.script()).hash(&mut h);
     }
@@ -173,6 +176,8 @@ pub struct PluginHost {
     boot: runtime::boot::Boot,
     /// The built-ins waiting for their first use, and their records.
     pub dormant: dormant::Dormant,
+    /// Plugins whose start ran out of time, waiting for their one restart.
+    pub(crate) restarts: runtime::lifecycle::Restarts,
     /// Per-plugin model-picker row annotations (`Models:SetBadges`), keyed by plugin id and tagged
     /// with the VM id that set them so reload/stop drops stale entries.
     pub(crate) model_badges: BTreeMap<String, (u64, ModelBadgeMap)>,
@@ -180,6 +185,10 @@ pub struct PluginHost {
     pub dialog: Option<OpenDialog>,
     /// The titlebar item the pointer is over, whose pill opens to show its label.
     pub titlebar_hover: Option<&'static str>,
+    /// How many times each titlebar item's arrow has dropped in, which keys the arrow it shows.
+    pub titlebar_drops: BTreeMap<&'static str, u32>,
+    /// The titlebar item holding keyboard focus, whose pill opens to show its label (`focus-within`).
+    pub titlebar_focus: Option<String>,
     /// The window lost the system's focus (`ctx.FocusChanged`); a new window has it.
     pub window_blurred: Cell<bool>,
     pub editors: editors::Editors,
@@ -272,6 +281,36 @@ impl PluginHost {
 
     pub fn find(&self, id: &str) -> Option<usize> {
         self.list.iter().position(|p| p.manifest.id == id)
+    }
+
+    /// Whether `id` is a live, genuinely bundled built-in plugin (`Tier::Bundled`, never a user,
+    /// override, or dev plugin shadowing a built-in ID).
+    pub fn is_builtin_plugin(&self, id: &str) -> bool {
+        self.list.iter().any(|p| p.half.is_builtin(id) && p.running())
+    }
+
+    /// Whether the user explicitly disabled plugin `id`.
+    pub fn is_disabled(&self, id: &str) -> bool {
+        self.disabled.contains(id)
+    }
+
+    /// Whether plugin `id` is still queued in deferred post-first-frame boot (`boot.later`).
+    pub fn is_deferred(&self, id: &str) -> bool {
+        self.boot.later().iter().any(|f| f.manifest.id == id)
+    }
+
+    /// Whether plugin `id` is running, dormant (ready to wake on first use), or a bundled
+    /// built-in queued for deferred boot and not disabled by the user.
+    pub fn plugin_available(&self, id: &str) -> bool {
+        if let Some(p) = self.list.iter().find(|p| p.manifest.id == id) {
+            return p.life.listed();
+        }
+        !self.disabled.contains(id)
+            && self
+                .boot
+                .later()
+                .iter()
+                .any(|f| f.manifest.id == id && f.tier == Tier::Bundled && f.error.is_none())
     }
 
     /// The running plugins.
@@ -393,6 +432,21 @@ pub fn submitted(app: &mut App, plugin: &str, index: usize, tx: &mut Tx) {
     requests::carry_out(app, tx);
 }
 
+/// Text changed in a plugin's bare field: fires `editor.{index}.Changed` synchronously so
+/// address-bar inline completion and suggestion rows update in the same frame as the keystroke,
+/// then syncs the editor & address-selection watch stamps against the post-handler state.
+pub fn input_changed(app: &mut App, plugin: &str, index: usize, tx: &mut Tx) {
+    let text = editors::text_in(app, plugin, index);
+    if let Some(p) = app.plugins.list.iter().find(|p| p.manifest.id == plugin) {
+        let name = format!("editor.{index}.Changed");
+        services::fire(app, p, &name, |lua| {
+            mlua::IntoLuaMulti::into_lua_multi(text.clone(), lua)
+        });
+        services::sync_editor_watches(app, p, index);
+    }
+    requests::carry_out(app, tx);
+}
+
 /// `--plugin-index`: each plugin, where it runs from, its state, and what it contributed.
 pub fn print_index(app: &App) {
     for p in &app.plugins.list {
@@ -493,13 +547,47 @@ pub(super) fn mark(host: &PluginHost, now: f64) {
     eprintln!("luau metrics: mark at {now:.2} s");
 }
 
-/// Esc closes the open plugin popover.
+/// Esc closes the open plugin popover (stepping back from Site settings view 2 to view 1 first).
 pub fn popover_key(app: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
     if ev.key != rune::Key::Escape || !app.plugins.overlay.is_open() {
         return false;
     }
+    #[cfg(not(target_arch = "wasm32"))]
+    if matches!(&app.plugins.overlay, Overlay::Popover { plugin, id, .. } if &**plugin == "browser" && id == "site")
+        && app.workspace_panes.browser.site_detailed
+    {
+        app.workspace_panes.browser.site_detailed = false;
+        for i in 0..app.plugins.list.len() {
+            if app.plugins.list[i].half.is_builtin("browser") {
+                let _ = runtime::lifecycle::fire_named(app, i, "Browser.SiteBack", rune_luau::Data::Nil);
+            }
+        }
+        tx.instant();
+        return true;
+    }
     requests::close_popover(app, tx);
     true
+}
+
+/// The pane's passkey notice asks the bundled browser plugin for its import dialog on the page's
+/// `site`: chosen already when `choose` (a tab of the person's), and `tab` loads again once cookies
+/// came in (official `panel.tsx:603-618`).
+pub fn browser_import_site(app: &mut App, site: Option<String>, choose: bool, tab: u64, tx: &mut Tx) {
+    let payload = rune_luau::Data::Map(std::collections::BTreeMap::from([
+        ("site".to_owned(), site.map_or(rune_luau::Data::Nil, rune_luau::Data::String)),
+        ("choose".to_owned(), rune_luau::Data::Bool(choose)),
+        ("tab".to_owned(), rune_luau::Data::String(tab.to_string())),
+    ]));
+    let mut fired = false;
+    for i in 0..app.plugins.list.len() {
+        if app.plugins.list[i].half.is_builtin("browser") {
+            fired |= runtime::lifecycle::fire_named(app, i, "Browser.ImportSite", payload.clone());
+        }
+    }
+    tx.instant();
+    if fired {
+        requests::carry_out(app, tx);
+    }
 }
 
 /// Esc closes the open plugin dialog, telling its plugin (yielding when another overlay sits above it).
@@ -557,7 +645,19 @@ impl opencode_kernel::Feature<App> for PluginHostFeature {
                 })
                 .above("plugin.popover"),
         );
-        builder.add_rest("plugin_host.rest", |s, _| {
+        builder.add_rest("plugin_host.rest", |s, keep| {
+            s.plugins.shared.images.borrow_mut().rest();
+            s.plugins.last_usage.borrow_mut().retain(|id, _| keep(id));
+            s.plugins.panel_listed.borrow_mut().retain(|(_, _, sid), _| sid.is_empty() || keep(sid));
+            for p in s.plugins.list.iter() {
+                p.half.resources.borrow_mut().retain(|key, _| {
+                    let path = key.split_once('\n').map_or(key.as_str(), |(_, p)| p);
+                    match path.strip_prefix("/api/session/").and_then(|r| r.split(['/', '?']).next()) {
+                        Some(sid) if !sid.is_empty() && !matches!(sid, "active" | "status") => keep(sid),
+                        _ => true,
+                    }
+                });
+            }
             if s.tabs.is_empty() && matches!(&*s.route, crate::Route::Home) {
                 dormant::sleep_unused(s);
             }

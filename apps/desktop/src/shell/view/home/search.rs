@@ -5,7 +5,7 @@ use super::*;
 // it has focus and text, its results in a floating panel that holds the field 6 in from its top.
 
 /// `h-9 rounded-[6px] py-1 ps-3 pe-2 gap-2`, `bg-layer-02/60`, `bg-layer-02` hovered or focused.
-pub(super) fn field(s: &App, p: &Pal, selected: Option<&model::Project>, width: f32, window_h: f32, narrow: bool) -> El {
+pub(super) fn field(s: &App, p: &Pal, selected: Option<&model::Project>, width: f32, window_h: f32, narrow: bool, scoped: bool) -> El {
     let open = s.home_search_open();
     let placeholder = placeholder(s, selected);
     // Not `search`: that key is the titlebar's and the sidebar's Search sessions button.
@@ -22,8 +22,8 @@ pub(super) fn field(s: &App, p: &Pal, selected: Option<&model::Project>, width: 
         .hover(p.layer2)
         .child(icon(&ic::MAGNIFYING_GLASS, 16.0).color(p.icon_muted))
         .child(
-            // The input's 24 line (13/24, `home-sessions`), which its selection fills.
-            session_view::style::field(&s.search, UI.lh(24.0))
+            // The input's 24 line (13/24, `home-sessions`, no negative tracking), which its selection fills.
+            session_view::style::field(&s.search, HOME)
                 .key("search-input")
                 // Named by its placeholder, which goes once a letter is typed.
                 .label(placeholder.to_owned())
@@ -53,6 +53,7 @@ pub(super) fn field(s: &App, p: &Pal, selected: Option<&model::Project>, width: 
                 .size(size, size)
                 .center()
                 .radius(4.0)
+                .focus_inset(p)
                 .hover(p.hover)
                 .press(p.pressed)
                 .hover_motion(INSTANT, INSTANT)
@@ -60,7 +61,8 @@ pub(super) fn field(s: &App, p: &Pal, selected: Option<&model::Project>, width: 
                 .child(icon(&ic::CLOSE, glyph).color(p.icon_muted)),
         );
     }
-    if s.home_project_scope() {
+    // searchScope: the project picker in the field (oute.tsx scoped).
+    if scoped {
         if !s.search.text.is_empty() {
             field = field.child(el().key("scope-divider").mx(2.0).w(1.0).h(16.0).fill(p.border_muted).a11y_hidden());
         }
@@ -187,7 +189,7 @@ fn result_row(s: &App, p: &Pal, ses: &SessionInfo, selected: bool, show_project:
         .gap(if cfg!(target_arch = "wasm32") { 8.0 } else { 6.0 })
         .center_y()
         .hover_group()
-        .hover(p.hover)
+        .hover(if selected { rune::Color::TRANSPARENT } else { p.hover })
         .on_hover_change(move |s: &mut App, inside, tx: &mut Tx| {
             if inside {
                 s.kernel.slots.get_mut(&crate::home_search::HOME_SEARCH).activate(hover_id.clone());

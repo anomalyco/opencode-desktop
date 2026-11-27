@@ -92,6 +92,7 @@ impl Replies {
         codes: Vec<String>,
         server: &Server,
         directory: impl FnOnce() -> String,
+        home: String,
         wake: Option<&Waker>,
     ) -> Option<Rc<HashSet<String>>> {
         let now = Instant::now();
@@ -151,7 +152,7 @@ impl Replies {
                 let entries = ask
                     .into_iter()
                     .map(|code| {
-                        let exists = reply_path_exists(&server, &directory, &code);
+                        let exists = reply_path_exists(&server, &directory, &home, &code);
                         (code, exists)
                     })
                     .collect();

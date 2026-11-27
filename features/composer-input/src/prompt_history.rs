@@ -88,6 +88,16 @@ impl PromptHistory {
         }
     }
 
+    /// Drops a prompt whose send failed and returned to the composer (`removeHistoryEntry`, `entry.ts:67-76`).
+    pub fn remove(&mut self, entry: &Entry, shell: bool) {
+        if let Phase::Waiting { sent, .. } = &mut self.phase {
+            sent.retain(|(e, sh)| !(*sh == shell && e == entry));
+        }
+        if self.inner.remove(entry, shell) && matches!(self.phase, Phase::Read) {
+            self.save();
+        }
+    }
+
     /// Captures the composer's current prompt before a send attempt.
     pub fn capture(composer: &TextEdit, shell: bool) -> (Entry, bool) {
         (Entry::of(composer), shell)

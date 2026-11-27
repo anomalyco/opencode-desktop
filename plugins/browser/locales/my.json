@@ -64,5 +64,6 @@
   "zoom.reset": "ဇူးမ် ပြန်သတ်မှတ်ရန်",
   "zoom.percent": "{{percent}}%",
   "link.copy": "လင့်ခ် ကူးယူရန်",
-  "history.clear": "မှတ်တမ်း ရှင်းရန်"
+  "history.clear": "မှတ်တမ်း ရှင်းရန်",
+  "extensions.compat.feature.management": "အခြား extension များကို စီမံခန့်ခွဲခြင်း"
 }

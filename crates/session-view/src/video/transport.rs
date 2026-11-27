@@ -4,14 +4,14 @@
 use std::rc::Rc;
 
 use opencode_ui::video_overlay::Event;
-use rune::{Align, Color, Cursor, El, Icon, SurfaceFit, TextStyle, Tx, col, el, icon, row, text};
+use rune::{Align, Color, El, Icon, SurfaceFit, TextStyle, Tx, col, el, icon, row, text};
 
 use super::{Clip, seek};
 use crate::{TimelineHost, palette::Pal, style::{HOVER_FADE, INSTANT, UI_SMALL}};
 
 const SKIP: f64 = 15.0;
 const HUD_HEIGHT: f32 = 88.0;
-const PLAY: Icon = Icon { name: "movie-play", view: 24.0, body: r#"<path d="M6 4.7c0-.95 1.03-1.54 1.85-1.05l12.07 7.3a1.22 1.22 0 0 1 0 2.1l-12.07 7.3C7.03 20.84 6 20.25 6 19.3z" fill="currentColor"/>"# };
+pub(super) const PLAY: Icon = Icon { name: "movie-play", view: 24.0, body: r#"<path d="M6 4.7c0-.95 1.03-1.54 1.85-1.05l12.07 7.3a1.22 1.22 0 0 1 0 2.1l-12.07 7.3C7.03 20.84 6 20.25 6 19.3z" fill="currentColor"/>"# };
 const PAUSE: Icon = Icon { name: "movie-pause", view: 24.0, body: r#"<rect x="5.4" y="3.7" width="4.7" height="16.6" rx="1.2" fill="currentColor"/><rect x="13.9" y="3.7" width="4.7" height="16.6" rx="1.2" fill="currentColor"/>"# };
 const BACK: Icon = Icon { name: "movie-back-15", view: 24.0, body: r#"<path d="M3.7 10.4a8.55 8.55 0 1 0 8.3-6.2H9.3m2.9-2.8L9.3 4.2l2.9 2.9" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round"/>"# };
 const AHEAD: Icon = Icon { name: "movie-forward-15", view: 24.0, body: r#"<path d="M20.3 10.4a8.55 8.55 0 1 1-8.3-6.2h2.7m-2.9-2.8 2.9 2.8-2.9 2.9" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round"/>"# };
@@ -36,7 +36,7 @@ fn button<S: TimelineHost>(key: &'static str, label: String, content: El, width:
     let clip = c.clone();
     let b = el().key(key).size(width, 44.0).center().role("button").label(label.clone()).help(label)
         .focusable(true).focus_ring(1.0, -3.0, Color::WHITE.alpha(0.9)).radius(22.0)
-        .cursor(Cursor::Pointer).hover(Color::WHITE.alpha(0.10)).press(Color::WHITE.alpha(0.16)).press_scale(0.96)
+        .hover(Color::WHITE.alpha(0.10)).press(Color::WHITE.alpha(0.16)).press_scale(0.96)
         .child(content);
     if delta.is_some() && c.player.duration().is_none() { return b.disabled(true).opacity(0.35); }
     b.on_press_tx(move |s: &mut S, tx: &mut Tx| {
@@ -78,7 +78,7 @@ fn controls<S: TimelineHost>(c: &Rc<Clip>, name: &str) -> El {
         .child(buttons)
         .child(seek::view::<S>(c, name).pin(Some(0.0), Some(0.0), Some(0.0), None));
     el().key("hud").pin(Some(10.0), None, Some(10.0), Some(8.0)).h(HUD_HEIGHT)
-        .hover_group().hover_motion(INSTANT, HOVER_FADE).child(hud)
+        .hover_group_focus().hover_motion(INSTANT, HOVER_FADE).child(hud)
 }
 
 pub(super) fn stage<S: TimelineHost>(p: &Pal, c: Rc<Clip>, name: &str) -> El {
@@ -90,7 +90,7 @@ pub(super) fn stage<S: TimelineHost>(p: &Pal, c: Rc<Clip>, name: &str) -> El {
     let moved = c.clone();
     let leave = c.clone();
     let picture = el().key("picture").pin(Some(0.0), Some(0.0), Some(0.0), Some(0.0))
-        .video(&c.player, SurfaceFit::Fit).label(name.to_owned()).cursor(Cursor::Pointer)
+        .video(&c.player, SurfaceFit::Fit).label(name.to_owned())
         .on_background_press_tx(move |s: &mut S, tx| { press.toggle(); press.refresh(s, tx); });
     el().w_full().max_w(420.0 * ratio).aspect_ratio(ratio).self_center()
         .fill(Color::BLACK).radius(10.0).clip_rounded(10.0).continuous_corners()

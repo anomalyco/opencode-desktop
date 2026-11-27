@@ -160,7 +160,8 @@ pub fn ensure_file_loaded(host: &mut dyn FilesHost, session_id: &str, path: &str
         let wrap = pane.wrap;
         let waker = pane.waker.clone();
         let ws = pane.sessions.entry(session_id.to_owned()).or_default();
-        if ws.known_files.insert(path.to_owned()) {
+        // A file outside the folder, and a skill's virtual file, is no row of the tree.
+        if !crate::data::is_outside(path) && ws.known_files.insert(path.to_owned()) {
             ws.reindex(waker.as_ref());
         }
         let mut doc = wrap.doc(path, "");
@@ -208,16 +209,41 @@ pub fn ensure_file_loaded(host: &mut dyn FilesHost, session_id: &str, path: &str
         .and_then(|w| w.videos.get(path))
         .is_some_and(video::FileVideo::failed);
     if video::is_video(path) && !failed {
-        let source = video::source(Some(&server), &directory, path);
-        let pane = host.files_mut();
-        let wrap = pane.wrap;
-        let clip = video::FileVideo::new(&source, pane.waker.clone());
-        let ws = pane.sessions.entry(session_id.to_owned()).or_default();
-        let mut doc = wrap.doc(path, "");
-        doc.set_binary(0);
-        ws.docs.insert(path.to_owned(), doc);
-        ws.videos.insert(path.to_owned(), clip);
-        return;
+        let video_dir = if server.is_local() {
+            host.session_physical_directory(session_id)
+        } else {
+            Some(directory.clone())
+        };
+        if let Some(source) = video_dir.as_deref().and_then(|d| video::source(Some(&server), d, path)) {
+            let pane = host.files_mut();
+            let wrap = pane.wrap;
+            let clip = video::FileVideo::new(&source, pane.waker.clone());
+            let ws = pane.sessions.entry(session_id.to_owned()).or_default();
+            let mut doc = wrap.doc(path, "");
+            doc.set_binary(0);
+            ws.docs.insert(path.to_owned(), doc);
+            ws.videos.insert(path.to_owned(), clip);
+            return;
+        }
+        // On a local server, `source() == None` means confinement refused a symlink/junction or
+        // missing file: never fall back to `/api/fs/read/...`.
+        if server.is_local() {
+            return;
+        }
+        // Password-protected remote server: never put `auth_token` in a URL; download via
+        // `Authorization` header off the UI thread on native (on wasm32 fall through to `read_file`).
+        #[cfg(not(target_arch = "wasm32"))]
+        if server.has_auth()
+            && let Some(dir) = video_dir
+        {
+            let pane = host.files_mut();
+            let wrap = pane.wrap;
+            let waker = pane.waker.clone();
+            let ws = pane.sessions.entry(session_id.to_owned()).or_default();
+            ws.docs.entry(path.to_owned()).or_insert_with(|| wrap.doc(path, ""));
+            pane.auth_videos.start(&server, &dir, session_id, path, waker);
+            return;
+        }
     }
 
     // A stale file keeps its text while it reads again; a failed one shows loading.
@@ -270,17 +296,9 @@ pub fn start_read(host: &mut dyn FilesHost, sid: &str, path: &str, attempt: u64)
         .start(&server, &directory, sid, path, attempt, find, prior);
 }
 
-/// Opens a workspace HTML file (`path` inside `sid`'s folder) in the embedded browser pane.
-pub fn open_html_in_browser(host: &mut dyn FilesHost, sid: &str, path: &str) {
-    let dir = crate::links::link_directory(host, sid);
-    if dir.is_empty() {
-        return;
-    }
-    let url = format!(
-        "file://{}",
-        opencode_kit::path::encode_path(&opencode_kit::path::absolute(&dir, path))
-    );
-    host.open_page_tab(sid, &url);
+/// Opens workspace-relative `path` (local or remote) as an isolated `oc-preview://` tab.
+pub fn open_html_in_browser(host: &mut dyn FilesHost, sid: &str, path: &str, tx: &mut Tx) {
+    host.open_workspace_preview(sid, path, tx);
 }
 
 /// Opens `path` from the Files sidebar tree/filter: routes workspace HTML files to the browser
@@ -289,7 +307,7 @@ pub fn open_html_in_browser(host: &mut dyn FilesHost, sid: &str, path: &str) {
 pub fn open_workspace_file_or_page(host: &mut dyn FilesHost, path: &str, preview: bool, tx: &mut Tx) {
     let Some(sid) = host.active_session_id().map(str::to_owned) else { return };
     if host.opens_as_page(path) {
-        open_html_in_browser(host, &sid, path);
+        open_html_in_browser(host, &sid, path, tx);
     } else {
         open_workspace_file_for_session(host, &sid, path, preview, None, true, tx);
     }
@@ -326,16 +344,55 @@ pub fn open_workspace_file_for_session(
     steal_focus: bool,
     tx: &mut Tx,
 ) {
+    // A skill's virtual file is no file of the folder the browser pane can show.
+    if lines.is_none() && !crate::data::is_virtual_skill(path) && host.opens_as_page(path) {
+        host.open_workspace_preview(sid, path, tx);
+        return;
+    }
+    open_workspace_file_in_viewer(host, sid, path, preview, lines, steal_focus, false, tx);
+}
+
+/// Opens `path` directly in the Files code viewer in forced source mode (never bouncing back to
+/// the browser preview pane). Used by the browser preview menu's `"Show the file's code"` action.
+pub fn open_workspace_file_source(
+    host: &mut dyn FilesHost,
+    sid: &str,
+    path: &str,
+    preview: bool,
+    lines: Option<(u32, u32)>,
+    steal_focus: bool,
+    tx: &mut Tx,
+) {
+    open_workspace_file_in_viewer(host, sid, path, preview, lines, steal_focus, true, tx);
+}
+
+#[allow(clippy::too_many_arguments)]
+fn open_workspace_file_in_viewer(
+    host: &mut dyn FilesHost,
+    sid: &str,
+    path: &str,
+    preview: bool,
+    lines: Option<(u32, u32)>,
+    steal_focus: bool,
+    force_source: bool,
+    tx: &mut Tx,
+) {
     ensure_file_loaded(host, sid, path);
-    watch::watch(host, sid, path);
-    let tab_key = file_tab_key(path);
-    // Remove transient `file:open` tab once a concrete file is picked (`file/renderer.tsx:128`).
-    host.open_side_tab(sid, &tab_key, preview, steal_focus, true, tx);
+    // A file outside the session's folder (`links::open_outside_file`), and a skill's virtual
+    // file, is not in its tree and is not watched.
+    let outside = crate::data::is_outside(path);
+    if !outside {
+        watch::watch(host, sid, path);
+    }
     let ws = host.files_mut().sessions.entry(sid.to_owned()).or_default();
+    if force_source {
+        ws.close_preview(path);
+        ws.md.entry(path.to_owned()).or_default().mode.step(crate::markdown::PreviewModeEvent::ShowSource);
+    }
     ws.narrow = ws.narrow.step(narrow::NarrowFilesEvent::Opened);
     ws.push_recent(path);
     // Ensure parent folders in the tree are expanded so the active file highlights in context.
-    let parts: Vec<&str> = path.split('/').collect();
+    let parts: Vec<&str> = if outside { Vec::new() } else { path.split('/').collect() };
     for i in 0..parts.len().saturating_sub(1) {
         ws.expanded_dirs.insert(parts[..=i].join("/"));
     }
@@ -352,6 +409,10 @@ pub fn open_workspace_file_for_session(
             ws.pending_jump.insert(path.to_owned(), (start, end));
         }
     }
+    // Last, after `scroll_to_lines`'s `tx.instant()`: a side region this opens flies on
+    // `SIDE_SPRING` (`show_pane_tab`). Removes the transient `file:open` tab once a concrete
+    // file is picked (`file/renderer.tsx:128`).
+    host.open_side_tab(sid, &file_tab_key(path), preview, steal_focus, true, tx);
 }
 
 pub fn filtered_sidebar_files(host: &dyn FilesHost, session_id: &str) -> Vec<String> {

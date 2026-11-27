@@ -20,7 +20,7 @@ use crate::{
     Route, appearance, background, commands, context_window, demo, dictation, dirs, events, files,
     find, history, inbox_model, jobs, keymap, knobs, launch, layout_state, model_prefs,
     plugin_host, popup, projects, prompt_history, recent_page, restore, send_failed, servers,
-    session_catalog, session_pages, session_status, settings, shortcuts, slash, status_toast, stop,
+    session_catalog, session_pages, session_status, settings, shortcuts, slash, start_location, status_toast, stop,
     switcher, tabs, telemetry, turn_diffs, view, wall_ms, windows,
 };
 
@@ -47,6 +47,12 @@ pub(crate) static OUTPUT_ERRORS: opencode_kernel::Slot<OutputErrors> = opencode_
 pub(crate) struct ViewRuns(pub(crate) std::cell::Cell<u64>);
 
 pub(crate) static VIEW_RUNS: opencode_kernel::Slot<ViewRuns> = opencode_kernel::Slot::new();
+
+/// Per-code-block soft-wrap overrides keyed by `"{row_key}:{block_index}"` (the timeline's Wrap button).
+pub(crate) static CODE_WRAP: opencode_kernel::Slot<std::collections::HashMap<String, bool>> = opencode_kernel::Slot::new();
+/// This window's display math: its wake when an equation finishes, and its say in when cached
+/// bitmaps go (`rune_kit::math::Client`).
+pub(crate) static MATH: opencode_kernel::Slot<rune_kit::math::Client> = opencode_kernel::Slot::new();
 
 #[derive(Default)]
 pub struct App {
@@ -169,6 +175,12 @@ pub(crate) use rune::is_headless as headless;
 /// does, into its own root and to the server it was given.
 pub(crate) fn harness_writes() -> bool {
     flag("--harness-writes") && dirs::rooted()
+}
+
+/// `--realtime`: a headless run on the wall clock, the harness's stand-in for a window. Rune takes
+/// the flag for itself, so it is not among `rune::extra_args` and [`flag`] never sees it.
+pub(crate) fn realtime() -> bool {
+    std::env::args().any(|a| a == "--realtime")
 }
 
 /// A person, or the harness standing in for one, is at this run: it may write.
@@ -397,20 +409,31 @@ impl App {
         tabs::navigation_switch::restore(self);
         view::sidebar::recent_view::restore(self);
         self.load_open_in();
-        if self.persists() {
+        // Not `persists()`: the source goes live below, so that reads false here in every launch.
+        if attended() {
             let wrap = files::markdown::WrapPrefs::load(self);
             self.kernel.slots.get_mut(&files::FILES).wrap = wrap;
             *self.workspace_panes.panel_sidebar = plugin_host::native::sidebar::PanelSidebar::load();
         }
         *self.kernel.slots.get_mut(&prompt_history::PROMPTS) = prompt_history::PromptHistory::load(attended());
         self.composer_ext.pickers.prefs = model_prefs::load();
+        crate::pickers::saved::restore(self);
         telemetry::startup("launch.restore_ui", || self.restore_ui(&doc, &server.base));
+        launch::saved::page_tab::note(self);
         tabs::groups::restore(self);
+        tabs::auto_groups::restore(self);
+        tabs::sections::restore(self);
         *self.fixture_run.base_ms = wall_ms();
         *self.now_ms = *self.fixture_run.base_ms;
         let allow_send = !flag("--read-only") && attended();
         *self.source = Source::Live { server, requests: None, writes: None, allow_send };
         self.open_outbox();
+        // A window whose server answers after its first frame lists what that server last listed.
+        if deferred {
+            let _ = launch::saved_list::restore(self);
+            launch::saved_catalog::restore(self);
+            launch::saved_gutters::restore(self);
+        }
         *self.diag.status = self.live_status();
         self.resume_settings_page();
         true
@@ -420,7 +443,7 @@ impl App {
         // Projects by their latest session, then by activity.
         let latest: HashMap<&str, i64> = self.sessions.iter().fold(HashMap::new(), |mut m, s| {
             let e = m.entry(s.project.as_str()).or_insert(0);
-            *e = (*e).max(s.updated);
+            *e = (*e).max(self.recent_page.active_ms(s));
             m
         });
         let key = |p: &Project| latest.get(p.id.as_str()).copied().unwrap_or(0).max(p.active);
@@ -442,7 +465,8 @@ impl App {
     /// (between `key_band::MID` and `knobs::key`) and calls [`Self::shortcut_without_dictation`] so
     /// one key press never evaluates `dictation::key` twice.
     pub fn shortcut(&mut self, ev: &KeyEvent, tx: &mut Tx) -> bool {
-        self.shortcut_inner(ev, tx, true)
+        // A key chord in progress, or one this key starts, takes the key before any shortcut.
+        crate::key_sequence::field_key(self, ev, tx) || self.shortcut_inner(ev, tx, true)
     }
 
     pub(crate) fn shortcut_without_dictation(&mut self, ev: &KeyEvent, tx: &mut Tx) -> bool {
@@ -490,57 +514,8 @@ impl App {
     /// for sessions no tab, route or run shows goes: their transcripts, their pages in the
     /// reader's cache, and the images only those held. A session opened again is read again,
     /// as one opened for the first time is. Nothing on screen changes.
-    pub(crate) fn rest(s: &mut App, _: &mut rune::Tx) -> bool {
-        let scheduler = s.kernel.scheduler.clone();
-        let has_rest_hooks = scheduler.rest_names().next().is_some();
-        let shown: HashSet<&str> = s.tabs.iter().map(|t| t.id.as_str()).chain(match &*s.route { Route::Session { id, .. } => Some(id.as_str()), _ => None }).chain(s.running.iter().map(String::as_str)).collect();
-        let kept = |id: &str| s.ancestors(id).any(|a| shown.contains(a));
-        let gone: Vec<String> = s.transcripts.keys().filter(|id| !kept(id)).cloned().collect();
-        let review_gone: Vec<String> = s.kernel.slots.get(&crate::review::REVIEW).sessions.keys().filter(|id| !kept(id)).cloned().collect();
-        let files_gone: Vec<String> = s.kernel.slots.get(&files::FILES).sessions.keys().filter(|id| !kept(id)).cloned().collect();
-        let kept_ids: HashSet<String> = shown
-            .iter()
-            .map(|id| (*id).to_owned())
-            .chain(s.sessions.iter().filter(|sess| kept(&sess.id)).map(|sess| sess.id.clone()))
-            .collect();
-        s.pages.rest(&kept);
-        s.kernel.slots.get_mut(&files::FILES).retain_reply_links(|id| kept_ids.contains(id));
-        if !gone.is_empty() {
-            let transcripts = &mut *s.transcripts;
-            for id in &gone { transcripts.remove(id); }
-        }
-        // A closed session's diffs and open files (their source lines, highlight chunks, images).
-        if !review_gone.is_empty() {
-            let review = s.kernel.slots.get_mut(&crate::review::REVIEW);
-            for id in &review_gone { review.sessions.remove(id); }
-        }
-        if !files_gone.is_empty() {
-            for id in &files_gone {
-                let f = s.kernel.slots.get_mut(&files::FILES);
-                f.sessions.remove(id);
-                f.reads.forget_session(id);
-                files::watch::forget_session(s, id);
-            }
-        }
-        // What `opencode_kit` keeps beside each user message (files, mentions, comments, times):
-        // only for the messages of the transcripts left.
-        let cached = s.pages.user_message_ids();
-        let messages: HashSet<&str> = s.transcripts.values().flat_map(|t| t.messages.iter()).filter_map(|m| match m { opencode_kit::model::Message::User { id, .. } => Some(id.as_str()), _ => None }).chain(cached.iter().map(String::as_str)).collect();
-        opencode_kit::model::retain_user_messages(&|id| messages.contains(id));
-        s.composer_ext.attach.store.rest();
-        // No session tab or draft and not on a session: pictures keep their encoded bytes, not
-        // their pixels.
-        if s.tabs.is_empty() && !matches!(&*s.route, Route::Session { .. }) {
-            s.composer_ext.attach.store.rest_pixels();
-        }
-        if has_rest_hooks {
-            scheduler.run_rest(s, &|id| kept_ids.contains(id));
-        }
-        // What all that freed: mimalloc purges freed pages only when some thread next allocates,
-        // and an app at rest doesn't. Forced, it gives them back now.
-        #[cfg(not(target_arch = "wasm32"))]
-        crate::purge_free_pages();
-        false
+    pub(crate) fn rest(s: &mut App, tx: &mut rune::Tx) -> bool {
+        crate::shell::memory_reclaim::rest_all(s, tx)
     }
 
     /// `id` and its loaded parents, up to 32 steps.
@@ -570,30 +545,92 @@ impl App {
         self.projects.iter().find(|p| p.id == id)
     }
 
-    /// The composer's own session, as Desktop's session status. Background helpers have their
-    /// own runs: they keep the activity chip busy, not this session's Send button.
+    /// Whether `id`'s inbox has queued/steered prompts or a pending compaction waiting to run
+    /// (matches official `sessionBusy`: `packages/app/src/shell/layout/project-avatar-state.ts:109-114`).
+    pub(crate) fn inbox_busy(&self, id: &str) -> bool {
+        self.inboxes.get(id).is_some_and(|i| !i.items.is_empty() || i.compaction.is_some())
+    }
+
+    fn last_settled_message<'a>(&self, t: &'a Transcript) -> Option<&'a opencode_kit::model::Message> {
+        t.messages.iter().rev().find(|m| {
+            // The idle marker ends the turn, also one that failed before any step (`Transcript::busy`).
+            !matches!(m, opencode_kit::model::Message::Notice(n) if !n.is_idle())
+                && !matches!(
+                    self.unsent.state(m.id()),
+                    Some(send_failed::State::Waiting | send_failed::State::Unconfirmed | send_failed::State::Failed),
+                )
+        })
+    }
+
+    /// Whether `t` ends in an unanswered user prompt or an assistant step that has neither
+    /// completed nor errored.
+    pub(crate) fn transcript_unsettled(&self, t: &Transcript) -> bool {
+        matches!(self.last_settled_message(t), Some(opencode_kit::model::Message::User { .. }))
+            || matches!(self.last_settled_message(t), Some(opencode_kit::model::Message::Assistant(a)) if a.completed.is_none() && a.error.is_none())
+    }
+
+    /// Whether session `id` itself is busy: running on the server, waiting on queued/steered
+    /// prompts or pending compaction in its inbox, starting a fresh session, or — before
+    /// `/api/session/active` has synced on a cold open/reconnect (or in fixture mode) — holding
+    /// an unsettled turn in its transcript.
+    pub fn session_busy(&self, id: &str) -> bool {
+        if self.stops.pending(id) {
+            return false;
+        }
+        if self.running.contains(id) || self.inbox_busy(id) || self.queue.starts.has(id) {
+            return true;
+        }
+        if self.stops.has(id) {
+            return false;
+        }
+        let transcript = rune::Tracked::untracked(&self.transcripts).get(id);
+        if !self.live() || !self.stops.active_sync.synced() {
+            return transcript.is_some_and(|t| self.transcript_unsettled(t));
+        }
+        // Keep optimistic busy for a freshly submitted prompt before `session.execution.started`
+        // arrives, while never treating an idle server session's uncompleted assistant turn as busy.
+        transcript.is_some_and(|t| matches!(self.last_settled_message(t), Some(opencode_kit::model::Message::User { .. })))
+    }
+
+    /// Whether `id` or any descendant sub-agent is busy (running, waiting on inbox/compaction
+    /// work, or waiting on a permission request). Used by the timeline so a parent with a running
+    /// or approval-waiting sub-agent never drops to idle/Copy (`session-request-tree.ts`,
+    /// `project-avatar-state.ts:98-114`).
+    pub fn subtree_busy(&self, id: &str) -> bool {
+        if self.session_busy(id) {
+            return true;
+        }
+        if self.stops.pending(id) {
+            return false;
+        }
+        let root = self.root_of(id);
+        self.running.iter().any(|x| x != id && self.descends(x, id))
+            || self.inboxes.iter().any(|(x, inbox)| x != id && (!inbox.items.is_empty() || inbox.compaction.is_some()) && self.descends(x, id))
+            || self.pending.iter().any(|p| matches!(p, Pending::Permission { .. }) && self.root_of(p.session()) == root)
+    }
+
+    /// The composer's own session, as Desktop's session status (`sessionBusy` for `id`, plus
+    /// unsettled-turn fallback while `/api/session/active` has not yet synced). Detached
+    /// background helpers keep the activity chip busy, not this session's Send button.
     pub fn busy(&self, id: &str) -> bool {
-        self.running.contains(id)
+        self.session_busy(id)
     }
 
     pub(crate) fn route_busy(&self) -> bool {
         matches!(&*self.route, Route::Session { id, .. } if self.busy(id))
     }
 
-    /// `+`, ⌘T and New session: a new "New session" draft tab, in the open session's or draft's
-    /// folder, as Desktop's `openDraft`. On Home and in Settings it's Home's project, else the
-    /// last used or the first the server lists, and with no project it does nothing.
+    /// `+`, ⌘T and New session: a new "New session" draft tab, as Desktop's `openDraft`, where
+    /// Settings › New sessions start in says (`start_location`): the server's default directory,
+    /// or the open session's or draft's project. On Home and in Settings that's Home's project,
+    /// else the last used or the first the server lists, and with neither it does nothing.
     pub fn new_session(&mut self, tx: &mut Tx) {
-        if self.project_navigation() && (self.settings_open() || self.route == Route::Home) {
+        let home = self.settings_open() || self.route == Route::Home;
+        if self.project_navigation() && home {
             return view::home::browse::start(self, tx);
         }
-        let dir = if self.settings_open() || self.route == Route::Home {
-            let project = self
-                .home_selected()
-                .or_else(|| self.last_used_project())
-                .or_else(|| self.projects.first());
-            let Some(project) = project else { return };
-            Some(project.directory.clone())
+        let here = if home {
+            self.home_selected().or_else(|| self.last_used_project()).or_else(|| self.projects.first()).map(|p| p.directory.clone())
         } else {
             match &*self.route {
                 Route::Session { id, .. } => self.session(id).map(|s| s.directory.clone()),
@@ -601,12 +638,17 @@ impl App {
                 Route::Home => None,
             }
         };
+        let dir = start_location::resolve(self, here);
+        if home && dir.is_none() {
+            return;
+        }
         self.close_settings();
         self.close_picker(false);
         self.close_project_switcher(false);
         self.project_state.home_menu_open = false;
         if let Some(dir) = dir.filter(|d| !d.is_empty()) {
-            self.sidebar_inbox.branches.enqueue([dir.clone()]);
+            let server = crate::servers::runtime::active(self).clone();
+            self.sidebar_inbox.branches.enqueue(&server, [dir.clone()]);
             *self.default_dir = dir;
         }
         *self.opening = None;

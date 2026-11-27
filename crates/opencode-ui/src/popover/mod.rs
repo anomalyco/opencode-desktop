@@ -25,7 +25,7 @@ use rune_knobs::Knobs;
 use rune_theme_opencode::icons as ic;
 
 use crate::palette::{Elevate as _, Pal};
-use crate::style::UI;
+use crate::style::{UI, UI_MED};
 
 pub use nav::{Highlight, HighlightEvent, Lit, Nav, cycle, nav, nav_step};
 pub use slide::jump as jump_highlight;
@@ -164,31 +164,31 @@ pub fn search_field(p: &Pal, key: &str, edit: &TextEdit, placeholder: &str) -> E
 }
 
 /// The model dialog's search row and the hairline under it (`select-dialog.css:49-96`): 6 pt
-/// in, a 28 pt field whose glass sits 6 pt into a 22 pt slot and whose query starts 6 pt after
+/// in, a 28 pt field whose glass sits 8 pt into a 24 pt slot and whose query starts 6 pt after
 /// it, where the model names do; `trailing` ([`search_button`]s) 8 pt after the query and 4 pt
 /// apart, the last 2 pt from the field's end (`text-input.css` `text-input-v2-trailing`). The
 /// hairline runs across the whole surface, 6 pt under the field.
 pub fn search_row(p: &Pal, key: &str, field: El, trailing: Vec<El>) -> El {
     let value = row().key("search-value").grow(1.0).shrink().min_w(0.0).h_full().gap(6.0).center_y()
-        .child(row().key("search-glass").w(22.0).pl(6.0).h_full().center_y().child(icon(&ic::MAGNIFYING_GLASS, SLOT).color(p.icon_muted)))
+        .child(row().key("search-glass").w(24.0).pl(8.0).h_full().center_y().child(icon(&ic::MAGNIFYING_GLASS, SLOT).color(p.icon_muted)))
         .child(field);
     let field = row().key("search").h(SEARCH_H).w_full().pr(2.0).gap(8.0).center_y()
         .child(value)
         .children((!trailing.is_empty()).then(|| row().key("search-trailing").gap(4.0).center_y().children(trailing)));
     col().key(key.to_owned()).w_full().pt(LIST.inset).gap(LIST.inset)
         .child(row().w_full().px(LIST.inset).child(field))
-        // A 1 pt box drawn at half its height (`transform: scaleY(0.5)`), so the list starts
-        // a whole point under it.
-        .child(col().key("search-rule").w_full().h(1.0).pt(0.25).child(divider(p, "search-divider")))
+        // A 1 pt box drawn at half its height (`transform: scaleY(0.5)`), `border-base`
+        // (`select-dialog.css:54-58`).
+        .child(rune::hairline(p.border).key("search-rule").w_full())
 }
 
-/// A 24 pt `ghost-muted` icon button at the search row's end (`icon-button.css`): a muted 14 pt
-/// icon on the hover and pressed overlays, its name in a tooltip.
+/// A 24 pt `ghost-muted` icon button at the search row's end (`select-dialog.tsx:1102-1116`,
+/// `icon.tsx:59`): a muted 16 pt icon on the hover and pressed overlays, its name in a tooltip.
 pub fn search_button<S: 'static>(p: &Pal, key: &str, glyph: &'static rune::Icon, label: &str, press: impl Fn(&mut S, &mut Tx) + 'static) -> El {
     row().key(key.to_owned()).role("button").label(label.to_owned()).help(label.to_owned())
         .size(24.0, 24.0).center().radius(6.0).hover(p.hover).press(p.pressed)
         .on_press_tx(press)
-        .child(icon(glyph, 14.0).color(p.icon_muted))
+        .child(icon(glyph, SLOT).color(p.icon_muted))
 }
 
 /// A full-width hairline.
@@ -229,13 +229,20 @@ pub struct Opt {
     pub disabled: bool,
     /// The stretch of the label a search matched, in the accent (`search-list.css:170-173`).
     pub mark: Option<Range<usize>>,
+    /// Medium weight (530, `UI_MED`), as the session location card's project title uses (`session-identity-header.tsx:278`).
+    pub medium: bool,
+    /// Optional byte offset in `label` where the non-shrinking tail starts (`session-identity-header.tsx:404-407`),
+    /// laying out `label[..at]` with `min-w-0 truncate` beside `label[at..]` in LTR order.
+    pub middle_split: Option<usize>,
 }
 
 impl Opt {
     pub fn new(key: impl Into<String>, label: impl Into<String>) -> Opt {
-        Opt { key: key.into(), label: label.into(), role: "menuitemradio", active: false, checked: false, lead: None, after: vec![], trailing: vec![], slides: false, danger: false, disabled: false, mark: None }
+        Opt { key: key.into(), label: label.into(), role: "menuitemradio", active: false, checked: false, lead: None, after: vec![], trailing: vec![], slides: false, danger: false, disabled: false, mark: None, medium: false, middle_split: None }
     }
     pub fn mark(mut self, r: Option<Range<usize>>) -> Opt { self.mark = r; self }
+    pub fn medium(mut self, on: bool) -> Opt { self.medium = on; self }
+    pub fn middle_split(mut self, at: Option<usize>) -> Opt { self.middle_split = at; self }
     pub fn danger(mut self, on: bool) -> Opt { self.danger = on; self }
     pub fn disabled(mut self, on: bool) -> Opt { self.disabled = on; self }
     pub fn role(mut self, r: &'static str) -> Opt { self.role = r; self }
@@ -272,9 +279,11 @@ pub fn option_tx<S: 'static>(p: &Pal, look: Look, o: Opt, hover: impl Fn(&mut S,
         .radius(look.row_radius)
         .fill(lit(p, o.active && !o.slides && !o.disabled));
     let r = if o.disabled {
-        r.disabled(true)
+        // `[data-component="menu-v2-item"][data-disabled]` (`menu.css:157-160`): fades the whole row to 0.5.
+        r.disabled(true).opacity(0.5)
     } else {
-        r.press(p.pressed)
+        r
+            .press(p.pressed)
             // Not `on_hover`: its commit would animate the highlight's fill from row to row.
             .on_hover_change(move |s: &mut S, inside, tx: &mut Tx| {
                 if inside {
@@ -285,14 +294,33 @@ pub fn option_tx<S: 'static>(p: &Pal, look: Look, o: Opt, hover: impl Fn(&mut S,
             })
             .on_press_tx(pick)
     };
-    let ink = if o.disabled { p.faint } else if o.danger { p.danger } else { p.text };
-    let label = match o.mark.filter(|r| r.end <= o.label.len() && o.label.is_char_boundary(r.start) && o.label.is_char_boundary(r.end)) {
-        Some(r) => rich(o.label, vec![Span::new(r.start, r.end).color(p.accent)]),
-        None => text(o.label),
+    let ink = if o.danger { p.danger } else { p.text };
+    let font = if o.medium { UI_MED } else { UI };
+    let words = if let Some(at) = o.middle_split.filter(|&at| at > 0 && at < o.label.len() && o.label.is_char_boundary(at)) {
+        // `session-identity-header.tsx:404-407` (`4d4a95a3239c`): `<bdi dir="ltr" class="flex min-w-0">` holding
+        // `<span class="min-w-0 truncate">{parent}</span><span class="max-w-full shrink-0 truncate">{last}</span>`.
+        // `El::truncate()` sets `flex_shrink = 1.0`, so leave `tail` un-shrunk (`flex_shrink = 0.0`, single line)
+        // inside a clipped `split` row so `head` absorbs truncation first while `tail` stays whole.
+        let (head, tail) = o.label.split_at(at);
+        let split = row()
+            .key("label")
+            .dir(rune::Direction::Ltr)
+            .shrink()
+            .min_w(0.0)
+            .clip_soft(0.0)
+            .center_y()
+            .child(text(head.to_owned()).key("head").font(font).color(ink).shrink().min_w(0.0).truncate())
+            .child(text(tail.to_owned()).key("tail").font(font).color(ink));
+        row().key("words").grow(1.0).shrink().min_w(0.0).gap(look.gap).center_y().child(split).children(o.after)
+    } else {
+        let label = match o.mark.filter(|r| r.end <= o.label.len() && o.label.is_char_boundary(r.start) && o.label.is_char_boundary(r.end)) {
+            Some(r) => rich(o.label, vec![Span::new(r.start, r.end).color(p.accent)]),
+            None => text(o.label),
+        };
+        row().key("words").grow(1.0).shrink().min_w(0.0).gap(look.gap).center_y()
+            .child(label.key("label").font(font).color(ink).shrink().truncate_fade())
+            .children(o.after)
     };
-    let words = row().key("words").grow(1.0).shrink().min_w(0.0).gap(look.gap).center_y()
-        .child(label.key("label").font(UI).color(ink).shrink().truncate_fade())
-        .children(o.after);
     r.children(o.lead)
         .child(words)
         .children(o.checked.then(|| icon(&ic::CHECK_SMALL, SLOT).key("check").color(p.icon)))

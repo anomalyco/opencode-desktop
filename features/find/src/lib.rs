@@ -177,7 +177,7 @@ impl Find {
 
     /// The worker is still matching the rows off screen: the count isn't known yet.
     pub fn counting(&self) -> bool {
-        self.open().is_some_and(|o| matches!(o.answer, Answer::Partial { .. }))
+        self.open().is_some_and(|o| matches!(o.answer, Answer::Waiting { .. } | Answer::Partial { .. }))
     }
 
     pub fn active_index(&self) -> usize {
@@ -328,7 +328,9 @@ pub fn poll(s: &mut dyn FindHost, tx: &mut Tx) -> bool {
         let f = s.find();
         (f.open().and_then(|o| o.checked.as_ref().map(|c| c.1)), f.count(), f.counting())
     };
-    sync_index(s);
+    if scan::sync_index_inner(s) {
+        seek_active(s, tx);
+    }
     let f = s.find();
     let Some(open) = f.open() else {
         return true;

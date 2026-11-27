@@ -52,8 +52,10 @@ pub(super) fn header(s: &App, p: &Pal, info: Option<&SessionInfo>, t: Option<&Tr
         opencode_kit::model::project_sandboxes_version(),
         crate::servers::version(),
         info.map(|i| {
+            let dir = s.queue.starts.directory(&i.id).unwrap_or(&i.directory);
             let trail: Vec<_> = ancestors(s, i).into_iter().map(|a| (a.id.clone(), a.title.clone())).collect();
-            (i.id.clone(), i.title.clone(), i.directory.clone(), i.project.clone(), trail, crate::plugin_host::services::session_version(s, &i.id))
+            let generating = s.kernel.slots.get(&crate::session_menu::MENUS).generating(crate::servers::runtime::active(s), &i.id);
+            (i.id.clone(), i.parent.clone(), i.title.clone(), dir.to_owned(), i.project.clone(), trail, crate::plugin_host::services::session_version(s, &i.id), generating)
         }),
         crate::plugin_host::surfaces_version(s),
     );
@@ -67,10 +69,11 @@ pub(super) fn header(s: &App, p: &Pal, info: Option<&SessionInfo>, t: Option<&Tr
 /// name, then the actions drop their details; only then does the title truncate.
 pub(crate) fn header_in(s: &App, p: &Pal, info: Option<&SessionInfo>, _t: Option<&Transcript>, scope: &str) -> El {
     let reserve_side = !s.side_open() && s.fixture_run.stage.is_none();
-    let project = info.and_then(|i| s.project(&i.project));
-    let proj = info.map(|i| super::project_or_dir(project, &i.directory)).unwrap_or_default();
+    let dir = info.map(|i| s.queue.starts.directory(&i.id).unwrap_or(&i.directory));
+    let project = info.and_then(|i| s.project(&i.project).or_else(|| dir.and_then(|d| s.project_at(d))));
+    let proj = dir.map(|d| super::project_or_dir(project, d)).unwrap_or_default();
     let trail = info.map(|i| ancestors(s, i)).unwrap_or_default();
-    let worktree = info.filter(|i| i.parent.is_none()).and_then(|i| super::location::worktree_name(project, &i.directory));
+    let worktree = info.filter(|i| i.parent.is_none()).and_then(|_| dir).and_then(|d| super::location::worktree_name(project, d));
     let fit = fit(s, info, &proj, worktree.as_deref(), scope);
     let compact = fit.compact();
 
@@ -147,18 +150,21 @@ pub(crate) fn header_in(s: &App, p: &Pal, info: Option<&SessionInfo>, _t: Option
                 .h(28.0)
                 .motion(crate::panels::view::SIDE_SPRING)
         }));
+    // Official `--session-header-inset-end`: `10px` when vertical tabs / Inbox, `12px` in Top tabs
+    // (`packages/app/src/shell/shell.tsx:217`, `session-identity-header.tsx:57`, `.css:97`).
+    let inset_end = if s.tab_layout().has_sidebar() { 10.0 } else { 12.0 };
     row()
         .key(header_key(scope))
         .h(48.0)
         .pl(10.0)
-        .pr(12.0)
+        .pr(inset_end)
         .center_y()
         .window_drag()
         .motion(crate::panels::view::SIDE_SPRING)
         .child(collapsed_slot(s))
         .child(crumbs)
         .child(actions)
-        .children(scope.is_empty().then(|| el().key(ANCHOR).size(0.0, 28.0).pin(None, Some(10.0), Some(12.0), None)))
+        .children(scope.is_empty().then(|| el().key(ANCHOR).size(0.0, 28.0).pin(None, Some(10.0), Some(inset_end), None)))
 }
 
 /// `SessionHeaderSeparator`: a 13 pt `/` in `icon-faint`, `before` and `after` points of margin.
@@ -240,20 +246,26 @@ fn header_title(s: &App, p: &Pal, info: &SessionInfo) -> Vec<El> {
             // The title in its own direction (`session-identity-header.tsx:263`): the `h1` holds a
             // button that renames, a Tab stop with the shared ring (`message-timeline.tsx`,
             // `.session-title-rename > button`).
-            let b = row().key("title-button").role("button").dir(rune::Direction::Auto).label(title_of(info)).h(28.0).px(4.0).center_y().min_w(0.0).shrink().radius(6.0).hover(p.hover).hover_motion(INSTANT, INSTANT)
+            let b = row().key("title-button").role("button").dir(rune::Direction::Auto).label(title_of(info)).h(28.0).px(4.0).center_y().min_w(0.0).shrink().radius(6.0).focus_default(p).hover(p.hover).press(p.pressed).hover_motion(INSTANT, INSTANT)
                 .on_press_tx(move |s: &mut App, tx: &mut Tx| {
                     tx.instant();
                     s.begin_rename(&begin);
                 })
-                .child(crate::title_change::title(&s.diag.knobs, &format!("title-{}", info.id), title_of(info), CRUMB, p.text));
+                // While the server generates a new title the present one shimmers (`message-timeline.tsx:702-704`).
+                .child(if s.kernel.slots.get(&crate::session_menu::MENUS).generating(crate::servers::runtime::active(s), &info.id) {
+                    session_view::working::shimmer(s, p, &title_of(info), CRUMB, 0.0).key("title-generating")
+                } else {
+                    crate::title_change::title(&s.diag.knobs, &format!("title-{}", info.id), title_of(info), CRUMB, p.text)
+                });
             let t = row().key("title").dir(rune::Direction::Auto).role("heading").level(1).label(title_of(info)).min_w(0.0).shrink().child(b);
             crate::session_menu::on(t, target)
         }
     };
-    // While its menu is open the `…` keeps its wash, as an expanded trigger does; the title takes none.
-    let dots = el().key("header-more").role("button").label_static(t!("common.moreOptions")).size(28.0, 28.0).radius(6.0).center().hover(p.hover).hover_motion(INSTANT, INSTANT)
+    // While its menu is open the `…` keeps its pressed wash and base ink (`[data-expanded]`,
+    // `icon-button.css`), dropping hover; the title takes none.
+    let dots = el().key("header-more").role("button").label_static(t!("common.moreOptions")).expanded(marked).size(28.0, 28.0).radius(6.0).center().focus_default(p).hover_motion(INSTANT, INSTANT)
         .menu_button("header-more", move |s: &mut App, tx: &mut Tx| crate::session_menu::open(s, dots_target.clone(), "header-more", tx))
-        .child(icon(&ic::OUTLINE_DOTS, 16.0).color(p.icon_muted));
-    let dots = if marked { dots.fill(p.hover) } else { dots };
+        .child(icon(&ic::OUTLINE_DOTS, 16.0).color(if marked { p.icon } else { p.icon_muted }));
+    let dots = if marked { dots.fill(p.pressed) } else { dots.hover(p.hover).press(p.pressed) };
     vec![title, dots]
 }

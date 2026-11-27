@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Ironclad workspace architecture guardrails for rune-desktop.
+# Ironclad workspace architecture guardrails for anomalyco/opencode-rune.
 # Enforces progressive disclosure, resolved acyclic crate graph, and effective App field ratchet:
 #   1. Strict downward crate dependency layers (resolved transitively via `cargo metadata`, normal + build; zero cycles)
 #   2. Zero cross-feature crate dependencies under features/* (resolved transitively; decouple via opencode-kernel / Luau)

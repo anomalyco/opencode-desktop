@@ -71,6 +71,22 @@ impl App {
         }
     }
 
+    /// ⌥⇧⌘W and File › Close All (AppKit's alternate of Close Window): every other window closes,
+    /// and this one goes as Close Window takes the last (on macOS it hides; the app keeps running).
+    pub(crate) fn close_all_windows(&mut self, tx: &mut Tx) {
+        let id = self.window.id.clone();
+        let others: Vec<_> = OPEN.with(|o| o.borrow().iter().filter(|w| w.id != id && w.life.saved()).map(|w| w.app.clone()).collect());
+        for app in others {
+            app.close();
+        }
+        match self.app_handle() {
+            Some(app) if cfg!(target_os = "macos") && !rune::quitting() => {
+                self.window.hidden = true;
+                app.hide();
+            }
+            _ => tx.close_window(),
+        }
+    }
     /// A menu item acts in this window: one the last ⇧⌘W hid comes back first. True when it did.
     pub(crate) fn reveal(&mut self) -> bool {
         if !std::mem::take(&mut self.window.hidden) {

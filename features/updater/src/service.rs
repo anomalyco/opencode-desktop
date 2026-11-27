@@ -55,7 +55,7 @@ pub struct Snapshot {
     pub progress: Option<Progress>,
     /// The running build's version, as the feed names releases.
     pub version: String,
-    /// The feed channel (`dev`, `stable`).
+    /// The feed channel (`dev`, the only one).
     pub channel: String,
 }
 
@@ -212,13 +212,12 @@ impl UpdaterService {
         self.revision != before || self.quit
     }
 
-    /// The app quits: a ready update not already installing goes in on the way out, on a thread
-    /// of its own (`super::finish_quit` waits for it before the process exits): checking the staged
-    /// exe's signature and copying it as the helper (about 135 MB) no longer hold the UI thread
-    /// while the windows close.
+    /// The app quits: when opt-in install-on-quit is enabled (`opencode#66501`, `platform.ts`), a
+    /// ready update not already installing goes in on the way out on a thread of its own
+    /// (`super::finish_quit` waits for it before the process exits).
     pub fn quitting(&mut self) {
-        if matches!(self.state, State::Ready { refresh: None, .. })
-            && let Some(platform) = self.platform.get().cloned()
+        if matches!(self.state, State::Ready { ref refresh, .. } if !matches!(refresh, Some(machine::Refresh::Staging { .. })))
+            && let Some(platform) = self.platform.get().filter(|p| p.installs_on_quit()).cloned()
         {
             super::install_on_quit(platform);
         }
@@ -334,14 +333,20 @@ impl Worker {
                 Ok(Job::Stage(a)) => {
                     let event = match platform.stage(&|done, total| self.downloaded(done, total)) {
                         Ok(()) => Event::StageSucceeded(a),
-                        Err(e) => Event::StageFailed(a, e),
+                        Err(e) => match platform.fallback_download_url() {
+                            Some(url) => Event::StageFallback(a, url, e),
+                            None => Event::StageFailed(a, e),
+                        },
                     };
                     self.send(Message::Event(event));
                 }
                 Ok(Job::Install(a)) => {
                     let event = match platform.install() {
                         Ok(()) => Event::RestartSucceeded(a),
-                        Err(e) => Event::RestartFailed(a, e),
+                        Err(e) => match platform.fallback_download_url() {
+                            Some(url) => Event::RestartFallback(a, url, e),
+                            None => Event::RestartFailed(a, e),
+                        },
                     };
                     self.send(Message::Event(event));
                 }

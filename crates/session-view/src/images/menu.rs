@@ -6,7 +6,7 @@ use std::path::Path;
 use rune::{ClipboardContent, ClipboardImage, El, FileDialogOptions, PointerPress, PopupItem, PopupMenu, Tx};
 
 use super::Dragged;
-use super::drag::file_name;
+use super::drag::save_file_name;
 use crate::TimelineHost;
 
 pub const COPY: &str = "image-copy";
@@ -24,7 +24,15 @@ pub struct MenuAt {
 
 /// The image items, in order, as `(id, title)`.
 pub fn items() -> [(&'static str, &'static str); 3] {
-    let open = if cfg!(target_os = "macos") { opencode_i18n::t!("rune.image.openPreview") } else { opencode_i18n::t!("rune.image.open") };
+    let open = if cfg!(target_arch = "wasm32") {
+        opencode_i18n::t!("rune.image.open")
+    } else if cfg!(target_os = "macos") {
+        opencode_i18n::t!("rune.image.revealFinder")
+    } else if cfg!(windows) {
+        opencode_i18n::t!("rune.image.revealExplorer")
+    } else {
+        opencode_i18n::t!("rune.image.revealFolder")
+    };
     [(COPY, opencode_i18n::t!("rune.image.copy")), (SAVE, opencode_i18n::t!("rune.image.save")), (OPEN, open)]
 }
 
@@ -73,7 +81,7 @@ pub fn run<S: TimelineHost>(s: &mut S, d: &Dragged, id: &str, tx: &mut Tx) -> bo
         }
         SAVE => {
             let Some((bytes, hint)) = s.media_store().image_bytes(d) else { return true };
-            let options = FileDialogOptions { title: opencode_i18n::t!("rune.image.save").trim_end_matches('\u{2026}').to_owned(), file_name: Some(file_name(&hint, &bytes)), ..Default::default() };
+            let options = FileDialogOptions { title: opencode_i18n::t!("rune.image.save").trim_end_matches('\u{2026}').to_owned(), file_name: Some(save_file_name(&hint, &bytes)), ..Default::default() };
             tx.save_file(options, move |_: &mut S, answer, _| {
                 if let Ok(Some(path)) = answer
                     && let Err(e) = std::fs::write(&path, &bytes)
@@ -84,8 +92,10 @@ pub fn run<S: TimelineHost>(s: &mut S, d: &Dragged, id: &str, tx: &mut Tx) -> bo
         }
         OPEN => {
             #[cfg(target_arch = "wasm32")]
-            if let Some((bytes, hint)) = s.media_store().image_bytes(d) {
-                web::open_image_blob(&bytes, mime_of(&bytes, &hint));
+            if let Some((bytes, _)) = s.media_store().image_bytes(d)
+                && let Some(mime) = safe_raster_mime(&bytes)
+            {
+                web::open_image_blob(&bytes, mime);
             }
             #[cfg(not(target_arch = "wasm32"))]
             if let Some(path) = s.media_store().image_file(d) {
@@ -111,59 +121,55 @@ pub fn clipboard<S: TimelineHost>(s: &S, d: &Dragged) -> Option<ClipboardContent
 }
 
 fn to_png(bytes: &[u8]) -> Option<Vec<u8>> {
-    let image = image::load_from_memory(bytes).ok()?;
+    let mut reader = image::ImageReader::new(std::io::Cursor::new(bytes)).with_guessed_format().ok()?;
+    let mut limits = image::Limits::default();
+    limits.max_image_width = Some(8192);
+    limits.max_image_height = Some(8192);
+    limits.max_alloc = Some(256 * 1024 * 1024);
+    reader.limits(limits);
+    let image = reader.decode().ok()?;
     let mut out = std::io::Cursor::new(Vec::new());
     image.write_to(&mut out, image::ImageFormat::Png).ok()?;
     Some(out.into_inner())
 }
 
-/// Opens `path` in its default app with the system's `open` (macOS) or `xdg-open`.
+/// Safely reveals `path` in the file manager instead of executing it with the OS default handler.
+/// Never invokes bare `explorer <path>` or `/usr/bin/open <path>`.
 pub fn open_with_system(path: &Path) {
-    let program = if cfg!(target_os = "macos") {
-        "/usr/bin/open"
-    } else if cfg!(target_os = "windows") {
-        "explorer"
-    } else {
-        "xdg-open"
-    };
-    if let Err(e) = std::process::Command::new(program).arg(path).spawn() {
-        eprintln!("open {}: {e}", path.display());
-    }
+    let _ = reveal_with_system(path);
 }
 
-/// Shows `path` selected in the file manager (`shell.showItemInFolder`); false when it isn't
-/// there or the file manager didn't start.
+/// Shows `path` selected in the file manager through `browser_policy::reveal_in_file_manager`
+/// (`SHOpenFolderAndSelectItems` on Windows, `/usr/bin/open -R --` on macOS, `xdg-open` parent
+/// on Linux) after full local fixed-drive and no-reparse-point verification. Never touches UNC,
+/// mapped drives, `subst`-to-UNC, symlinks/junctions, or autofs mounts.
 pub fn reveal_with_system(path: &Path) -> bool {
-    if !path.exists() {
+    if rune::is_headless() {
         return false;
     }
-    #[cfg(target_os = "windows")]
-    let spawned = std::process::Command::new("explorer.exe").arg(format!("/select,{}", path.display())).spawn();
-    #[cfg(target_os = "macos")]
-    let spawned = std::process::Command::new("/usr/bin/open").arg("-R").arg(path).spawn();
-    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
-    let spawned = std::process::Command::new("xdg-open").arg(path.parent().unwrap_or(path)).spawn();
-    spawned.map_err(|e| eprintln!("reveal {}: {e}", path.display())).is_ok()
+    match harness_log::reveal(&path.to_string_lossy()) {
+        Ok(_) => true,
+        Err(e) => {
+            eprintln!("reveal {}: {e}", path.display());
+            false
+        }
+    }
 }
 
+/// Sniffs `bytes` against an explicit allow-list of non-scriptable raster image MIME types so
+/// the `wasm32` web build never opens attacker-controlled `image/svg+xml` or active HTML in a
+/// same-origin `blob:` tab.
 #[cfg(target_arch = "wasm32")]
-fn mime_of(bytes: &[u8], hint: &str) -> &'static str {
-    match image::guess_format(bytes) {
-        Ok(image::ImageFormat::Png) => "image/png",
-        Ok(image::ImageFormat::Jpeg) => "image/jpeg",
-        Ok(image::ImageFormat::Gif) => "image/gif",
-        Ok(image::ImageFormat::WebP) => "image/webp",
-        Ok(image::ImageFormat::Bmp) => "image/bmp",
-        Ok(image::ImageFormat::Ico) => "image/x-icon",
-        _ => {
-            let path = hint.split(['?', '#']).next().unwrap_or("");
-            let trimmed = bytes.trim_ascii_start();
-            if path.to_ascii_lowercase().ends_with(".svg") || trimmed.starts_with(b"<svg") || trimmed.starts_with(b"<?xml") {
-                "image/svg+xml"
-            } else {
-                "image/png"
-            }
-        }
+fn safe_raster_mime(bytes: &[u8]) -> Option<&'static str> {
+    match super::drag::sniff_image_ext(bytes)? {
+        "png" => Some("image/png"),
+        "jpg" => Some("image/jpeg"),
+        "gif" => Some("image/gif"),
+        "webp" => Some("image/webp"),
+        "bmp" => Some("image/bmp"),
+        "ico" => Some("image/x-icon"),
+        "avif" => Some("image/avif"),
+        _ => None,
     }
 }
 

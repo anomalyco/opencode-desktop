@@ -127,7 +127,7 @@ local function message(dir: TextDirection, title: string, body: string): UiNode
     return panel(8, {
         ui.col({ w = "full", px = 16, gap = 4 }, {
             line(dir, title, LINE_MED, "text-chrome"),
-            ui.text(body, BODY, { color = "text-muted", dir = dir }),
+            ui.text(body, BODY, { color = "text-muted", dir = dir, wrap = true, w = "full" }),
         }),
     })
 end

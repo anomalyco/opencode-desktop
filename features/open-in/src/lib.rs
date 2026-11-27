@@ -3,19 +3,21 @@
 //! `desktop/src/main/files`).
 //!
 //! Each platform lists Desktop's apps for it (macOS's editors and terminals; on Windows VS Code,
-//! Cursor, Zed, PowerShell, and beyond Desktop's Windows Terminal and PowerShell 7, then Sublime
+//! Cursor, Zed, PowerShell, Windows Terminal, and beyond Desktop's PowerShell 7, then Sublime
 //! Text), only those installed (checked once, off the UI thread), with the file manager first
 //! (Finder, File Explorer). The choice is kept across launches and defaults to the file manager,
 //! as Desktop's does. Nothing shows unless the server shares this machine's files.
 
 #![cfg_attr(not(target_os = "windows"), forbid(unsafe_code))]
 
+pub mod drag;
 #[cfg(target_os = "windows")]
 pub mod windows;
 
 use std::cell::Cell;
+use std::collections::HashMap;
 use std::path::Path;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 
 use rune::{DragItem, Latest, Tx, Waker};
 use serde::Serialize;
@@ -62,8 +64,8 @@ pub const APPS: &[OpenApp] = &[
     app("cursor", opencode_i18n::key!("plugin.file.open.app.cursor"), "cursor", "cursor"),
     app("zed", opencode_i18n::key!("plugin.file.open.app.zed"), "zed", "zed"),
     app("powershell", opencode_i18n::key!("plugin.file.open.app.powershell"), "powershell", "powershell"),
-    // Not Desktop's: what Windows developers open now (Windows Terminal, PowerShell 7).
-    app("windows-terminal", opencode_i18n::key!("rune.openIn.windowsTerminal"), "windows-terminal", "wt"),
+    app("windows-terminal", opencode_i18n::key!("plugin.file.open.app.windowsTerminal"), "windows-terminal", "wt"),
+    // Not Desktop's: PowerShell 7, what Windows developers open now.
     app("pwsh", opencode_i18n::key!("rune.openIn.powershell7"), "powershell", "pwsh"),
     app("sublime-text", opencode_i18n::key!("plugin.file.open.app.sublimeText"), "sublime-text", "Sublime Text"),
 ];
@@ -152,11 +154,29 @@ impl Launcher for Mac {
     fn open(&self, path: &str, bundle: Option<&str>) -> Result<(), String> {
         #[cfg(not(target_arch = "wasm32"))]
         {
-            let mut cmd = std::process::Command::new("/usr/bin/open");
-            if let Some(b) = bundle {
-                cmd.args(["-b", b]);
+            let verified = browser_policy::verify_local_path(path).map_err(|e| e.to_string())?;
+            // Never pass a path to bare `/usr/bin/open -- <path>` on macOS (which launches `.app`
+            // and other bundles/packages); Finder-only requests always use safe reveal (`-R --`).
+            let Some(b) = bundle else {
+                return self.reveal(&verified.path);
+            };
+            if !APPS.iter().any(|a| a.open_with == b) {
+                return Err("Unknown external application".into());
             }
-            run(cmd.arg(path)).map(|_| ())
+            if harness_log::record("openIn", &[("path", &verified.path), ("app", b)]) {
+                return Ok(());
+            }
+            if rune::is_headless() {
+                return Ok(());
+            }
+            #[cfg(target_os = "macos")]
+            {
+                run(std::process::Command::new("/usr/bin/open").args(["-b", b, "--", &verified.path])).map(|_| ())
+            }
+            #[cfg(not(target_os = "macos"))]
+            {
+                run(std::process::Command::new(b).args(["--", &verified.path])).map(|_| ())
+            }
         }
         #[cfg(target_arch = "wasm32")]
         {
@@ -168,7 +188,14 @@ impl Launcher for Mac {
     fn reveal(&self, path: &str) -> Result<(), String> {
         #[cfg(not(target_arch = "wasm32"))]
         {
-            run(std::process::Command::new("/usr/bin/open").args(["-R", path])).map(|_| ())
+            let verified = browser_policy::verify_local_path(path).map_err(|e| e.to_string())?;
+            if harness_log::record("reveal", &[("path", &verified.path)]) {
+                return Ok(());
+            }
+            if rune::is_headless() {
+                return Ok(());
+            }
+            harness_log::reveal(&verified.path).map(|_| ()).map_err(|e| e.to_string())
         }
         #[cfg(target_arch = "wasm32")]
         {
@@ -236,10 +263,78 @@ pub struct OpenIn {
     installed: Installed,
     chosen: Option<String>,
     launch: LaunchState,
+    dragged: drag::DragTracker,
 }
 
 /// What the first check in this process found, for every window after it.
 static FOUND: Mutex<Option<Vec<&'static str>>> = Mutex::new(None);
+
+/// Hard ceiling on distinct entries in [`PINNED_ROOTS`]. Past this limit, uncached roots fail
+/// closed (`None`, matching `#294`) rather than falling open to live alias re-resolution.
+const MAX_PINNED_ROOTS: usize = 4096;
+
+/// Process-wide immutable table of pinned local workspace roots shared across all windows:
+/// - **Key:** normalized raw local workspace/project/draft directory (`pin_key`: trimmed, `\` -> `/`,
+///   trailing `/` stripped, ASCII-lowercased on Windows and macOS), plus the resolved physical path's
+///   own normalized key so lookups on already-pinned physical paths hit without syscalls.
+/// - **Value:** `Some(physical_path)` (the kernel-verified non-alias directory returned by
+///   `browser_policy::resolve_safe_local_workspace_root`) or `None` when refused/unsafe/missing.
+/// - **Lifecycle:** entries are created lazily on first use of a root anywhere in the process
+///   (routing into a session, picking a draft folder, or invoking any local file feature on that
+///   root — zero syscalls at boot for inactive listed projects). Once inserted, an entry is **never
+///   updated or re-resolved for the life of the process**; past `MAX_PINNED_ROOTS` uncached roots
+///   fail closed (`None`).
+/// - **Re-pinning:** if a user intentionally moves or re-points a workspace symlink/junction on
+///   disk and wants OpenCode to follow the new target, restart the app.
+static PINNED_ROOTS: OnceLock<Mutex<HashMap<String, Option<String>>>> = OnceLock::new();
+
+fn pin_key(raw: &str) -> String {
+    let mut norm = raw.trim().replace('\\', "/");
+    while norm.len() > 1 && norm.ends_with('/') && !(norm.len() == 3 && norm.as_bytes()[1] == b':') {
+        norm.pop();
+    }
+    if cfg!(any(windows, target_os = "macos")) {
+        norm.to_ascii_lowercase()
+    } else {
+        norm
+    }
+}
+
+/// Resolves and pins a local workspace root once per normalized raw path across the whole process,
+/// returning the verified physical directory (never the raw symlink/junction alias) or `None` if
+/// refused or past [`MAX_PINNED_ROOTS`] (fail-closed).
+pub fn pinned_local_root(raw_dir: &str, home: Option<&str>) -> Option<String> {
+    let key = pin_key(raw_dir);
+    if key.is_empty() {
+        return None;
+    }
+    let lock = PINNED_ROOTS.get_or_init(|| Mutex::new(HashMap::new()));
+    {
+        let map = lock.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(cached) = map.get(&key) {
+            return cached.clone();
+        }
+        if map.len() >= MAX_PINNED_ROOTS {
+            return None;
+        }
+    }
+    let resolved = browser_policy::resolve_safe_local_workspace_root(raw_dir, home);
+    let mut map = lock.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some(cached) = map.get(&key) {
+        return cached.clone();
+    }
+    if map.len() >= MAX_PINNED_ROOTS {
+        return None;
+    }
+    if let Some(ref physical) = resolved {
+        let phys_key = pin_key(physical);
+        if !phys_key.is_empty() && phys_key != key && map.len() + 1 < MAX_PINNED_ROOTS {
+            map.entry(phys_key).or_insert_with(|| Some(physical.clone()));
+        }
+    }
+    map.insert(key, resolved.clone());
+    resolved
+}
 
 impl Default for OpenIn {
     fn default() -> Self {
@@ -256,10 +351,15 @@ impl OpenIn {
             installed: Installed::Unknown { wanted: Cell::new(false) },
             chosen: None,
             launch: LaunchState::Idle,
+            dragged: drag::DragTracker::default(),
         }
     }
 
-    /// Convenience constructor for a fixture launcher with fixed installed app IDs.
+    pub fn take_dragged_rel(&self, path: &Path) -> Option<String> {
+        self.dragged.take(path)
+    }
+
+/// Convenience constructor for a fixture launcher with fixed installed app IDs.
     pub fn fixed(apps: Vec<&'static str>) -> Self {
         Self::with(Arc::new(Fixed(apps)))
     }
@@ -364,13 +464,21 @@ impl OpenIn {
         self.launch == LaunchState::Launching
     }
 
-    /// Opens absolute `path` in its default app.
-    pub fn open_default(&mut self, path: String) {
-        self.launch("", path, false);
+    /// Reveals an absolute local fixed-drive `path` in the system file manager (selecting the
+    /// item; never executes or opens it with its default application, and refuses UNC/device paths
+    /// before touching the filesystem).
+    pub fn reveal_local(&mut self, path: String) {
+        if browser_policy::safe_local_reveal_path(&path).is_none() {
+            return;
+        }
+        self.launch("", path, true);
     }
 
     /// Launches `app` on `path` in the background (or reveals `path` in the file manager).
     pub fn launch(&mut self, app: &str, path: String, reveal: bool) {
+        if browser_policy::is_unc_or_device_path(&path) {
+            return;
+        }
         if self.launch == LaunchState::Launching {
             return;
         }
@@ -405,33 +513,80 @@ pub trait OpenInHost: opencode_kernel::AppEnv + opencode_kernel::AppFeedback {
     fn is_local_server(&self) -> bool;
     /// The active session's working directory, if a session is open.
     fn active_session_directory(&self) -> Option<&str>;
+    /// The active session's pinned physical local directory (resolved once up front when the
+    /// workspace was opened through a local symlink/junction alias), or `None` if refused.
+    fn active_session_physical_directory(&self) -> Option<String> {
+        self.active_session_directory().map(str::to_owned)
+    }
     /// Reads a JSON preference from host storage (`STORAGE_NS`, `STORAGE_KEY`).
     fn read_json(&self, ns: &str, key: &str) -> Option<Value>;
     /// Writes a JSON preference to host storage.
     fn write_json(&self, ns: &str, key: &str, val: &Value);
 }
 
-/// Opens `url` in the system browser, or appends it to `HARNESS_OPEN_EXTERNAL_LOG` when a
-/// hidden-desktop capture is driving the app (matching `harness/electron-open-external-stub.cjs`).
+/// Opens `url` in the system browser/mail client ONLY when it passes the explicit OS scheme
+/// allow-list (`browser_policy::is_safe_os_external_url`: credential-free `http:`/`https:`, or
+/// attachment-free `mailto:`). In debug builds and headless driver runs it appends to
+/// `HARNESS_OPEN_EXTERNAL_LOG` instead when that is set.
 pub fn open_external(tx: &mut Tx, url: &str) -> bool {
+    let trimmed = url.trim();
+    if !browser_policy::is_safe_os_external_url(trimmed) {
+        return false;
+    }
+    harness_log::open_url(tx, trimmed)
+}
+
+/// Launches a user-confirmed app-scheme URL (`slack:`, `figma:`, `obsidian:`, `mailto:`, etc.)
+/// strictly after the user pressed Open on the 500 ms guarded native review bar (128-bit CSPRNG
+/// single-use review token with 60 s TTL and `fits()` full-visibility verified by the host). Only
+/// strict RFC 3986 URIs in `browser_policy`'s `APPS` + page-only `PAGE_ONLY` table are accepted.
+pub fn open_confirmed_app_url(tx: &mut Tx, url: &str, source: browser_policy::AppSchemeSource) -> bool {
+    let trimmed = url.trim();
+    if trimmed != url
+        || !browser_policy::is_strict_rfc3986_uri(trimmed)
+        || !browser_policy::is_confirmed_app_scheme_url(trimmed, source)
+    {
+        return false;
+    }
     #[cfg(not(target_arch = "wasm32"))]
-    if let Some(log) = std::env::var_os("HARNESS_OPEN_EXTERNAL_LOG").filter(|v| !v.is_empty()) {
-        use std::io::Write as _;
-        let path = Path::new(&log);
-        if let Some(parent) = path.parent() {
-            drop(std::fs::create_dir_all(parent));
-        }
-        if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(path) {
-            let entry = json!({
-                "pid": std::process::id(),
-                "kind": "openExternal",
-                "url": url,
-            });
-            drop(writeln!(f, "{entry}"));
-        }
+    if harness_log::record("openConfirmedApp", &[("url", trimmed)]) {
         return true;
     }
-    tx.open_url(url).is_ok()
+    if trimmed.get(..7).is_some_and(|s| s.eq_ignore_ascii_case("mailto:")) {
+        return harness_log::open_url(tx, trimmed);
+    }
+    if rune::is_headless() {
+        return true;
+    }
+    #[cfg(target_os = "windows")]
+    {
+        return windows::open_app_uri(trimmed);
+    }
+    #[cfg(target_os = "macos")]
+    {
+        return std::process::Command::new("/usr/bin/open")
+            .args(["--", trimmed])
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .is_ok();
+    }
+    #[cfg(all(unix, not(target_os = "macos")))]
+    {
+        return std::process::Command::new("xdg-open")
+            .arg(trimmed)
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .is_ok();
+    }
+    #[cfg(target_arch = "wasm32")]
+    {
+        let _ = tx;
+        false
+    }
 }
 
 /// Strips a trailing ` (os error N)` suffix and normalizes known transport error wording.
@@ -444,9 +599,14 @@ pub fn plain_error(raw: &str) -> String {
     opencode_kit::plain_error::plain_error(e)
 }
 
-/// Opening only works on macOS/Windows where the server shares this machine's files.
+/// Opening in external editors/terminals works on macOS/Windows where the server shares this machine's files.
 pub fn can_open(host: &dyn OpenInHost) -> bool {
     cfg!(any(target_os = "macos", target_os = "windows")) && host.is_local_server()
+}
+
+/// Revealing a local file in the OS file manager works on every native desktop OS (Windows, macOS, Linux).
+pub fn can_reveal(host: &dyn OpenInHost) -> bool {
+    cfg!(not(target_arch = "wasm32")) && host.is_local_server()
 }
 
 /// Loads the last picked app (`plugin.file` / `openInApp`) from host storage.
@@ -460,13 +620,13 @@ pub fn detect(host: &mut dyn OpenInHost) {
     host.open_in_mut().detect();
 }
 
-/// Resolves `rel` inside the active session's working directory.
+/// Resolves `rel` inside the active session's pinned physical working directory.
 pub fn resolve_path(host: &dyn OpenInHost, rel: &str) -> Option<String> {
-    let dir = host.active_session_directory()?;
+    let dir = host.active_session_physical_directory()?;
     Some(if dir.is_empty() {
         rel.to_owned()
     } else if rel.is_empty() {
-        dir.to_owned()
+        dir
     } else {
         format!("{}/{rel}", dir.trim_end_matches(['/', '\\']))
     })
@@ -487,10 +647,13 @@ pub fn open_app_as(host: &mut dyn OpenInHost, app: &str, rel: &str, remember: bo
             host.write_json(STORAGE_NS, STORAGE_KEY, &json!(app));
         }
     }
-    // Desktop's toolbar opens its panel's folder in the file manager; a file shows selected in its
-    // folder instead of opening in its default app.
-    let reveal = reveal || !Path::new(&path).is_dir();
-    host.open_in_mut().launch(app, path, reveal && app == FINDER);
+    let Ok(verified) = browser_policy::verify_local_path(&path) else {
+        return;
+    };
+    // Desktop's toolbar opens its panel's folder in the file manager; a file (or macOS bundle)
+    // shows selected in its folder instead of opening in its default app.
+    let reveal = reveal || !verified.is_dir || browser_policy::is_macos_bundle(&verified.path);
+    host.open_in_mut().launch(app, verified.path, reveal && app == FINDER);
 }
 
 /// Opens `rel` in the currently remembered app when no launch is already running.
@@ -505,14 +668,20 @@ pub fn open_current(host: &mut dyn OpenInHost, rel: &str, remember: bool, reveal
 /// `Workspace:OpenIn`: opens `path` (absolute, or inside the open session's folder) in `app`,
 /// where the server shares this machine's files; a file shows selected in the file manager.
 pub fn open_at(host: &mut dyn OpenInHost, app: &str, path: &str) {
-    if !can_open(host) || !host.open_in().options().iter().any(|(id, _)| *id == app) {
+    if !can_open(host)
+        || !host.open_in().options().iter().any(|(id, _)| *id == app)
+        || browser_policy::is_unc_or_device_path(path)
+    {
         return;
     }
     let Some(path) = (if opencode_kit::path::is_absolute(path) { Some(path.to_owned()) } else { resolve_path(host, path) }) else {
         return;
     };
-    let reveal = !Path::new(&path).is_dir();
-    host.open_in_mut().launch(app, path, reveal && app == FINDER);
+    let Ok(verified) = browser_policy::verify_local_path(&path) else {
+        return;
+    };
+    let reveal = !verified.is_dir || browser_policy::is_macos_bundle(&verified.path);
+    host.open_in_mut().launch(app, verified.path, reveal && app == FINDER);
 }
 
 /// Polls finished detection and launch work, reporting any launch error through `host.toast_fail`.
@@ -566,8 +735,10 @@ pub fn pick(host: &mut dyn OpenInHost, rel: &str, id: &str, reveal: bool, tx: &m
     }
 }
 
-/// Builds a file drag payload for `rel` when the local file exists on disk.
+/// Builds a file drag payload for `rel` when the verified local file exists on disk.
 pub fn drag_item(host: &dyn OpenInHost, rel: &str) -> Option<DragItem> {
-    let path = can_open(host).then(|| resolve_path(host, rel)).flatten().filter(|p| Path::new(p).exists())?;
-    Some(DragItem::new().file(path).within_app())
+    let raw = can_open(host).then(|| resolve_path(host, rel)).flatten()?;
+    let verified = browser_policy::verify_local_path(&raw).ok()?;
+    host.open_in().dragged.record(&verified.path, rel);
+    Some(DragItem::new().file(verified.path).within_app())
 }

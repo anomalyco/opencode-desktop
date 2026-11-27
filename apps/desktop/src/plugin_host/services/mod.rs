@@ -10,6 +10,7 @@
 
 pub(super) mod app;
 pub mod askpass;
+pub mod browser_contract;
 pub mod diag;
 mod i18n;
 pub mod images;
@@ -44,7 +45,7 @@ pub use session::session_version;
 pub(crate) use session::CachedUsage;
 pub use store::store_version;
 pub use ui::panel_state as ui_panel_state;
-pub use watch::fire_watched;
+pub use watch::{fire_watched, sync_editor_watches};
 pub(crate) use watch::SessionInputs;
 
 /// Services later packages bring, and which.
@@ -141,7 +142,7 @@ pub fn asyncs(host: &Host<'_>, t: &Table, half: &Rc<Half>) -> mlua::Result<()> {
 /// Adds the async function `name` (made in [`asyncs`]) as method `method` of `t`.
 pub(super) fn async_method(lua: &Lua, vmx: &Rc<Vmx>, t: &Table, method: &str, name: &str) -> mlua::Result<()> {
     let f: Function = vmx.asyncs.raw_get(name)?;
-    let wrap: Function = lua.load("local f = ... ; return function(_, ...) return f(...) end").call(f)?;
+    let wrap: Function = opencode_plugin_runtime::chunk::load(lua, "local f = ... ; return function(_, ...) return f(...) end").call(f)?;
     t.raw_set(method, wrap)
 }
 
@@ -286,7 +287,7 @@ pub fn dep_version(app: &App, dep: &Dep) -> u64 {
         Dep::FilesDoc(session, path) => super::native::files::doc_version(app, session, path).hash(&mut h),
         Dep::Terminals(session) => super::native::terminal::version(app, session).hash(&mut h),
         Dep::TerminalScreen(session) => super::native::terminal::screen_version(app, session).hash(&mut h),
-        Dep::Sidebar => (app.workspace_panes.panel_sidebar.opened, app.workspace_panes.panel_sidebar.width.map(f32::to_bits)).hash(&mut h),
+        Dep::Sidebar => (app.workspace_panes.panel_sidebar.opened, app.workspace_panes.panel_sidebar.width.map(f32::to_bits), app.workspace_panes.panel_sidebar.side).hash(&mut h),
         Dep::Plugin(id) => app.plugins.list.iter().find(|p| p.half.id == *id).map(|p| p.half.surface_version(p.script())).hash(&mut h),
         Dep::Updater => crate::updater::revision(app).hash(&mut h),
         Dep::Image(plugin, id) => app.plugins.shared.images.borrow().get(plugin, *id).map(crate::plugin_host::images::load::Load::status).hash(&mut h),

@@ -13,7 +13,9 @@ use crate::popup::MenuButton as _;
 use super::grouping::{self as m, Grouping, Group, Kind, Row, Status, ViewState};
 use super::rows::{HEADER, Lead, SessionRow, ghost_button, group_header, session_row};
 use super::*;
+use crate::view::tab_strip::Sections;
 use opencode_i18n::t;
+use rune_kit::shell::TabBreak;
 
 /// Rows a group's footer shows before Show more, and in one ungrouped list (`RECENT_STEP`,
 /// `RECENT_STEP_UNGROUPED`).
@@ -160,12 +162,7 @@ pub(crate) fn customized(s: &App, p: &Pal) -> El {
     let group_of: HashMap<usize, &Group> = groups.iter().flat_map(|g| g.children.iter().flatten().chain(std::iter::once(g))).flat_map(|g| g.rows.iter().map(move |&i| (i, g))).collect();
     let ctx = Ctx { s, p, rows: &rows, items: &items, by_key: &by_key, group_of: &group_of };
 
-    let mut list = col().key("customize-sections").w_full().pt(4.0);
-    let mut first = true;
-    for plan in plans(&rows, &items, &groups) {
-        list = list.child(ctx.section(&plan, first));
-        first = false;
-    }
+    let mut list = col().key("customize-sections").w_full().pt(4.0).child(ctx.sections(&plans(&rows, &items, &groups)));
     let filtered = st.filters.count() > 0;
     if filtered && !listed.iter().any(|&i| !rows[i].active) {
         list = list.child(no_match(p));
@@ -182,15 +179,16 @@ pub(crate) fn customized(s: &App, p: &Pal) -> El {
     let here = crate::servers::runtime::active(s).clone();
     let unread: Vec<String> = listed.iter().filter_map(|&i| items[i].session.filter(|ses| items[i].server == here && (ses.unread() || crate::session_menu::unread::manual(s, &here, &ses.id))).map(|ses| ses.id.clone())).collect();
 
-    let header = header(p, server_opts, projects, unread);
+    let header = header(s, p, server_opts, projects, unread);
     let viewport = col().grow(1.0).shrink().min_h(0.0);
     let scroll = session_view::scroller::scroller("customize-scroll").build::<App>(p, viewport, list);
     col().key("customize").w_full().grow(1.0).shrink().min_h(0.0).child(header).child(scroll)
 }
 
 /// The Sessions header (`sidebar-customized.tsx:675-697`): its label, View options and New session.
-fn header(p: &Pal, servers: Vec<(String, String)>, projects: Vec<(String, String)>, unread: Vec<String>) -> El {
-    let options = super::super::home::projects::icon_button(p, super::menu::TRIGGER, t!("sidebar.view.options"), &ic::OUTLINE_SLIDERS, false).menu_button(super::menu::TRIGGER, move |s: &mut App, tx: &mut Tx| {
+fn header(s: &App, p: &Pal, servers: Vec<(String, String)>, projects: Vec<(String, String)>, unread: Vec<String>) -> El {
+    let open = s.popup.open_at(super::menu::TRIGGER);
+    let options = super::super::home::projects::icon_button(p, super::menu::TRIGGER, t!("sidebar.view.options"), &ic::OUTLINE_SLIDERS, open).menu_button(super::menu::TRIGGER, move |s: &mut App, tx: &mut Tx| {
         let o = super::menu::Options { servers: servers.clone(), projects: projects.clone(), can_mark_read: !unread.is_empty(), unread: unread.clone() };
         super::menu::open(s, o, tx)
     });
@@ -218,7 +216,7 @@ fn no_match(p: &Pal) -> El {
         .gap(4.0)
         .child(text(t!("sidebar.view.noMatch")).font(UI_SMALL).color(p.faint).shrink())
         .child(
-            row().key("reset").role("button").label(t!("sidebar.view.resetFilters")).hover_group().on_press_tx(|s: &mut App, tx: &mut Tx| {
+            row().key("reset").role("button").label(t!("sidebar.view.resetFilters")).focus_inset(p).hover_group().on_press_tx(|s: &mut App, tx: &mut Tx| {
                 tx.instant();
                 s.project_state.customize.filters = Default::default();
             }).child(text(t!("sidebar.view.resetFilters")).font(UI_SMALL).color(p.faint).group_color(p.text)),
@@ -235,25 +233,62 @@ struct Ctx<'a, 'g> {
 }
 
 impl Ctx<'_, '_> {
-    /// One section: its header, its tabs (each followed by its subagents) and its footer.
-    fn section(&self, plan: &Plan, first: bool) -> El {
-        let mut c = col().key(format!("cz-{}", plan.key)).w_full();
-        if let Some((g, section)) = plan.header {
-            c = c.child(self.header(g, section, first));
+    /// The sections as official's one list has them (`sidebar-customized.tsx:481-496`,
+    /// `tab-strip.tsx:1052-1073`): ONE strip of every section's open tabs, each section's header
+    /// before its first tab and its other rows after its last, everything 3 apart
+    /// (`tab-nav.css:179-181`). One strip, so the window's one drag names one tab, and a drag
+    /// stays between its section's header and footer (`tab-strip.tsx:1205-1206`).
+    ///
+    /// An open tab's subagents stand after the section's tabs, not under their own tab as
+    /// official's do (`tabFooter`, `sidebar-customized.tsx:522-532`): a row between two tabs
+    /// would end the drag there.
+    fn sections(&self, plans: &[Plan]) -> El {
+        // What stands between the tabs: its key, the tab it stands before, and its height.
+        let mut parts: Vec<(String, usize, El, f32)> = vec![];
+        let mut indices: Vec<usize> = vec![];
+        let mut bare: Vec<bool> = vec![];
+        for (n, plan) in plans.iter().enumerate() {
+            if let Some((g, section)) = plan.header {
+                // A leaf group's 28 pt row, or a section's 24 pt title 8 under what is above it.
+                let h = if !section { 28.0 } else if n == 0 { 24.0 } else { 32.0 };
+                parts.push((format!("head-{}", plan.key), indices.len(), self.header(g, section, n == 0), h));
+            }
+            bare.extend(plan.tabs.iter().map(|_| plan.hide_avatars));
+            indices.extend(&plan.tabs);
+            let (rows, h) = self.after(plan);
+            if !rows.is_empty() {
+                parts.push((format!("foot-{}", plan.key), indices.len(), col().key(format!("cz-foot-{}", plan.key)).w_full().gap(3.0).children(rows), h));
+            }
         }
-        if !plan.tabs.is_empty() {
-            let key = format!("cz-tabs-{}", plan.key);
-            let h = rune::memo::layout_with(&format!("{key}-list"), |r| r[3]).unwrap_or(0.0);
-            c = c.child(col().key(format!("{key}-box")).w_full().h(h).child(crate::view::tab_strip::section_strip(self.s, self.p, &key, &plan.tabs, plan.hide_avatars)));
-            c = c.children(self.tab_children(plan));
+        // No open tab: the headers and rows alone, as the list's rows.
+        if indices.is_empty() {
+            return col().key("cz-rows").w_full().gap(3.0).children(parts.into_iter().map(|(_, _, row, _)| row));
         }
-        match plan.footer {
-            Some(Footer::Group(g)) => c.children(self.footer(g)),
-            Some(Footer::Row(i)) => c.child(self.session(i, true)),
-            None => c,
-        }
+        let room: f32 = parts.iter().map(|(.., h)| h + 3.0).sum();
+        let h = rune::memo::layout_with("cz-tabs-list", |r| r[3]).unwrap_or(indices.len() as f32 * 31.0 + room + 16.0);
+        let breaks = parts.into_iter().map(|(key, at, row, h)| TabBreak::new(key, at, row, h)).collect();
+        col().key("cz-tabs-box").w_full().h(h).child(crate::view::tab_strip::grouped_strip(self.s, self.p, "cz-tabs", &indices, Sections { breaks, bare }))
     }
 
+    /// What stands after a section's tabs: the sessions under its open tabs (their subagents),
+    /// then its footer, each row 28 high (Show more 24) and 3 apart; and their height together.
+    fn after(&self, plan: &Plan) -> (Vec<El>, f32) {
+        let mut rows = if plan.tabs.is_empty() { vec![] } else { self.tab_children(plan) };
+        let mut more = false;
+        match plan.footer {
+            Some(Footer::Group(g)) => {
+                let (footer, button) = self.footer(g);
+                rows.extend(footer);
+                more = button.is_some();
+                rows.extend(button);
+            }
+            Some(Footer::Row(i)) => rows.extend(self.session(i, true)),
+            None => {}
+        }
+        let n = rows.len() as f32;
+        let h = if rows.is_empty() { 0.0 } else { n * 28.0 + (n - 1.0) * 3.0 - if more { 4.0 } else { 0.0 } };
+        (rows, h)
+    }
     fn header(&self, g: &Group, section: bool, first: bool) -> El {
         let s = self.s;
         let project = (g.kind == Kind::Project).then(|| self.items.iter().find_map(|it| it.project.filter(|p| p.id == g.id))).flatten();
@@ -276,33 +311,34 @@ impl Ctx<'_, '_> {
         g.rows.iter().copied().filter(|&i| {
             let (top, _) = anchor(self.rows, self.by_key, i);
             top != i && self.rows[top].open
-        }).map(|i| self.session(i, false)).collect()
+        }).filter_map(|i| self.session(i, false)).collect()
     }
 
     /// `GroupFooter`: the group's sessions no open tab anchors, its first `limit` top-level ones
     /// with their subagents, and Show more while there are more.
-    fn footer(&self, g: &Group) -> Vec<El> {
+    fn footer(&self, g: &Group) -> (Vec<El>, Option<El>) {
         let rows = self.rows;
         let footer: Vec<usize> = g.rows.iter().copied().filter(|&i| !rows[anchor(rows, self.by_key, i).0].open).collect();
         let top: Vec<usize> = footer.iter().copied().filter(|&i| anchor(rows, self.by_key, i).0 == i).collect();
         let step = if g.kind == Kind::All { STEP_UNGROUPED } else { STEP };
         let limit = self.s.project_state.customize.limits.get(&g.key).copied().unwrap_or(step);
         let shown: HashSet<usize> = top.iter().copied().take(limit).collect();
-        let mut out: Vec<El> = footer.iter().copied().filter(|&i| shown.contains(&anchor(rows, self.by_key, i).0)).map(|i| self.session(i, false)).collect();
-        if top.len() > limit {
-            let key = g.key.clone();
-            out.push(ghost_button(self.p, &format!("cz-more-{}", g.key), t!("sidebar.organize.showMore"), true).on_press_tx(move |s: &mut App, tx: &mut Tx| {
+        let out: Vec<El> = footer.iter().copied().filter(|&i| shown.contains(&anchor(rows, self.by_key, i).0)).filter_map(|i| self.session(i, false)).collect();
+        let key = g.key.clone();
+        let more = (top.len() > limit).then(|| {
+            ghost_button(self.p, &format!("cz-more-{}", g.key), t!("sidebar.organize.showMore"), true).on_press_tx(move |s: &mut App, tx: &mut Tx| {
                 tx.instant();
                 s.project_state.customize.limits.insert(key.clone(), limit + step);
-            }));
-        }
-        out
+            })
+        });
+        (out, more)
     }
 
-    /// A session row (`SessionRowItem`), `flat` for a collapsed group's current one.
-    fn session(&self, i: usize, flat: bool) -> El {
+    /// A session row (`SessionRowItem`), `flat` for a collapsed group's current one; none for a
+    /// row whose session the server has not listed.
+    fn session(&self, i: usize, flat: bool) -> Option<El> {
         let (row, it) = (&self.rows[i], &self.items[i]);
-        let Some(info) = it.session else { return el() };
+        let info = it.session?;
         let group = self.group_of.get(&i).copied();
         let st = &self.s.project_state.customize;
         // A server's label where several mix: in one list, or a project spanning servers.
@@ -310,6 +346,6 @@ impl Ctx<'_, '_> {
         // Rows outside a project group carry their project's avatar; subagents follow their parent.
         let project = it.project.filter(|_| group.is_none_or(|g| g.kind != Kind::Project) && row.parent.is_none());
         let depth = if flat { 0 } else { anchor(self.rows, self.by_key, i).1 };
-        session_row(self.s, self.p, format!("cz-row-{}", row.key), SessionRow { server: &it.server, session: info, active: row.active, open_tab: false, label, depth, project })
+        Some(session_row(self.s, self.p, format!("cz-row-{}", row.key), SessionRow { server: &it.server, session: info, active: row.active, open_tab: false, label, depth, project }))
     }
 }

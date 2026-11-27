@@ -3,7 +3,7 @@
 use std::ops::Range;
 use std::rc::Rc;
 
-use rune::{Color, Cursor, Drag, El, Icon, Phase, Span, TextStyle, Tx, col, el, icon, rich, row, text};
+use rune::{Color, Drag, El, Icon, Phase, Span, TextStyle, Tx, col, el, icon, rich, row, text};
 use rune_kit::diff::{DiffMode, EXPAND_STEP, Expand, FileStatus, LineKind, LineRef, Side};
 use opencode_ui::palette::Pal;
 use opencode_ui::style::{INSTANT, UI};
@@ -194,7 +194,6 @@ fn gap_step_button_base(p: &Pal, look: &CodeLook, how: Expand, glyph: &'static I
         .fill(fill)
         .hover_group()
         .hover_motion(INSTANT, INSTANT)
-        .cursor(Cursor::Pointer)
         .role("button")
         .label(label)
         .child(icon(glyph, 16.0).color(p.faint).group_color(look.plain).absolute((w - 16.0) / 2.0, (h - 16.0) / 2.0))
@@ -205,7 +204,6 @@ fn gap_words_base(p: &Pal, count: &str) -> El {
         .key("words")
         .role("button")
         .label(count.to_owned())
-        .cursor(Cursor::Pointer)
         .child(text(count.to_owned()).key("count").font(SEPARATOR_TEXT).color(p.faint).group_opacity(1.0, 0.0))
         .child(
             rich(count.to_owned(), vec![Span::new(0, count.len()).underline(p.faint)])
@@ -233,7 +231,6 @@ fn gap_row_expandable(look: &CodeLook, st: &DiffDocState, fill: Color, count: St
                 .center_y()
                 .hover_group()
                 .hover_motion(INSTANT, INSTANT)
-                .cursor(Cursor::Pointer)
                 .child(words),
         );
     gap_row_finish(st, fill, count, inner)
@@ -284,19 +281,25 @@ pub(super) fn note_row(l: &CodeLook, st: &DiffDocState, f: usize) -> El {
 
 #[allow(clippy::too_many_arguments)]
 fn file_header_wrap(pal: &Pal, st: &DiffDocState, f: usize, sticky: bool, full_path: &str, adds: usize, dels: usize, inner: El) -> El {
+    // Hug `inner`'s device-snapped border height (33 pt at 1x, 49 px = 32.67 pt at 1.5x) rather
+    // than forcing `HEADER_H` (33 pt = 49.5 px), which leaves a 1-device-px gap below the border
+    // and shifts every diff line down 1 px at 1.5x (`session-review-v2.css:372, 374`).
     let mut h = col()
         .w_full()
-        .h(HEADER_H)
         .role("heading")
         .label(format!("{full_path}, {adds} added, {dels} removed"));
     if let (false, Some(w)) = (sticky, view_w(st)) {
         h = h.w(w).sticky_left(0.0);
     }
-    // Stacked under the file before it, a rule as its own bottom one parts them.
-    if f > 0 && !sticky {
-        h = h.child(el().key("top-rule").w_full().h(1.0).fill(pal.border));
+    h = h.child(inner);
+    // Stacked under a rendered file before it (never on the first rendered file, including
+    // single-file preview where `st.only == Some(f)` and `f > 0`), pin a 1 pt top rule so it does
+    // not shift `inner` down 1 pt and clip its bottom border (`session-review-v2.css:374`).
+    let has_prev = !sticky && st.rows.first() != Some(&super::state::DiffRow::File(f as u32));
+    if has_prev {
+        h = h.child(el().key("top-rule").pin(Some(0.0), Some(0.0), Some(0.0), None).h(1.0).fill(pal.border));
     }
-    h.child(inner)
+    h
 }
 
 impl<S: 'static> Inner<S> {
@@ -320,7 +323,7 @@ impl<S: 'static> Inner<S> {
         // Capture the row's stable key, not its index `i`: expanding or collapsing a fold above
         // shifts `st.rows` while the row's memo reuses this handler (`rune::memo` contract).
         let row_key = st.keys[i].clone();
-        c.cursor(Cursor::Pointer).on_drag(move |s: &mut S, d: &mut Drag, tx: &mut Tx| {
+        c.on_drag(move |s: &mut S, d: &mut Drag, tx: &mut Tx| {
             tx.instant();
             let st = get_mut(s);
             let before = st.selection();

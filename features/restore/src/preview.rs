@@ -108,19 +108,43 @@ fn place_turn(host: &dyn RestoreHost, id: &str, messages: &[Message]) -> Option<
     host.timeline_row_message(id, &row).map(|at| turn_of(messages, at))
 }
 
+/// The sessions whose preview starts after their first message (`{ <session>: true }`), in the
+/// boot record with the previews: [`older`].
+const OLDER: &str = "rune.preview.older";
+
+/// Whether session `id` has messages before its preview's first, as the run that wrote the
+/// preview saw it. A profile from before this was kept says yes: a session someone comes back to
+/// is seldom two turns long.
+pub(crate) fn older(host: &dyn RestoreHost, id: &str) -> bool {
+    host.storage_json(crate::GLOBAL, OLDER).is_none_or(|v| v[id].as_bool() == Some(true))
+}
+
 /// Writes the shown session's preview if what it would hold (`msg_stamp`, from `turn`) isn't
 /// what it holds.
 fn write_preview(host: &mut dyn RestoreHost, server: &str, id: &str, msg_stamp: u64, turn: Option<usize>) {
     if host.restore().previews.0.get(id) == Some(&(msg_stamp, turn)) {
         return;
     }
-    let bytes: Arc<[u8]> = {
+    let (bytes, older): (Arc<[u8]>, bool) = {
         let Some(t) = host.transcript(id) else { return };
-        Arc::from(encode(&t.messages, turn))
+        let bytes = encode(&t.messages, turn);
+        // Before the preview's first message: what the transcript holds, or what its server still does.
+        let older = preview::count(&bytes).is_none_or(|n| n < t.messages.len()) || host.more_above(id);
+        (Arc::from(bytes), older)
     };
     let updated = host.session_updated(id).unwrap_or(0);
     host.storage_set_preview(server, id, Some((updated, bytes)));
     host.restore_mut().previews.0.insert(id.to_owned(), (msg_stamp, turn));
+    // Kept for the sessions that have a tab: a closed one's preview goes with it.
+    let tabs = host.session_tab_ids();
+    host.storage_update_json(crate::GLOBAL, OLDER, &mut |map| {
+        map.retain(|session, _| session == id || tabs.contains(session));
+        if older {
+            map.insert(id.to_owned(), true.into());
+        } else {
+            map.remove(id);
+        }
+    });
 }
 
 /// The shown session's place moved and held still (`places`): its preview runs from the

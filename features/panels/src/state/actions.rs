@@ -54,11 +54,18 @@ pub fn keeping_keyboard<H: PanelsHost, R>(host: &mut H, open: impl FnOnce(&mut H
     out
 }
 
-/// Marks `tx` instant if showing a pane tab did not change which panes are visible.
+/// Lands `tx` at once if showing a pane tab did not change which panes are visible (`was`);
+/// else animates it, so the pane flies on `SIDE_SPRING` even from a poll, whose commit Rune
+/// otherwise lands at once, and after the poll's later systems ([`super::flight`]). Callers
+/// that may call `tx.instant()` after showing a tab (a scroll to a line) finish again with the
+/// `was` they began with.
 pub fn finish_show_pane_tab(host: &dyn PanelsHost, was: (bool, bool), tx: &mut Tx) {
     if panes_shown(host) == was {
         tx.instant();
+        return;
     }
+    tx.animated();
+    super::flight::step(host, super::flight::PaneFlightEvent::Opened);
 }
 
 /// Lands a tab shown with `show` at once when its pane was already on screen, as switching
@@ -67,6 +74,38 @@ pub fn show_pane_tab<H: PanelsHost>(host: &mut H, tx: &mut Tx, show: impl FnOnce
     let was = panes_shown(host);
     show(host);
     finish_show_pane_tab(host, was, tx);
+}
+
+/// The session a panel of strip `strip` hears of: the routed one while that strip is on the page
+/// (a subagent draws on its root's strip, and Desktop's panels get the routed session:
+/// `panels.tsx` `panelInput(view)`), else the strip's own.
+fn view_session(host: &dyn PanelsHost, strip: &str) -> String {
+    match host.active_session_id() {
+        Some(routed) if host.panel_session_id() == Some(strip) => routed.to_owned(),
+        _ => strip.to_owned(),
+    }
+}
+
+/// A subagent's own strip, as builds before its page showed its root's kept one: its tabs join
+/// the strip its page shows now, once, after the root's own, so an update loses no tab. True
+/// when it had any.
+pub fn adopt_child_strip(host: &mut dyn PanelsHost, child: &str) -> bool {
+    let root = host.panel_root(child).to_owned();
+    if root == child || host.side().sessions.get(child).is_none_or(|own| own.tab_state.tabs.all.is_empty()) {
+        return false;
+    }
+    let side = host.side_mut();
+    let own = side.sessions.get_mut(child).map(|own| std::mem::take(&mut own.tab_state.tabs)).unwrap_or_default();
+    let tabs = &mut side.sessions.entry(root).or_default().tab_state.tabs;
+    for key in own.all {
+        if !tabs.all.contains(&key) {
+            if let Some(pane) = own.panes.get(&key) {
+                tabs.panes.insert(key.clone(), *pane);
+            }
+            tabs.all.push(key);
+        }
+    }
+    true
 }
 
 /// Sets the side region's open state: shared across sessions while `sharedSidePanel` is on
@@ -84,7 +123,7 @@ fn set_side_open(side: &mut super::SideState, shared: bool, sid: &str, open: boo
 
 pub fn open_side_new_tab(host: &mut dyn PanelsHost, pane: SessionPane) -> String {
     host.wake_panel_launchers();
-    let Some(sid) = host.active_session_id().map(str::to_owned) else {
+    let Some(sid) = host.panel_session_id().map(str::to_owned) else {
         return String::new();
     };
     let over = resolve_side_region(host).and_then(|reg| {
@@ -119,7 +158,7 @@ pub fn open_side_new_tab(host: &mut dyn PanelsHost, pane: SessionPane) -> String
 }
 
 pub fn dismiss_side_new_tab(host: &mut dyn PanelsHost, new_id: &str) {
-    let Some(sid) = host.active_session_id().map(str::to_owned) else { return };
+    let Some(sid) = host.panel_session_id().map(str::to_owned) else { return };
     host.side_mut().adding.retain(|n| n.id != new_id);
     // Desktop's `dismiss` empties the region only when the strip holds no tab in any pane and
     // no New tab is left (`new-tab-machine.ts`); with a bottom tab the side region stays open.
@@ -136,14 +175,18 @@ pub fn dismiss_side_new_tab(host: &mut dyn PanelsHost, new_id: &str) {
 /// Toggles the right-hand side region on its smooth spring (`⌥⌘B`, `⇧⌘R`, or header toggle).
 pub fn toggle_side_region(host: &mut dyn PanelsHost, tx: &mut Tx) {
     host.wake_panel_launchers();
-    let Some(sid) = host.active_session_id().map(str::to_owned) else { return };
+    let Some(sid) = host.panel_session_id().map(str::to_owned) else { return };
     host.side_mut().menu = SideMenu::Closed;
     let was_open = side_stored_open(host);
     let shared = host.shared_side_panel();
     if was_open {
         // Closing gives focus back to the prompt when it was in the region (`panels.tsx`
         // `toggle`'s `giveBackFocus`), rather than to nothing.
-        if host.side().focus.is_focused() {
+        // The toggle in the region's strip belongs to the session: its focus goes to the header's
+        // copy that takes its place (`panels.tsx`, opencode#65308).
+        if tx.focused() == Some("side-toggle") {
+            tx.focus_when_shown("side-toggle", tx.focus_visible());
+        } else if host.side().focus.is_focused() {
             tx.return_focus("prompt", tx.focus_visible());
         }
         {
@@ -177,7 +220,8 @@ pub fn toggle_side_region(host: &mut dyn PanelsHost, tx: &mut Tx) {
         Some((entry.provider, entry.tab.id.clone()))
     });
     if let Some((provider, tab_id)) = entered {
-        provider.enter(host, &sid, &tab_id);
+        let view = view_session(host, &sid);
+        provider.enter(host, &view, &tab_id);
     }
 }
 
@@ -185,8 +229,14 @@ pub fn toggle_side_region(host: &mut dyn PanelsHost, tx: &mut Tx) {
 /// strip, hidden tabs included, shows a New tab once per such span. That covers opening it
 /// empty and its last tab leaving without closing it (a terminal that exits). A side region
 /// whose only tabs are in the bottom pane shows the empty pane, as Desktop's does.
+/// Whether the server hasn't listed the routed session yet (a subagent's page at launch): what a
+/// plugin keeps for it can't be read, so the tabs it lists for it aren't known.
+pub fn routed_unlisted(host: &dyn PanelsHost) -> bool {
+    host.is_live() && host.active_session_id().is_some_and(|id| host.session_directory(id).is_none_or(str::is_empty))
+}
+
 pub fn sync_empty_side(host: &mut dyn PanelsHost) -> bool {
-    let Some(id) = host.active_session_id().map(str::to_owned) else { return false };
+    let Some(id) = host.panel_session_id().map(str::to_owned) else { return false };
     let stored_empty = host.side().sessions.get(&id).is_none_or(|st| st.tab_state.tabs.all.is_empty());
     let candidate = side_stored_open(host) && stored_empty;
     if candidate && host.side().empty_span.within(&id) {
@@ -217,7 +267,7 @@ pub fn sync_empty_side(host: &mut dyn PanelsHost) -> bool {
 }
 
 pub fn toggle_bottom_region(host: &mut dyn PanelsHost) {
-    let Some(sid) = host.active_session_id().map(str::to_owned) else { return };
+    let Some(sid) = host.panel_session_id().map(str::to_owned) else { return };
     let side = host.side_mut();
     let st = side.sessions.entry(sid).or_default();
     st.bottom_open = !st.bottom_open;
@@ -239,6 +289,12 @@ pub fn open_side_tab_for_session(
     preview: bool,
     first: bool,
 ) {
+    // A child session's tabs are its root's (`PanelsHost::panel_root`).
+    let strip = host.panel_root(session_id).to_owned();
+    let session_id = strip.as_str();
+    if let Some((plugin, _)) = split_panel_key(key) {
+        host.ensure_panel_plugin(plugin);
+    }
     let was = host
         .side()
         .sessions
@@ -261,7 +317,7 @@ pub fn open_side_tab_for_session(
 
     let was_shared = host.side().shared_open;
     let shared = host.shared_side_panel();
-    let is_active = host.active_session_id() == Some(session_id);
+    let is_active = host.panel_session_id() == Some(session_id);
     {
         let side = host.side_mut();
         let actual_pane = {
@@ -286,19 +342,21 @@ pub fn open_side_tab_for_session(
         }
     }
 
+    // The tab's panel and the narrow window's view hear of the session on the page.
+    let view = view_session(host, session_id);
     if let Some((plugin, tab_id)) = split_panel_key(key)
         && let Some(prov) = find_panel(host, plugin)
     {
-        prov.focus(host, session_id, tab_id, false);
+        prov.focus(host, &view, tab_id, false);
     }
-    if host.place_narrow(session_id, key, was) && shared {
+    if host.place_narrow(&view, key, was) && shared {
         host.side_mut().shared_open = was_shared;
     }
 }
 
 /// Hides the pane showing `key` (Desktop's `layout.hide`): the bottom pane, or the side region.
 pub fn hide_side_tab(host: &mut dyn PanelsHost, key: &str, tx: &mut Tx) {
-    let Some(sid) = host.active_session_id().map(str::to_owned) else { return };
+    let Some(sid) = host.panel_session_id().map(str::to_owned) else { return };
     let is_bottom = host
         .side()
         .sessions
@@ -320,6 +378,11 @@ pub fn hide_side_tab(host: &mut dyn PanelsHost, key: &str, tx: &mut Tx) {
 /// new tab lands in `target`, else beside its plugin's last tab, else in its panel's default
 /// pane.
 pub fn show_side_tab(host: &mut dyn PanelsHost, session_id: &str, key: &str, target: Option<SessionPane>) {
+    let strip = host.panel_root(session_id).to_owned();
+    let session_id = strip.as_str();
+    if let Some((plugin, _)) = split_panel_key(key) {
+        host.ensure_panel_plugin(plugin);
+    }
     let was = host
         .side()
         .sessions
@@ -332,7 +395,7 @@ pub fn show_side_tab(host: &mut dyn PanelsHost, session_id: &str, key: &str, tar
 
     let was_shared = host.side().shared_open;
     let shared = host.shared_side_panel();
-    let is_active = host.active_session_id() == Some(session_id);
+    let is_active = host.panel_session_id() == Some(session_id);
     {
         let side = host.side_mut();
         let pane = {
@@ -358,12 +421,14 @@ pub fn show_side_tab(host: &mut dyn PanelsHost, session_id: &str, key: &str, tar
         }
     }
 
+    // The tab's panel and the narrow window's view hear of the session on the page.
+    let view = view_session(host, session_id);
     if let Some((plugin, tab_id)) = split_panel_key(key)
         && let Some(prov) = find_panel(host, plugin)
     {
-        prov.focus(host, session_id, tab_id, false);
+        prov.focus(host, &view, tab_id, false);
     }
-    if host.place_narrow(session_id, key, was) && shared {
+    if host.place_narrow(&view, key, was) && shared {
         host.side_mut().shared_open = was_shared;
     }
 }
@@ -381,7 +446,7 @@ pub fn open_side_tab(
 }
 
 pub fn select_side_tab(host: &mut dyn PanelsHost, key: &str, tx: &mut Tx) {
-    let Some(sid) = host.active_session_id().map(str::to_owned) else { return };
+    let Some(sid) = host.panel_session_id().map(str::to_owned) else { return };
     // Switching tabs is always instant (rules.md).
     tx.instant();
     host.side_mut().menu.close_tab_menu();
@@ -410,12 +475,13 @@ pub fn select_side_tab(host: &mut dyn PanelsHost, key: &str, tx: &mut Tx) {
     if let Some((plugin, tab_id)) = split_panel_key(key)
         && let Some(prov) = find_panel(host, plugin)
     {
-        prov.focus(host, &sid, tab_id, false);
+        let view = view_session(host, &sid);
+        prov.focus(host, &view, tab_id, false);
     }
 }
 
 pub fn move_side_tab(host: &mut dyn PanelsHost, key: &str, pane: SessionPane, before: Option<&str>, tx: &mut Tx) {
-    let Some(sid) = host.active_session_id().map(str::to_owned) else { return };
+    let Some(sid) = host.panel_session_id().map(str::to_owned) else { return };
     tx.instant();
     let shared = host.shared_side_panel();
     let side = host.side_mut();
@@ -432,7 +498,7 @@ pub fn move_side_tab(host: &mut dyn PanelsHost, key: &str, pane: SessionPane, be
 }
 
 pub fn promote_preview_tab(host: &mut dyn PanelsHost, key: &str) {
-    let Some(sid) = host.active_session_id().map(str::to_owned) else { return };
+    let Some(sid) = host.panel_session_id().map(str::to_owned) else { return };
     if host
         .side()
         .sessions
@@ -445,7 +511,9 @@ pub fn promote_preview_tab(host: &mut dyn PanelsHost, key: &str) {
 }
 
 pub fn close_side_tab(host: &mut dyn PanelsHost, key: &str, tx: &mut Tx) {
-    let Some(sid) = host.active_session_id().map(str::to_owned) else { return };
+    let Some(sid) = host.panel_session_id().map(str::to_owned) else { return };
+    // The tab's panel hears of the session it drew for.
+    let view = view_session(host, &sid);
     host.side_mut().menu.close_tab_menu();
     let reg = resolve_side_region(host);
     let entry = reg.as_ref().and_then(|r| r.entry(key)).cloned();
@@ -456,7 +524,7 @@ pub fn close_side_tab(host: &mut dyn PanelsHost, key: &str, tx: &mut Tx) {
     // Capture ClosedSideTab before removing the tab so the provider can still read its URL/state.
     let now_ms = host.now_ms();
     let closed_record = entry.as_ref().and_then(|e| {
-        let info = e.provider.closed_info(host, &sid, &e.tab);
+        let info = e.provider.closed_info(host, &view, &e.tab);
         match info {
             ClosedTabInfo::Deny => None,
             ClosedTabInfo::Default if e.provider.transient || e.tab.transient => None,
@@ -492,8 +560,8 @@ pub fn close_side_tab(host: &mut dyn PanelsHost, key: &str, tx: &mut Tx) {
     };
 
     if let Some(e) = &entry {
-        host.on_side_tab_closing(&sid, key);
-        e.provider.close(host, &sid, &e.tab.id, tx);
+        host.on_side_tab_closing(&view, key);
+        e.provider.close(host, &view, &e.tab.id, tx);
     }
 
     // As Desktop's region `close`: the bottom pane shuts with its last tab, and the side region
@@ -539,12 +607,12 @@ pub fn close_side_tab(host: &mut dyn PanelsHost, key: &str, tx: &mut Tx) {
     if let Some((pl, tid)) = next_focus
         && let Some(prov) = find_panel(host, &pl)
     {
-        prov.focus(host, &sid, &tid, false);
+        prov.focus(host, &view, &tid, false);
     }
 }
 
 pub fn reopen_closed_side_tab(host: &mut dyn PanelsHost, key: Option<&str>, tx: &mut Tx) -> bool {
-    let Some(sid) = host.active_session_id().map(str::to_owned) else {
+    let Some(sid) = host.panel_session_id().map(str::to_owned) else {
         return false;
     };
     if host.side().sessions.get(&sid).is_none_or(|st| st.closed.is_empty()) {
@@ -557,9 +625,10 @@ pub fn reopen_closed_side_tab(host: &mut dyn PanelsHost, key: Option<&str>, tx: 
     if side_open(host) {
         tx.instant();
     }
+    let view = view_session(host, &sid);
     if let Some((plugin, tab_id)) = split_panel_key(&closed.key)
         && let Some(prov) = find_panel(host, plugin)
-        && prov.restore(host, &sid, tab_id, closed.data.as_deref(), tx)
+        && prov.restore(host, &view, tab_id, closed.data.as_deref(), tx)
     {
         return true;
     }

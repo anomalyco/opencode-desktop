@@ -35,12 +35,17 @@ pub enum Undoable {
     Unqueued { session: String, text: String, files: Vec<opencode_kit::model::Attachment> },
     /// A comment box closed with words in it (`what` says which): it opens again with them.
     Comment(crate::line_comments::Discarded),
+    /// Sidebar sections as they were before one was removed: they come back, tabs and all.
+    Sections(Box<crate::tabs::sections::Doc>),
+    /// Several sessions deleted at once (`tabs::sections::delete`), each on its server with its
+    /// subagents: as `Deleted`, sent only when the toast goes.
+    DeletedMany(Vec<(ServerKey, String, Vec<opencode_kit::model::SessionInfo>)>),
 }
 
 impl Undoable {
     /// Done only when its toast goes, not when it's offered.
     fn deferred(&self) -> bool {
-        matches!(self, Undoable::Deleted { .. })
+        matches!(self, Undoable::Deleted { .. } | Undoable::DeletedMany(_))
     }
 }
 
@@ -119,6 +124,17 @@ pub fn offer(s: &mut App, title: &str, what: Undoable) {
     let _ = s.composer_ext.undos.step(Event::Offered { toast, what });
 }
 
+/// The archive of `session` on `server` didn't hold (its server refused it): nothing is left to
+/// offer back, so its offer goes, with its toast.
+pub fn withdraw_archived(s: &mut App, server: &ServerKey, session: &str) {
+    let held = |o: &&Offer| matches!(&o.what, Undoable::Archived { server: on, session: id } if on == server && id == session);
+    let toasts: Vec<u64> = s.composer_ext.undos.offers.iter().filter(held).map(|o| o.toast).collect();
+    for toast in toasts {
+        let _ = s.composer_ext.undos.step(Event::ToastClosed(toast));
+        crate::status_toast::dismiss_id(s, toast);
+    }
+}
+
 /// Toast `toast`'s Undo.
 pub fn pressed(s: &mut App, toast: u64, tx: &mut Tx) {
     let Some(Effect::Run(what)) = s.composer_ext.undos.step(Event::UndoPressed(toast)) else { return };
@@ -141,8 +157,14 @@ pub fn commit_all(s: &mut App) {
 }
 
 fn commit(s: &mut App, what: Undoable, tx: &mut Tx) {
-    if let Undoable::Deleted { server, session, hidden } = what {
-        s.send_delete(server, session, hidden, tx);
+    match what {
+        Undoable::Deleted { server, session, hidden } => s.send_delete(server, session, hidden, tx),
+        Undoable::DeletedMany(all) => {
+            for (server, session, hidden) in all {
+                s.send_delete(server, session, hidden, tx);
+            }
+        }
+        _ => {}
     }
 }
 
@@ -158,5 +180,11 @@ fn run(s: &mut App, what: Undoable, tx: &mut Tx) {
         Undoable::Deleted { server, hidden, .. } => s.undelete(&server, hidden),
         Undoable::Unqueued { session, text, files } => s.unwithdraw(&session, text, files),
         Undoable::Comment(discarded) => s.restore_discarded_comment(discarded, tx),
+        Undoable::Sections(doc) => crate::tabs::sections::put_back(s, *doc),
+        Undoable::DeletedMany(all) => {
+            for (server, _, hidden) in all {
+                s.undelete(&server, hidden);
+            }
+        }
     }
 }

@@ -1,19 +1,5 @@
-/// Windows: the static imports loaded on first use (`/DELAYLOAD`), with what calls them.
-const DELAY_LOADED: &[&str] = &[
-    "comctl32.dll",
-    "uiautomationcore.dll",
-    "wintrust.dll",
-    "crypt32.dll",
-    "setupapi.dll",
-    "ws2_32.dll",
-    "winmm.dll",
-    "oleaut32.dll",
-    "ole32.dll",
-    "shell32.dll",
-    "dwrite.dll",
-    "dxgi.dll",
-    "psapi.dll",
-];
+// The system DLLs loaded on first use: DELAY_LOADED, shared with the app as a library (apps/desktop-library).
+include!("delay_loaded.rs");
 
 fn main() {
     println!("cargo:rerun-if-env-changed=OPENCODE_RUNE_BUILD_CHANNEL");
@@ -27,6 +13,20 @@ fn main() {
     // before the fast exit (`launch::write_profile`).
     println!("cargo:rustc-check-cfg=cfg(pgo_generate)");
     println!("cargo:rustc-check-cfg=cfg(disk_builtins)");
+    // A packaged macOS app carries its fonts and sounds as files in its bundle (`system::bundle`):
+    // `build-app.sh` sets the variable and copies the files.
+    println!("cargo:rustc-check-cfg=cfg(bundle_assets)");
+    println!("cargo:rerun-if-env-changed=OPENCODE_RUNE_BUNDLE_ASSETS");
+    if env("OPENCODE_RUNE_BUNDLE_ASSETS").as_deref() == Some("1") && env("CARGO_CFG_TARGET_OS").as_deref() == Some("macos") {
+        println!("cargo:rustc-cfg=bundle_assets");
+    }
+    // A macOS build with its code as several libraries beside a small exe (`build-app.sh`,
+    // `OPENCODE_RUNE_LAYERS`; `scripts/layers.py` writes the library crates `main.rs` then names).
+    println!("cargo:rustc-check-cfg=cfg(code_layers)");
+    println!("cargo:rerun-if-env-changed=OPENCODE_RUNE_LAYERS");
+    if env("OPENCODE_RUNE_LAYERS").as_deref() == Some("1") && env("CARGO_CFG_TARGET_OS").as_deref() == Some("macos") {
+        println!("cargo:rustc-cfg=code_layers");
+    }
     println!("cargo:rerun-if-env-changed=CARGO_ENCODED_RUSTFLAGS");
     println!("cargo:rerun-if-env-changed=OPENCODE_RUNE_EMBED_PLUGINS");
     if env("CARGO_ENCODED_RUSTFLAGS").is_some_and(|flags| flags.split('\x1f').any(|f| f.contains("profile-generate"))) {
@@ -74,7 +74,7 @@ fn main() {
         println!("cargo:rustc-link-arg-bin=opencode-desktop=/STACK:8388608");
     }
     // The exe's icon (Explorer, the taskbar, Alt+Tab, a pinned shortcut), version and manifest.
-    let title = env("OPENCODE_RUNE_WINDOW_TITLE").unwrap_or_else(|| "OpenCode (Rune)".into());
+    let title = env("OPENCODE_RUNE_WINDOW_TITLE").unwrap_or_else(|| win_install::default_name(env("OPENCODE_RUNE_BUILD_CHANNEL").as_deref()).into());
     let version = env("OPENCODE_RUNE_VERSION").or_else(|| env("CARGO_PKG_VERSION")).unwrap_or_default();
     let dir = std::path::PathBuf::from(env("CARGO_MANIFEST_DIR").unwrap_or_default());
     let (icon, manifest) = (dir.join("assets/icon.ico"), dir.join("assets/windows/app.manifest"));
@@ -95,6 +95,7 @@ pub static BUILTINS: &[(&str, &[BuiltinFile], &[u8])] = &[];
 pub static MODULES: &[(&str, &[BuiltinModule])] = &[];
 pub static CONTRIBUTIONS: &[(&str, &[&str])] = &[];
 pub static SIGNALS: &[(&str, &[&str])] = &[];
+pub static CODE_LANGUAGES: &[(&str, &[&str])] = &[];
 pub static HASHES: &[(&str, &str)] = &[];
 pub static LUAURC: &str = \"\";
 ";
@@ -125,6 +126,11 @@ fn embed_luau_plugins(manifest_dir: &std::path::Path, out: &std::path::Path) {
     // Which watched host signals each built-in connects to (`Composer.PickerChanged`, ...), so
     // deferred built-ins listening for a host trigger can be adopted synchronously on first launch.
     let mut signals = String::from("pub static SIGNALS: &[(&str, &[&str])] = &[\n");
+    // The languages of each built-in's code blocks (`ctx:AddCodeBlock({ languages = { ... } })`), so
+    // a launch starts such a plugin before its first frame only when the saved turns on screen hold
+    // a block of one of them (`plugin_host::first_screen`). A plugin whose languages don't read as
+    // plain strings has no row, and starts as if every transcript held its blocks.
+    let mut languages = String::from("pub static CODE_LANGUAGES: &[(&str, &[&str])] = &[\n");
     // Each plugin's files hashed, so a record of what it contributed (`plugin_host::dormant`) is
     // known to be this build's.
     let mut hashes = String::from("pub static HASHES: &[(&str, &str)] = &[\n");
@@ -170,6 +176,9 @@ fn embed_luau_plugins(manifest_dir: &std::path::Path, out: &std::path::Path) {
         sigs.sort();
         sigs.dedup();
         writeln!(signals, "    ({id:?}, &{sigs:?}),").ok();
+        if let Some(langs) = code_languages(&luau_sources) {
+            writeln!(languages, "    ({id:?}, &{langs:?}),").ok();
+        }
         writeln!(precompiled, "    ({id:?}, &[").ok();
         for (index, (rel, path)) in files.into_iter().enumerate() {
             println!("cargo:rerun-if-changed={}", path.display());
@@ -200,12 +209,35 @@ fn embed_luau_plugins(manifest_dir: &std::path::Path, out: &std::path::Path) {
     precompiled.push_str("];\n");
     contributions.push_str("];\n");
     signals.push_str("];\n");
+    languages.push_str("];\n");
     hashes.push_str("];\n");
-    code = consts + &code + &precompiled + &contributions + &signals + &hashes;
+    code = consts + &code + &precompiled + &contributions + &signals + &languages + &hashes;
     let luaurc = root.join(".luaurc");
     println!("cargo:rerun-if-changed={}", luaurc.display());
     writeln!(code, "pub static LUAURC: &str = include_str!({:?});", luaurc.display().to_string()).ok();
     std::fs::write(out.join("luau_builtins.rs"), code).ok();
+
+    /// Every language of the plugin's `ctx:AddCodeBlock` calls; None when one of them doesn't give
+    /// its `languages` as a table of plain strings.
+    fn code_languages(sources: &[String]) -> Option<Vec<String>> {
+        let mut out = Vec::new();
+        for src in sources {
+            for call in src.split("ctx:AddCodeBlock(").skip(1) {
+                let (_, rest) = call.split_once("languages")?;
+                let (list, _) = rest.trim_start().strip_prefix('=')?.trim_start().strip_prefix('{')?.split_once('}')?;
+                for item in list.split(',').map(str::trim).filter(|i| !i.is_empty()) {
+                    let name = item.strip_prefix('"')?.strip_suffix('"')?;
+                    if name.is_empty() || !name.chars().all(|c| c.is_ascii_alphanumeric() || "-_+#.".contains(c)) {
+                        return None;
+                    }
+                    out.push(name.to_ascii_lowercase());
+                }
+            }
+        }
+        out.sort();
+        out.dedup();
+        Some(out)
+    }
 
     fn extract_signals(src: &str) -> Vec<String> {
         let mut out = Vec::new();

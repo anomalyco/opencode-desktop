@@ -1,0 +1,18 @@
+[package]
+name = "opencode-desktop-thin"
+version = "0.0.1"
+description = "The exe of a packaged Windows build of OpenCode (Rune): it loads the app, a library beside it, and runs it"
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "opencode-desktop-thin"
+path = "src/main.rs"
+test = false
+
+[build-dependencies]
+# The exe's icon, version and manifest resources: the app's own (`apps/desktop/build.rs`).
+win-install = { path = "../../crates/win-install", features = ["resources"] }
+
+[lints]
+workspace = true

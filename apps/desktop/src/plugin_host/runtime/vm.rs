@@ -88,7 +88,7 @@ fn start(lua: &Lua, module: &Table, vm: u64, kind: Kind) -> mlua::Result<()> {
     let vmx = lua.app_data_ref::<Rc<Vmx>>().map(|v| v.clone()).ok_or_else(|| mlua::Error::runtime("the plugin host isn't set up"))?;
     vmx.vm.set(vm);
     opencode_plugin_runtime::contribs::verify_module_half(module, kind)?;
-    let fire: Function = lua.load("return function(signal, ...) signal:Fire(...) end").call(())?;
+    let fire: Function = opencode_plugin_runtime::chunk::load(lua, "return function(signal, ...) signal:Fire(...) end").call(())?;
     vmx.half.fire.borrow_mut().insert(vm, fire);
     *vmx.half.made.borrow_mut() = Some((vm, Contribs::default()));
     vmx.half.editors_made.set(0);

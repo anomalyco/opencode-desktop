@@ -100,6 +100,7 @@ impl ServerData {
             self.transcripts.entry(id).or_insert(transcript);
         }
         self.running.extend(std::mem::take(&mut *from.running));
+        self.stops.active_sync.absorb(std::mem::take(&mut from.stops.active_sync));
         self.requests.extend(std::mem::take(&mut *from.requests));
         for p in std::mem::take(&mut *from.pending) {
             if !self.pending.iter().any(|x| x.id() == p.id()) {
@@ -164,6 +165,35 @@ pub struct ServerPeer {
     wakers: Arc<Mutex<Vec<(u64, rune::Waker)>>>,
 }
 
+impl ServerPeer {
+    /// Every user message id in this server's transcripts while its vault is at home (another
+    /// server's window resting must not prune user-message metadata belonging to this server).
+    pub fn user_message_ids(&self) -> Vec<String> {
+        let vault = self.vault.borrow();
+        if vault.at != At::Home {
+            return Vec::new();
+        }
+        vault
+            .data
+            .transcripts
+            .values()
+            .flat_map(|t| t.messages.iter())
+            .filter_map(|m| match m {
+                opencode_kit::model::Message::User { id, .. } => Some(id.clone()),
+                _ => None,
+            })
+            .chain(vault.data.inboxes.values().flat_map(|i| i.items.iter().map(|it| it.id.clone())))
+            .collect()
+    }
+
+    /// Follows space `name` of `server` over this server's stream, waking all its windows.
+    pub fn space(&self, server: opencode_kit::client::Server, name: &str) -> opencode_kit::client::Space {
+        let all = self.wakers.clone();
+        let wake: rune::Waker = Arc::new(move || all.lock().unwrap_or_else(|e| e.into_inner()).iter().for_each(|(_, w)| w()));
+        opencode_kit::client::Space::open(server, name, &self.stream.hub, wake)
+    }
+}
+
 /// Whether a window's turn changed the copy from what only it heard.
 #[derive(Clone, Copy, Default, PartialEq, Eq)]
 enum Edit {
@@ -185,6 +215,20 @@ pub struct Link {
 }
 
 impl Link {
+    /// User message ids in transcripts held locally before joining a peer (plus inbox items).
+    pub(crate) fn local_user_message_ids(&self) -> Vec<String> {
+        self.local
+            .transcripts
+            .values()
+            .flat_map(|t| t.messages.iter())
+            .filter_map(|m| match m {
+                opencode_kit::model::Message::User { id, .. } => Some(id.clone()),
+                _ => None,
+            })
+            .chain(self.local.inboxes.values().flat_map(|i| i.items.iter().map(|it| it.id.clone())))
+            .collect()
+    }
+
     /// Version stamp of this server's `projects`, `sessions`, and `recent_page` cells, whether
     /// held in a shared [`ServerPeer`] vault or stashed locally before joining.
     pub(crate) fn home_data_stamp(&self) -> u64 {
@@ -208,6 +252,18 @@ impl Link {
                 if vault.at == At::Home { hash_data(&vault.data) } else { 0 }
             }
             None => hash_data(&self.local),
+        }
+    }
+
+    /// Whether this server's known session list contains `sid`.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(crate) fn has_session(&self, sid: &str) -> bool {
+        match &self.peer {
+            Some(peer) => {
+                let vault = peer.vault.borrow();
+                vault.at == At::Home && vault.data.sessions.iter().any(|s| s.id == sid)
+            }
+            None => self.local.sessions.iter().any(|s| s.id == sid),
         }
     }
 }
@@ -424,6 +480,20 @@ pub fn waker(s: &App) -> Option<rune::Waker> {
 /// out through (`send_failed::Phase::Sending`).
 pub fn token(s: &App) -> u64 {
     s.store.token
+}
+
+/// The window's server's stream events of type `ty` only, woken by `wake` (`EventHub::subscribe_to`),
+/// with that server's base: None before the window joins one.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn subscribe_to(s: &App, ty: &'static str, wake: rune::Waker) -> Option<(String, Receiver<Incoming>)> {
+    let hub = &s.store.peer.as_ref()?.stream.hub;
+    Some((hub.base().to_owned(), hub.subscribe_to(ty, wake)))
+}
+
+/// The base of the window's server's stream, once it joined one.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn base(s: &App) -> Option<&str> {
+    Some(s.store.peer.as_ref()?.stream.hub.base())
 }
 
 /// Whether the window holds a peer (it joined, or was adopted into one).

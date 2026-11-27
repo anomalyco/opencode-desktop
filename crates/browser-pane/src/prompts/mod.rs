@@ -17,10 +17,13 @@ use std::time::Duration;
 
 use rune::time::Instant;
 
+#[cfg(feature = "engine")]
+pub(crate) use store::scrub_chromium_preferences_for_older_engine;
 pub use store::{
     ACTIVATION_DELAY_MS, AGENT_PERMISSION_TIMEOUT_MS, InputGuard, MAX_SIGN_IN_ATTEMPTS,
-    PROMPT_TEXT_MAX, PermissionStore, REALM_TEXT_MAX, REPEAT_DIALOG_MS, SiteDecision,
-    SitePermissions, SiteSetting, sanitize_prompt_text,
+    PROMPT_TEXT_MAX, PermissionScope, PermissionStore, REALM_TEXT_MAX, REPEAT_DIALOG_MS,
+    SiteDecision, SitePermissions, SiteSetting, sanitize_prompt_text, sanitize_single_line_prompt,
+    trustworthy_origin,
 };
 
 use crate::protocol::{AuthChallenge, DialogKind, PageDialog, PermissionKind, PermissionPrompt};
@@ -152,6 +155,12 @@ impl DialogGate {
         *self = Self::default();
     }
 
+    pub fn rearm(&mut self, now: Instant) {
+        if let Self::Open { input, .. } = self {
+            *input = InputGuard::arm(now);
+        }
+    }
+
     pub fn tick(&mut self, now: Instant) -> bool {
         match self {
             Self::Open { input, .. } => input.tick(now),
@@ -167,6 +176,9 @@ pub enum PermissionDecision {
     AllowAlways,
     BlockOnce,
     BlockAlways,
+    /// Dismissed via "Not now" (`x`) or Escape: denies this request without recording anything in
+    /// visit or kept decisions so the site can ask again (`prompts.tsx:468`, `page-prompts.ts:498`).
+    Dismiss,
 }
 
 /// One queued site permission prompt; concurrent requests with the same `(origin, kinds, agent)`
@@ -243,25 +255,37 @@ impl PermissionGate {
             .min()
     }
 
-    /// Evaluates an incoming permission request against kept + visit decisions.
-    /// Returns `Some(allow)` to answer immediately without showing a bar, else enqueues/coalesces.
+    /// Evaluates an incoming permission request against scope-partitioned kept + visit decisions.
+    /// Returns `Some((allow, dismiss, persist))` to answer immediately without showing a bar, else enqueues.
     pub fn evaluate(
         &mut self,
         request: PermissionPrompt,
         agent_driven: bool,
+        scope: &PermissionScope,
         kept: &SitePermissions,
         visit: &HashMap<(String, PermissionKind), SiteSetting>,
         now: Instant,
-    ) -> Option<bool> {
-        if request.kinds.is_empty() || request.origin != request.top_origin {
-            return Some(false);
+    ) -> Option<(bool, bool, bool)> {
+        if request.kinds.is_empty()
+            || request.origin != request.top_origin
+            || !store::trustworthy_origin(&request.origin)
+        {
+            return Some((false, true, false));
         }
+        let is_profile = matches!(scope, PermissionScope::Profile);
         let mut all_allowed = true;
+        let mut all_kept = true;
         for &kind in &request.kinds {
-            let kept_val = kept.get(&request.origin, kind);
+            let kept_val = kept.get_scoped(scope, &request.origin, kind);
             let visit_val = visit.get(&(request.origin.clone(), kind)).copied();
-            if kept_val == Some(SiteSetting::Block) || visit_val == Some(SiteSetting::Block) {
-                return Some(false);
+            if kept_val == Some(SiteSetting::Block) {
+                return Some((false, !is_profile, is_profile));
+            }
+            if visit_val == Some(SiteSetting::Block) {
+                return Some((false, true, false));
+            }
+            if kept_val != Some(SiteSetting::Allow) {
+                all_kept = false;
             }
             let allowed = if agent_driven {
                 // Agent tabs never inherit kept user permissions (`site-permissions.ts`).
@@ -274,7 +298,7 @@ impl PermissionGate {
             }
         }
         if all_allowed {
-            return Some(true);
+            return Some((true, false, all_kept && is_profile));
         }
         let key = permission_key(&request, agent_driven);
         let expires_at = agent_driven.then(|| now + Duration::from_millis(AGENT_PERMISSION_TIMEOUT_MS));
@@ -293,12 +317,11 @@ impl PermissionGate {
                 *self = Self::Prompting { queue };
             }
             Self::Prompting { queue } => {
-                if let Some((idx, item)) = queue.iter_mut().enumerate().find(|(_, q)| q.key == key) {
+                if let Some((_, item)) = queue.iter_mut().enumerate().find(|(_, q)| q.key == key) {
+                    // Coalesce duplicate requests without resetting `InputGuard` so a spamming page
+                    // cannot keep buttons permanently locked or flicker an active prompt.
                     item.extra_ids.push(request.id);
                     item.asked = item.asked.saturating_add(1);
-                    if idx == 0 {
-                        item.input = InputGuard::arm(now);
-                    }
                 } else {
                     queue.push_back(QueuedPermission {
                         key,
@@ -367,6 +390,14 @@ impl PermissionGate {
     pub fn drain_all_ids(&mut self) -> Vec<u64> {
         let Self::Prompting { queue } = std::mem::take(self) else { return Vec::new() };
         queue.into_iter().flat_map(|q| q.all_ids()).collect()
+    }
+
+    pub fn rearm(&mut self, now: Instant) {
+        if let Self::Prompting { queue } = self
+            && let Some(head) = queue.front_mut()
+        {
+            head.input = InputGuard::arm(now);
+        }
     }
 
     pub fn tick(&mut self, now: Instant) -> (bool, Vec<u64>) {
@@ -514,6 +545,14 @@ impl AuthGate {
         queue.into_iter().flat_map(|a| a.all_ids()).collect()
     }
 
+    pub fn rearm(&mut self, now: Instant) {
+        if let Self::Prompting { queue } = self
+            && let Some(head) = queue.front_mut()
+        {
+            head.input = InputGuard::arm(now);
+        }
+    }
+
     pub fn tick(&mut self, now: Instant) -> bool {
         match self {
             Self::Prompting { queue } => queue.front_mut().is_some_and(|a| a.input.tick(now)),
@@ -563,6 +602,12 @@ impl PopupGate {
         }
     }
 
+    pub fn rearm(&mut self, now: Instant) {
+        if let Self::Blocked { input, .. } = self {
+            *input = InputGuard::arm(now);
+        }
+    }
+
     pub fn tick(&mut self, now: Instant) -> bool {
         match self {
             Self::Blocked { input, .. } => input.tick(now),
@@ -571,10 +616,54 @@ impl PopupGate {
     }
 }
 
+/// Who is driving a controlled browser tab (for honest UI copy in permission and notice bars).
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub enum TabDriver {
+    /// An AI agent (native MCP browser RPC or built-in browser MCP tools).
+    Agent,
+    /// A third-party Luau plugin, carrying its sanitized display name.
+    Plugin(String),
+}
+
+impl TabDriver {
+    pub fn plugin(name: &str) -> Self {
+        let clean: String = sanitize_prompt_text(name, 64)
+            .chars()
+            .map(|c| if c == '\n' || c == '\t' { ' ' } else { c })
+            .collect();
+        let trimmed = clean.trim();
+        Self::Plugin(if trimmed.is_empty() { "Plugin".to_owned() } else { trimmed.to_owned() })
+    }
+}
+
+/// Why a controlled-tab or passkey notice bar is currently shown on a tab.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub enum BlockedGuardReason {
+    /// Sign-in prompt or file picker was suppressed while a driver controls the tab.
+    Action,
+    /// Controlled actions were refused because the top-level origin holds clipboard, location, or
+    /// notification access in the default profile; carries the refused URL for "Open in new tab".
+    InheritedPermission { url: Option<String> },
+    /// A site asked for a passkey or security key and the tab refused it (`webauthn-gate.ts`).
+    /// `native == true` on Windows controlled tabs (offers "Open in new tab"); `native == false`
+    /// on macOS/Linux (offers "Import sign-in" -> Settings > Browser).
+    Passkey { native: bool, url: Option<String> },
+}
+
+/// Official agent interruption message when a site requests a passkey (`webauthn-gate.ts:111-113`).
+pub fn agent_passkey_refusal_message(site: Option<&str>) -> String {
+    let who = site.map(str::trim).filter(|s| !s.is_empty()).unwrap_or("The page");
+    format!(
+        "{who} asked for a passkey or security key (WebAuthn). The desktop browser refused it at once with NotAllowedError: agent tools cannot complete a passkey or security-key sign-in. The site may now offer another sign-in method; otherwise ask the user to sign in with their own browser and import the sign-in (Settings > Browser > Import from another browser). Then continue with browser.snapshot({{tabID}})."
+    )
+}
+
 /// All prompt, permission, auth, and pop-up states owned by one `BrowserTab`.
 #[derive(Clone, Debug, Default)]
 pub struct TabPromptState {
     pub agent_driven: bool,
+    /// Honest attribution for why this tab is controlled (`Agent` vs third-party `Plugin(name)`).
+    pub driver: Option<TabDriver>,
     pub dialog: DialogGate,
     pub permission: PermissionGate,
     pub auth: AuthGate,
@@ -587,13 +676,90 @@ pub struct TabPromptState {
     pub auth_dismissed: HashSet<String>,
     /// Last origin where an agent tab hit an HTTP auth challenge (`sign_in_required`).
     pub agent_auth_required: Option<String>,
+    /// One-shot pending agent interruption for a refused WebAuthn/passkey request on this page.
+    pub agent_passkey_refused: Option<String>,
+    /// Once-per-document flags matching official `chromium.ts:807,892-893`.
+    pub passkey_noticed: bool,
+    pub passkey_interrupted: bool,
     /// Count of blocked native file choosers on agent-driven tabs.
     pub file_chooser_blocked: u64,
+    /// One-shot pending agent interruption for a blocked native file picker (`file-choosers.ts:10`).
+    pub agent_file_chooser_blocked: bool,
+    /// Active dismissible controlled-tab notice reason on this document.
+    pub blocked_guard_notice: Option<BlockedGuardReason>,
+    /// 500 ms activation delay for `"Open in new tab"` on `blocked_guard_notice`.
+    pub blocked_guard_input: Option<InputGuard>,
+    /// Last seen main-frame `on_load_start` counter (`TabSnapshot::document`), immune to
+    /// `history.replaceState` / `pushState` / hash changes.
+    pub document: u64,
+    /// True once the host has forwarded real user pointer/key input to the current document
+    /// (cleared on navigation/reload/context switch; matches official `chromium.ts:377,399,424,871,887,907`).
+    pub document_input: bool,
+    /// Bumped on every input or navigation the person sends this tab, on any tab, driven or not.
+    /// A plugin's close right ends at the first one (official `pane.ts:846,1245`: `userInput`).
+    pub user_takeovers: u64,
 }
 
 impl TabPromptState {
+    pub fn record_document_input(&mut self) {
+        self.user_takeovers = self.user_takeovers.wrapping_add(1);
+        if !self.agent_driven {
+            self.document_input = true;
+        }
+    }
+
+    pub fn set_blocked_guard_notice(&mut self, reason: BlockedGuardReason, now: Instant) {
+        if self.blocked_guard_notice.as_ref() != Some(&reason) {
+            self.blocked_guard_notice = Some(reason);
+            self.blocked_guard_input = Some(InputGuard::arm(now));
+        }
+    }
+
+    pub fn clear_blocked_guard_notice(&mut self) {
+        self.blocked_guard_notice = None;
+        self.blocked_guard_input = None;
+    }
+
+    pub fn blocked_guard_armed(&self) -> bool {
+        self.blocked_guard_input.is_none_or(InputGuard::is_live)
+    }
+
+    /// Re-arms every open prompt/banner `InputGuard` when a tab is revealed or focused so prompts
+    /// that opened while hidden never accept a click within 500 ms of becoming visible.
+    pub fn rearm_visible(&mut self, now: Instant) {
+        self.dialog.rearm(now);
+        self.permission.rearm(now);
+        self.auth.rearm(now);
+        self.popup.rearm(now);
+        if self.blocked_guard_notice.is_some() {
+            self.blocked_guard_input = Some(InputGuard::arm(now));
+        }
+    }
+
+    /// Resets "stop further dialogs" strictly when the engine reports a new main-frame document
+    /// load (`on_load_start`), never on `history.replaceState` / `pushState` / hash changes.
+    pub fn on_snapshot_document(&mut self, snap_doc: u64) {
+        if snap_doc > 0 && snap_doc != self.document {
+            if self.document > 0 {
+                self.dialog.on_document_committed();
+                self.document_input = false;
+                self.agent_passkey_refused = None;
+                self.agent_file_chooser_blocked = false;
+                self.passkey_noticed = false;
+                self.passkey_interrupted = false;
+            }
+            self.document = snap_doc;
+        }
+    }
+
     pub fn has_blocking_modal(&self) -> bool {
         self.dialog.open().is_some() || self.auth.active().is_some()
+    }
+
+    /// The tab waits on the user: a page dialog, a permission request or a sign-in (official
+    /// `PromptView`, `packages/gui-plugins/src/browser/ipc.ts:97-145`). A blocked pop-up is not one.
+    pub fn waiting_on_user(&self) -> bool {
+        self.has_blocking_modal() || self.permission.active().is_some()
     }
 
     pub fn wake_at(&self) -> Option<Instant> {
@@ -602,6 +768,7 @@ impl TabPromptState {
             self.permission.wake_at(),
             self.auth.wake_at(),
             self.popup.wake_at(),
+            self.blocked_guard_input.and_then(InputGuard::wake_at),
         ]
         .into_iter()
         .flatten()
@@ -613,22 +780,60 @@ impl TabPromptState {
         self.permission = PermissionGate::Idle;
         self.auth = AuthGate::Idle;
         self.popup = PopupGate::Idle;
+        self.document = 0;
+        self.document_input = false;
+        self.agent_passkey_refused = None;
+        self.agent_file_chooser_blocked = false;
+        self.passkey_noticed = false;
+        self.passkey_interrupted = false;
+    }
+
+    /// Context switched (`reopen_tab_as_preview` / `reopen_tab_as_web`): clears visit-scoped
+    /// permissions, auth state, and notices while keeping `agent_driven` and `driver`.
+    pub fn reset_for_context_switch(&mut self) {
+        self.visit_permissions.clear();
+        self.auth_attempts.clear();
+        self.auth_dismissed.clear();
+        self.agent_auth_required = None;
+        self.agent_passkey_refused = None;
+        self.agent_file_chooser_blocked = false;
+        self.passkey_noticed = false;
+        self.passkey_interrupted = false;
+        self.clear_blocked_guard_notice();
+        self.reset_for_engine();
     }
 
     /// User started a navigation/reload/back/forward: dismissed auth sites ask again (`prompt-machine.ts:182`).
     pub fn on_user_nav(&mut self) {
+        self.user_takeovers = self.user_takeovers.wrapping_add(1);
         self.auth_attempts.clear();
         self.auth_dismissed.clear();
         self.popup.dismiss();
+        self.document_input = false;
     }
 
-    /// Top-level URL changed: allow scripted dialogs on the new document, clear visit permissions
-    /// and auth/permission prompts on origin change (`prompt-machine.ts:189`, `dialog-machine.ts:182`).
+    /// Top-level URL changed: allow scripted dialogs again only on a new document (`new_document`:
+    /// the change came with a load, not `history.replaceState`/`pushState` or a hash change, which
+    /// a page could use to undo "stop dialogs"), clear visit permissions and auth/permission
+    /// prompts on origin change (`prompt-machine.ts:189`, `dialog-machine.ts:182`).
     /// Returns `(cancel_permission_ids, cancel_auth_ids)` to settle in the engine.
-    pub fn on_document_committed(&mut self, old_url: &str, new_url: &str) -> (Vec<u64>, Vec<u64>) {
-        self.dialog.on_document_committed();
+    pub fn on_document_committed(
+        &mut self,
+        old_url: &str,
+        new_url: &str,
+        new_document: bool,
+    ) -> (Vec<u64>, Vec<u64>) {
+        if new_document {
+            self.dialog.on_document_committed();
+        }
         self.popup.dismiss();
         self.agent_auth_required = None;
+        self.agent_passkey_refused = None;
+        self.agent_file_chooser_blocked = false;
+        self.passkey_noticed = false;
+        self.passkey_interrupted = false;
+        self.clear_blocked_guard_notice();
+        self.document_input = false;
         let same_origin = crate::policy::destination_origin(old_url)
             == crate::policy::destination_origin(new_url);
         if same_origin {
@@ -650,7 +855,8 @@ impl TabPromptState {
             return Some(challenge.id);
         }
         self.auth_attempts.insert(key.clone(), next);
-        challenge.realm = sanitize_prompt_text(&challenge.realm, REALM_TEXT_MAX);
+        challenge.realm = sanitize_single_line_prompt(&challenge.realm, REALM_TEXT_MAX);
+        challenge.host = sanitize_single_line_prompt(&challenge.host, REALM_TEXT_MAX);
         self.auth.push(key, challenge, next, now);
         None
     }
@@ -658,6 +864,8 @@ impl TabPromptState {
     /// Zero-allocation state hash for `Dep::Browser` invalidation (`ours.md` §3.2).
     pub fn hash_state(&self, h: &mut impl Hasher) {
         self.agent_driven.hash(h);
+        self.driver.hash(h);
+        self.blocked_guard_notice.hash(h);
         match &self.dialog {
             DialogGate::Idle { stopped, .. } => (0u8, *stopped).hash(h),
             DialogGate::Open { dialog, queue, repeat, input } => {

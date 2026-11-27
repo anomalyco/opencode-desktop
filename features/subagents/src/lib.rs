@@ -18,6 +18,7 @@ use std::collections::HashSet;
 use opencode_kit::model::{self, Message, Part, SessionInfo, Transcript};
 use rune::{El, KeyEvent, Tx, col, row, text};
 use rune_knobs::{Knob, Knobs};
+use session_view::focus::FocusExt;
 use session_view::odometer::odometer;
 use session_view::palette::{Elevate as _, Pal};
 use session_view::style::{INSTANT, UI, UI_MED, activity_ring_sized};
@@ -46,6 +47,15 @@ pub struct Running {
     pub started: i64,
 }
 
+/// Display labels for a subagent's model in `SubagentBar`
+/// (`packages/app/src/session/composer/subagent-bar.tsx:16`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SubagentModel {
+    pub provider: Option<String>,
+    pub name: String,
+    pub variant: Option<String>,
+}
+
 /// Object-safe host boundary for the subagents activity capsule, background shells, shell output
 /// followers, and subagent reply bar.
 pub trait SubagentsHost: opencode_kernel::AppEnv + opencode_kernel::AppFeedback {
@@ -63,6 +73,12 @@ pub trait SubagentsHost: opencode_kernel::AppEnv + opencode_kernel::AppFeedback 
     /// Monotonic version of the host's transcripts map, used to memoize followable shell calls
     /// across polls. Returns `None` when the host does not track transcript versions.
     fn transcripts_version(&self) -> Option<u64> {
+        None
+    }
+    /// Session `session`'s first message that may have changed since version `since` of
+    /// [`Self::transcripts_version`], when only a streamed reply's writes came between; `None`
+    /// when anything else may have changed it.
+    fn transcript_changed_from(&self, _session: &str, _since: u64) -> Option<usize> {
         None
     }
     /// Set of currently running session IDs.
@@ -89,6 +105,11 @@ pub trait SubagentsHost: opencode_kernel::AppEnv + opencode_kernel::AppFeedback 
     /// on the subagent status bar.
     fn shows_esc_keycap(&self) -> bool {
         true
+    }
+    /// Resolved provider, model name, and optional variant for subagent `id`
+    /// (`packages/app/src/session/composer/region.tsx:565-583`).
+    fn subagent_model(&self, _id: &str) -> Option<SubagentModel> {
+        None
     }
     /// Whether shell call `call`'s timeline console is currently open (and thus follows its
     /// shell's live output).
@@ -314,6 +335,8 @@ pub fn chip_with_knobs(knobs: &Knobs, p: &Pal, key: &str, label: String, open: b
         .key(key)
         .role("button")
         .label(label)
+        .expanded(open)
+        .focus_default(p)
         .h(session_view::jump::chip_height())
         .px(10.0)
         .gap(8.0)
@@ -402,7 +425,7 @@ fn prepare_panel_layout(host: &dyn SubagentsHost, id: &str) -> Option<PanelLayou
     let label_w = items.iter().map(|it| width(&it.label, UI)).fold(0.0, f32::max);
     // A script's or shell's command spans the agent and task columns and the gap between them.
     let commands = scripts.iter().map(|sc| sc.label.as_str()).chain(shell_items.iter().map(|sh| sh.command.as_str()));
-    let command_w = commands.map(|c| width(c, shells_view::COMMAND)).fold(0.0, f32::max);
+    let command_w = commands.map(|c| width(&shells_view::one_line(c), shells_view::COMMAND)).fold(0.0, f32::max);
     let span = (agent_w + 6.0 + label_w).max(command_w);
     // Panel inset 4 + hairline 0.5, row inset 4, then the mark, agent and task (or command) and
     // time, 6 apart, with 8 more before the time (`activity-chips.css:9-64`).
@@ -428,12 +451,13 @@ fn build_subagent_row_shell(p: &Pal, it: &Running, name: String, agent_w: f32, e
         .gap(6.0)
         .center_y()
         .radius(4.0)
+        .focus_default(p)
         .hover(p.hover)
         .hover_motion(INSTANT, INSTANT)
-        .hover_group()
+        .hover_group_focus()
         .child(activity_ring_sized(p, 16.0))
         .child(text(name).font(UI_MED).color(p.text).w(agent_w))
-        .child(text(it.label.clone()).key("label").font(UI).color(p.muted).truncate_fade().grow(1.0).shrink().min_w(0.0))
+        .child(text(it.label.clone()).key("label").dir(rune::Direction::Auto).font(UI).color(p.muted).truncate_fade().grow(1.0).shrink().min_w(0.0))
         .child(end_el)
 }
 

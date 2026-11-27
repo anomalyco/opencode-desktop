@@ -8,12 +8,13 @@ use opencode_i18n::t;
 use opencode_kit::model::{Project, SessionInfo};
 use opencode_kit::servers::ServerKey;
 use opencode_search::fulltext::{Kind as FullTextKind, Snippet};
+use opencode_ui::focus::FocusExt as _;
 use opencode_ui::keymap::{LABEL as KEYMAP_LABEL, caps as keymap_caps, chips as keymap_chips};
 use opencode_ui::widgets::DialogSize;
 use rune::{Color, Cx, Direction, El, PointerEvent, Span, Spring, TextStyle, Transition, Tx, col, el, icon, row, text};
 use rune_theme_opencode::{file_icons, icons as ic};
 use opencode_ui::palette::{Elevate as _, Pal};
-use opencode_ui::style::{UI, UI_MED, UI_SMALL, activity_ring, field, touch_controls};
+use opencode_ui::style::{UI, UI_SMALL, activity_ring, field, touch_controls};
 
 use crate::entries::{Action, Entry, active, empty, entries};
 use crate::shown::Empty;
@@ -22,8 +23,12 @@ use crate::{FullTextRow, SwitcherHost, SwitcherMode, ui_direction};
 /// The search block (`search-list-search` in the compact palette, `dialog.css:156-166`): 6 above
 /// the 28-tall field, 17 below it, with the hairline 8 from the block's foot.
 const HEAD_H: f32 = 6.0 + 28.0 + 9.0;
-/// A compact row (`search-list-row[data-size=compact]`) and a section header, both 28 tall.
+/// A compact row (`search-list-row[data-size=compact]`, `dialog.css:202`).
 const ROW_H: f32 = 32.0;
+/// Compact section header (`dialog.css:190-198`: `padding-block: 10px 2px`, `line-height: 18px`).
+const SECTION_HEADER_H: f32 = 30.0;
+/// Non-last section bottom padding (`dialog.css:185-187`: `padding-bottom: 4px`).
+const SECTION_PB: f32 = 4.0;
 /// A row whose description goes under its title in a window 640 pt or narrower (`min-height: 40px`).
 const STACKED_H: f32 = 40.0;
 
@@ -37,9 +42,14 @@ fn entry_height(stacked: bool) -> f32 {
     }
 }
 
-/// A session only its messages matched: its title, and under it the line of context (6 above
-/// and below, the title's 18 and the line's 16).
-const SNIPPET_H: f32 = 46.0;
+/// A session only its messages matched: its title's line, and under it the line of context, each
+/// 16 tall and 2 apart, with 7 above and below.
+const SNIPPET_H: f32 = SNIPPET_PAD + LINE_H + SNIPPET_GAP + LINE_H + SNIPPET_PAD;
+const SNIPPET_PAD: f32 = 7.0;
+const SNIPPET_GAP: f32 = 2.0;
+const LINE_H: f32 = 16.0;
+/// A row's avatar and the 8 after it: the line of context starts under the title.
+const LEAD_W: f32 = 16.0 + 8.0;
 
 /// `e`'s row height: with its line of context, stacked, or one line.
 fn height(s: &dyn SwitcherHost, e: &Entry, q: &str, fulltext: &[FullTextRow]) -> f32 {
@@ -67,8 +77,9 @@ fn stacked(s: &dyn SwitcherHost, e: &Entry) -> bool {
 const GAP: f32 = 2.0;
 /// `search-list-empty`'s height.
 const EMPTY_H: f32 = 120.0;
-/// `command-palette-meta`: tabular figures.
-const META: TextStyle = UI.features("\"tnum\"");
+/// `command-palette-meta` (`packages/app/src/shell/commands/dialog.css:62-76`): 11/16 at 440,
+/// +0.05 tracking, tabular figures.
+const META: TextStyle = TextStyle::new(11.0, 440.0).lh(16.0).tracking(0.05).features("\"tnum\"");
 
 /// The first match of the query in `s`, in the accent colour (`SearchHighlight`).
 pub fn highlighted(s: &str, q: &str, style: TextStyle, color: Color, accent: Color) -> El {
@@ -137,7 +148,7 @@ pub fn dialog<H: SwitcherHost + 'static>(s: &H, p: &Pal, w: f32, max_h: f32) -> 
         let bare = i == 0 && last && matches!(mode, SwitcherMode::Commands | SwitcherMode::Sessions | SwitcherMode::Archived);
         let mut section = section_shell(p, group, bare, last);
         let size = end - i;
-        let mut top = content_h + if bare { 4.0 } else { ROW_H + GAP };
+        let mut top = content_h + if bare { 4.0 } else { SECTION_HEADER_H + GAP };
         // Rows left out since the last built one: their count and heights.
         let mut skipped = (0usize, 0.0_f32);
         for (n, e) in rows[i..end].iter().enumerate() {
@@ -157,7 +168,7 @@ pub fn dialog<H: SwitcherHost + 'static>(s: &H, p: &Pal, w: f32, max_h: f32) -> 
         if skipped.0 > 0 {
             section = section.child(gap_for(group, size, skipped));
         }
-        content_h = top - if last { GAP } else { 0.0 };
+        content_h = top - GAP + if last { 0.0 } else { SECTION_PB };
         results = results.child(section);
         i = end;
     }
@@ -175,6 +186,7 @@ pub fn dialog<H: SwitcherHost + 'static>(s: &H, p: &Pal, w: f32, max_h: f32) -> 
 fn dialog_placeholder(s: &dyn SwitcherHost) -> &'static str {
     match s.switcher().mode {
         SwitcherMode::Sessions | SwitcherMode::Archived => t!("home.sessions.search.placeholder"),
+        SwitcherMode::QuickOpen => t!("palette.quickOpen.placeholder"),
         SwitcherMode::Commands => t!("command.commands.search"),
         // `palette.search.placeholder.home` on Home (`HomeCommandPalette`).
         _ if s.is_home() => t!("palette.search.placeholder.home"),
@@ -224,20 +236,21 @@ fn section_shell(p: &Pal, group: &'static str, bare: bool, last: bool) -> El {
         .w_full()
         .pt(if bare { 4.0 } else { 0.0 })
         .gap(GAP)
-        .pb(if last { 0.0 } else { GAP })
+        .pb(if last { 0.0 } else { SECTION_PB })
         .role("group")
         .label(group)
         .children((!bare).then(|| {
             row()
                 .key("header")
                 .w_full()
-                .h(ROW_H)
-                .px(6.0)
-                .center_y()
+                .h(SECTION_HEADER_H)
+                .pt(10.0)
+                .pb(2.0)
+                .px(8.0)
                 .fill(p.bg_base)
                 .sticky_top(0.0)
                 .a11y_hidden()
-                .child(text(group).font(TextStyle::new(12.0, 440.0).lh(18.0)).color(p.faint))
+                .child(text(group).font(TextStyle::new(12.0, 440.0).lh(18.0).tracking(0.05)).color(p.faint))
         }))
 }
 
@@ -303,8 +316,9 @@ fn build_dialog_card(p: &Pal, placeholder: &'static str, w: f32, total_h: f32, s
         .transition(Transition::none())
         .motion(Spring::NONE)
         .child(col().key("switcher-search").w_full().pt(6.0).px(6.0).child(search))
-        // `::after`: a 0.5 hairline in `border-base` across the dialog, 8 above the block's foot.
-        .child(el().key("switcher-divider").w_full().h(0.5).mt(6.25).mb(2.25).fill(p.border))
+        // `::after`: a 1 pt rule drawn at half its height (`scaleY(0.5)`) across the dialog
+        // (`commands/dialog.css:152-158`).
+        .child(rune::hairline(p.border).key("switcher-divider").w_full().mt(6.0).mb(2.0))
         .child(scroll)
 }
 
@@ -335,13 +349,19 @@ fn memo_hash(s: &dyn SwitcherHost, p: &Pal, e: &Entry, lit: bool, q: &str, w: f3
     let found_snippet = snippet(e, q, fulltext);
     found_snippet.is_some().hash(&mut v);
     let sw = s.switcher();
-    (sw.mode as u8, p.theme, p.generation, p.dark, p.forced, opencode_i18n::locale().id(), e.hint.and_then(|b| b.chord())).hash(&mut v);
+    (sw.mode as u8, p.theme, p.generation, p.dark, p.forced, opencode_i18n::locale().id(), e.hint.map(|b| b.keycaps())).hash(&mut v);
     let own = s.active_server();
     let session = match &e.action {
         Action::Session(id) => Some((&own, id, None)),
         Action::RemoteSession { server, id } => Some((server, id, sw.remotes.iter().find(|r| r.server == *server))),
         _ => None,
     };
+    if let Action::Project { server, .. } = &e.action {
+        s.avatar_memo_version().hash(&mut v);
+        if let Some(proj) = project_of(s, server, &e.project) {
+            (&proj.name, &proj.directory, &proj.icon.color, proj.icon.source(&proj.id)).hash(&mut v);
+        }
+    }
     if let Some((server, id, remote)) = session {
         let marks = s.session_marks(id);
         (server, marks.busy, marks.attention, marks.unread, s.is_session_open(id), e.updated.map(|t| relative_time(s.now_ms(), t))).hash(&mut v);
@@ -352,7 +372,7 @@ fn memo_hash(s: &dyn SwitcherHost, p: &Pal, e: &Entry, lit: bool, q: &str, w: f3
                 (&proj.name, &proj.directory, &proj.icon.color, proj.icon.source(&proj.id)).hash(&mut v);
             }
         }
-        if matches!(sw.mode, SwitcherMode::Sessions | SwitcherMode::Archived) {
+        if matches!(sw.mode, SwitcherMode::Sessions | SwitcherMode::Archived | SwitcherMode::QuickOpen) {
             s.is_session_hidden(server, id).hash(&mut v);
         }
         if let Some(r) = found_snippet {
@@ -395,36 +415,59 @@ fn entry_row_shell(s: &dyn SwitcherHost, p: &Pal, e: &Entry, active: bool, q: &s
             let remote = sw.remotes.iter().find(|r| r.server == *server);
             session_parts(s, p, e, id, remote.and_then(|r| r.project(&e.project)), remote.and_then(|r| r.session(id)))
         }
+        // A project's avatar, as its sessions show it (`SessionTabAvatarView`).
+        Action::Project { server, .. } => (Some(s.session_avatar(p, project_of(s, server, &e.project), &e.title, false, false)), None),
         Action::Command(_) => (None, command_keys(p, e)),
         Action::File(_) | Action::Setting(_) => (None, None),
     };
     let found_snippet = snippet(e, q, fulltext);
+    let unhide_w = unhide.as_ref().map_or(0.0, |(_, uw)| uw + 8.0);
+    let indent = if lead.is_some() { LEAD_W } else { 0.0 };
     let main = match &e.action {
         Action::File(path) => file_main(p, path, q),
         _ => {
-            // The row's text: the row less its 6 pt sides, the lead and the trailing parts.
-            let trailing_w = trailing.as_ref().map_or(0.0, |(_, tw)| tw + 8.0) + unhide.as_ref().map_or(0.0, |(_, uw)| uw + 8.0);
-            let text_w = w - 12.0 - 12.0 - trailing_w - if lead.is_some() { 24.0 } else { 0.0 };
-            let archived = sw.mode == SwitcherMode::Archived;
-            let words = row_text(p, e, q, text_w, archived, stacked(s, e));
-            let words = match found_snippet {
-                Some(r) => col().key("found").grow(1.0).shrink().min_w(0.0).gap(0.0).child(words).child(snippet_line(p, r)),
-                None => words,
+            // The row's text: the row less its 8/6 pt sides, the lead and the trailing parts.
+            let trailing_w = trailing.as_ref().map_or(0.0, |(_, tw)| tw + 8.0) + unhide_w;
+            let text_w = w - 12.0 - 14.0 - trailing_w - indent;
+            let archived = e.archived;
+            // A row with its line of context keeps to one line: its description beside the title,
+            // or none where it would stack.
+            let words = match (found_snippet.is_some(), stacked(s, e)) {
+                (false, true) => Words::Stacked,
+                (true, true) => Words::Title,
+                _ => Words::Beside,
             };
+            let words = row_text(p, e, q, text_w, archived, words);
             row().key("main").grow(1.0).shrink().min_w(0.0).gap(8.0).center_y().children(lead).child(words)
         }
     };
-    let r = row()
+    let ends = |line: El| line.children(trailing.map(|(el, _)| el)).children(unhide.map(|(el, _)| el));
+    let Some(found) = found_snippet else {
+        return ends(option_shell(p, e, active, row().h(height(s, e, q, fulltext)).gap(8.0).center_y()).child(main));
+    };
+    // Two lines on one grid: the title's line is a one-line row's (avatar, words, then the age or
+    // the ring at the end), and the line of context starts under the title, its "+n" under the
+    // age. A reader hears what matched with the row.
+    let title_line = ends(row().key("line").w_full().h(LINE_H).gap(8.0).center_y().child(main));
+    let context = snippet_line(p, found).pl(indent).pr(unhide_w);
+    option_shell(p, e, active, col().h(SNIPPET_H).pt(SNIPPET_PAD).gap(SNIPPET_GAP))
+        .description(found.snippet.text.clone())
+        .child(title_line)
+        .child(context)
+}
+
+/// A row's own parts (`PaletteRow`): an option 6 pt round, 8 and 6 in, with the hover overlay
+/// while highlighted.
+fn option_shell(p: &Pal, e: &Entry, active: bool, shell: El) -> El {
+    shell
         .key(format!("sw-{}", e.key))
         .role("option")
         .label(e.title.clone())
         // Selected while highlighted, as official's `aria-selected` option is.
         .focus_selected(active)
         .w_full()
-        .h(height(s, e, q, fulltext))
-        .px(6.0)
-        .gap(8.0)
-        .center_y()
+        .pl(8.0)
+        .pr(6.0)
         .radius(6.0)
         .fill(if active { p.hover } else { Color::TRANSPARENT })
         // A contrast theme's highlight is an edge, not only a wash it may lose.
@@ -437,17 +480,18 @@ fn entry_row_shell(s: &dyn SwitcherHost, p: &Pal, e: &Entry, active: bool, q: &s
         .no_focus_ring()
         .transition(Transition::none())
         .motion(Spring::NONE)
-        .child(main);
-    // A reader hears what matched in a session only its messages matched.
-    let r = match found_snippet {
-        Some(row) => r.description(row.snippet.text.clone()),
-        None => r,
-    };
-    r.children(trailing.map(|(el, _)| el)).children(unhide.map(|(el, _)| el))
+}
+
+/// Project `id` on `server`: the window's own, or another server's the search read.
+fn project_of<'a>(s: &'a dyn SwitcherHost, server: &ServerKey, id: &str) -> Option<&'a Project> {
+    if *server == s.active_server() {
+        return s.project(id);
+    }
+    s.switcher().remotes.iter().find(|r| r.server == *server).and_then(|r| r.project(id))
 }
 
 fn unhide_target(s: &dyn SwitcherHost, e: &Entry) -> Option<(ServerKey, String)> {
-    if !matches!(s.switcher().mode, SwitcherMode::Sessions | SwitcherMode::Archived) {
+    if !matches!(s.switcher().mode, SwitcherMode::Sessions | SwitcherMode::Archived | SwitcherMode::QuickOpen) {
         return None;
     }
     let (server, id) = match &e.action {
@@ -470,6 +514,7 @@ fn unhide_button_shell(p: &Pal) -> (El, f32) {
         .px(8.0)
         .center_y()
         .radius(6.0)
+        .focus_inset(p)
         .hover(p.hover)
         .press(p.pressed)
         .child(text(label.to_owned()).font(UI).color(p.muted));
@@ -487,7 +532,7 @@ fn unhide_button<H: SwitcherHost + 'static>(s: &H, p: &Pal, e: &Entry) -> Option
 
 /// A full text row's line of context (`UI_SMALL`, `text-faint`): what matched in the accent, an
 /// ellipsis where it was cut, "Draft" before a draft's, and the session's other matches as "+n"
-/// at its end.
+/// at its end, in the age's figures. Too long, it fades out before the "+n".
 pub fn snippet_line(p: &Pal, r: &FullTextRow) -> El {
     snippet_line_parts(p, r.kind, &r.snippet, r.more)
 }
@@ -495,30 +540,61 @@ pub fn snippet_line(p: &Pal, r: &FullTextRow) -> El {
 /// Renders a full-text snippet line from its individual parts so external surfaces (such as
 /// Home search) can draw snippets without converting row wrappers.
 pub fn snippet_line_parts(p: &Pal, kind: FullTextKind, snippet: &Snippet, more: usize) -> El {
-    let lead = if snippet.cut_before { "\u{2026}" } else { "" };
-    let tail = if snippet.cut_after { "\u{2026}" } else { "" };
-    let body = format!("{lead}{}{tail}", snippet.text);
-    let spans: Vec<Span> = snippet.marks.iter().map(|m| Span::new(m.start + lead.len(), m.end + lead.len()).color(p.accent)).collect();
-    let mut line = row().key("snippet").w_full().min_w(0.0).h(16.0).gap(6.0).center_y();
+    let (body, spans) = context_text(snippet);
+    let spans: Vec<Span> = spans.into_iter().map(|(start, end)| Span::new(start, end).color(p.accent)).collect();
+    let mut line = row().key("snippet").w_full().min_w(0.0).h(LINE_H).gap(6.0).center_y();
     if kind == FullTextKind::Draft {
         line = line.child(text(t!("rune.search.draft")).key("kind").font(UI_SMALL).color(p.muted));
     }
-    line = line.child(text(body).key("context").font(UI_SMALL).color(p.faint).spans(spans).truncate().grow(1.0).shrink().min_w(0.0).dir(Direction::Auto));
+    line = line.child(text(body).key("context").font(UI_SMALL).color(p.faint).spans(spans).truncate_fade().grow(1.0).shrink().min_w(0.0).dir(Direction::Auto));
     if more > 0 {
-        line = line.child(text(format!("+{more}")).key("more").font(UI_SMALL.features("\"tnum\"")).color(p.muted));
+        line = line.child(text(format!("+{more}")).key("more").ml(2.0).font(META).color(p.muted));
     }
     line
+}
+
+/// A snippet's words with one ellipsis at each end it was cut (dots of its own there give way to
+/// it), and its marks' byte ranges in them.
+fn context_text(snippet: &Snippet) -> (String, Vec<(usize, usize)>) {
+    let dots = ['.', '\u{2026}', ' '];
+    let mut words = snippet.text.as_str();
+    if snippet.cut_after {
+        words = words.trim_end_matches(dots);
+    }
+    let skip = if snippet.cut_before { words.len() - words.trim_start_matches(dots).len() } else { 0 };
+    let words = &words[skip..];
+    let lead = if snippet.cut_before { "\u{2026}" } else { "" };
+    let tail = if snippet.cut_after { "\u{2026}" } else { "" };
+    let marks = snippet
+        .marks
+        .iter()
+        .filter_map(|m| {
+            let (start, end) = (m.start.max(skip) - skip, m.end.min(skip + words.len()).saturating_sub(skip));
+            (start < end).then(|| (start + lead.len(), end + lead.len()))
+        })
+        .collect();
+    (format!("{lead}{words}{tail}"), marks)
 }
 
 /// `command-palette-row-text`: the title (`palette-menu-title`, 13 at 530) and, 6 after it, the
 /// description in `text-faint` taking what is left; with a description the title keeps at most
 /// 60% (`dialog.css:217-229`). Both end in an ellipsis. An archived session's are at 70%.
-fn row_text(p: &Pal, e: &Entry, q: &str, w: f32, archived: bool, stacked: bool) -> El {
+/// Where a row's description goes.
+#[derive(Clone, Copy, PartialEq)]
+enum Words {
+    Beside,
+    Stacked,
+    Title,
+}
+
+fn row_text(p: &Pal, e: &Entry, q: &str, w: f32, archived: bool, words: Words) -> El {
     let fade = |c: Color| if archived { c.alpha(c.a * 0.7) } else { c };
-    // Each in its own direction (`dialog.tsx:166-171`, `:236-243`).
+    // Each in its own direction (`dialog.tsx:166-171`, `:236-243`); a project's folder reads left
+    // to right, as a file's path does.
     let title = highlighted(&e.title, q, UI, fade(p.text), p.accent).truncate().dir(Direction::Auto);
+    let described = if matches!(e.action, Action::Project { .. }) { Direction::Ltr } else { Direction::Auto };
     // At 640 pt or narrower the description goes under the title (`dialog.css:127-138`).
-    if stacked {
+    if words == Words::Stacked {
         return col()
             .key("words")
             .grow(1.0)
@@ -526,14 +602,15 @@ fn row_text(p: &Pal, e: &Entry, q: &str, w: f32, archived: bool, stacked: bool) 
             .min_w(0.0)
             .gap(1.0)
             .child(title.shrink().min_w(0.0))
-            .child(highlighted(&e.description, q, UI, fade(p.faint), p.accent).truncate().shrink().min_w(0.0).dir(Direction::Auto));
+            .child(highlighted(&e.description, q, UI, fade(p.faint), p.accent).truncate().shrink().min_w(0.0).dir(described));
     }
+    let bare = words == Words::Title;
     let mut words = row().key("words").grow(1.0).shrink().min_w(0.0).gap(6.0).center_y();
-    if e.description.is_empty() {
+    if e.description.is_empty() || bare {
         return words.child(title.shrink().min_w(0.0));
     }
     words = words.child(row().key("title").max_w((w * 0.6).max(0.0)).center_y().child(title.shrink().min_w(0.0)));
-    words.child(highlighted(&e.description, q, UI, fade(p.faint), p.accent).truncate().grow(1.0).shrink().min_w(0.0).dir(Direction::Auto))
+    words.child(highlighted(&e.description, q, UI, fade(p.faint), p.accent).truncate().grow(1.0).shrink().min_w(0.0).dir(described))
 }
 
 /// A session's project avatar, with the open-tab bar 6 before it and the unread dot on its corner,
@@ -583,9 +660,15 @@ pub fn relative_time(now: i64, then: i64) -> String {
 
 /// A command's chord as Desktop's neutral `Keybind` chips, and their width.
 fn command_keys(p: &Pal, e: &Entry) -> Option<(El, f32)> {
-    let caps = match (e.hint, e.chord) {
-        (Some(bind), _) if bind.chord().is_some() => bind.keycaps(),
-        (_, Some(chord)) => keymap_caps(chord),
+    // A chord Settings › Shortcuts bound the command shows one keycap per stroke (opencode#64395).
+    let chord = match e.action {
+        Action::Command(id) => opencode_ui::keymap::sequence::first(id),
+        _ => None,
+    };
+    let caps = match (chord, e.hint, e.chord) {
+        (Some(strokes), _, _) => opencode_ui::keymap::sequence::caps(&strokes),
+        (_, Some(bind), _) if !bind.keycaps().is_empty() => bind.keycaps(),
+        (_, _, Some(chord)) => keymap_caps(chord),
         _ => return None,
     };
     // The chips' own label style, in their left-to-right row.
@@ -594,7 +677,7 @@ fn command_keys(p: &Pal, e: &Entry) -> Option<(El, f32)> {
 }
 
 /// A file's row: its coloured `FileIcon` badge, then its folder (`text-muted`, 440, cut first)
-/// and name (`text-base`, 530) as one path (`dialog.css:91-114`).
+/// and name (`text-base`, 440) as one path (`dialog.css:91-114`).
 fn file_main(p: &Pal, path: &str, q: &str) -> El {
     let (dir, name) = (opencode_kit::path::parent(path), opencode_kit::path::basename(path));
     // `getDirectory`: the folder with its slash, a bare "/" for a file at the root.
@@ -617,6 +700,6 @@ fn file_main(p: &Pal, path: &str, q: &str) -> El {
                 .dir(Direction::Ltr)
                 .child(highlighted(&dir, q, UI, p.muted, p.accent).truncate().shrink().min_w(0.0))
                 // The name never gives way (`flex-shrink: 0`).
-                .child(highlighted(name, q, UI_MED, p.text, p.accent).min_w(width_in(name, &match_span(name, q, p.accent).into_iter().collect::<Vec<_>>(), UI_MED, Direction::Ltr))),
+                .child(highlighted(name, q, UI, p.text, p.accent).min_w(width_in(name, &match_span(name, q, p.accent).into_iter().collect::<Vec<_>>(), UI, Direction::Ltr))),
         )
 }

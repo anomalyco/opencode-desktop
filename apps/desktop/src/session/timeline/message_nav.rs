@@ -144,7 +144,7 @@ impl Feature<App> for HistoryFeature {
     fn register(&self, builder: &mut KernelBuilder<App>) {
         builder.add_command(
             CommandEntry::<App>::from_key(
-                "undo",
+                "session.undo",
                 opencode_i18n::key!("command.session.undo"),
                 crate::commands::order::UNDO,
                 |s, tx| {
@@ -158,7 +158,7 @@ impl Feature<App> for HistoryFeature {
         );
         builder.add_command(
             CommandEntry::<App>::from_key(
-                "redo",
+                "session.redo",
                 opencode_i18n::key!("command.session.redo"),
                 crate::commands::order::REDO,
                 |s, tx| {
@@ -172,7 +172,7 @@ impl Feature<App> for HistoryFeature {
         );
         builder.add_command(
             CommandEntry::<App>::from_key(
-                "fork",
+                "session.fork",
                 opencode_i18n::key!("command.session.fork"),
                 crate::commands::order::FORK,
                 |s, tx| {

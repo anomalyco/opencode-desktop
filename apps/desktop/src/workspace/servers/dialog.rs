@@ -342,7 +342,8 @@ pub fn view(s: &App, p: &Pal, cx: &rune::Cx<App>) -> Vec<El> {
         Method::Password => (t!("server.connect.link.prompt"), t!("server.connect.link.use"), Method::Link),
     };
     let switch = crate::widgets::button(other, ButtonVariant::GhostMuted).disabled(v.disabled).on_press_tx(move |s: &mut App, tx: &mut Tx| dispatch(s, Event::MethodChanged(next), tx)).build(k).key("dialog-server-method");
-    body = body.child(row().key("server-connect-method").w_full().min_h(28.0).gap(4.0).center_y().wrap().child(text(prompt).font(rune::TextStyle::new(13.0, 440.0).lh(20.0)).color(p.faint)).child(switch));
+    // `ConnectMethodSwitch class="-mt-4"` (`servers/connect/dialog.tsx:205-209`): 8 under the fields, not 24.
+    body = body.child(row().key("server-connect-method").w_full().min_h(28.0).mt(-16.0).gap(4.0).center_y().wrap().child(text(prompt).font(rune::TextStyle::new(13.0, 440.0).lh(20.0)).color(p.faint)).child(switch));
     let title = match state.target {
         Target::Add => t!("dialog.server.add.title"),
         Target::Edit(_) => t!("dialog.server.edit.title"),
@@ -359,16 +360,16 @@ pub fn view(s: &App, p: &Pal, cx: &rune::Cx<App>) -> Vec<El> {
     // The clip goes on a child: on the card it would clip the card's own shadow too.
     let card = col().w_full().clip_rounded(12.0)
         .child(row().key("dialog-server-header").w_full().padding(16.0).center_y().child(text(title).font(rune::TextStyle::new(13.0, 530.0).lh(16.0).tracking(-0.04)).color(p.text)))
-        // `divider-v2`: a 1 point rule drawn at half its height (`scaleY(0.5)`), centred in it.
-        .child(col().w_full().h(1.0).py(0.25).child(el().w_full().h(0.5).fill(p.q.border_strong)))
+        // `divider-v2`: a 1 point rule drawn at half its height (`scaleY(0.5)`).
+        .child(rune::hairline(p.q.border_strong).w_full())
         .child(col().key("dialog-server-body").w_full().min_w(0.0).px(16.0).pt(16.0).pb(8.0).child(body))
         .child(row().key("dialog-server-footer").w_full().padding(16.0).gap(8.0).child(rune::spacer()).child(cancel).child(submit));
     // `<Dialog fit class="settings-server-dialog">` (`servers/connect/dialog.tsx`): the normal size.
-    let card = col().radius(12.0).fill(p.bg_base).elevate(p.overlay).child(card);
+    // A normal-size dialog sits on `bg-layer-01` (`overlays/dialog/dialog.css:27`).
+    let card = col().radius(12.0).fill(p.layer1).elevate(p.overlay).child(card);
     let card = crate::widgets::sized(card, crate::widgets::DialogSize::Normal, crate::widgets::Fit::Content, crate::widgets::dialog_window(cx, *s.zoom));
-    let card = col().key("dialog-server").role("dialog").label(title).modal(true, |s: &mut App| {
-        let mut tx = Tx::default();
-        close(s, &mut tx);
+    let card = col().key("dialog-server").role("dialog").label(title).modal_tx(true, |s: &mut App, tx: &mut Tx| {
+        close(s, tx);
     }).child(card);
     crate::widgets::modal("dialog-server-modal", p, card, None)
 }

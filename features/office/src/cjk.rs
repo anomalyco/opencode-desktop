@@ -6,7 +6,6 @@ use std::cell::RefCell;
 use std::path::PathBuf;
 use std::sync::mpsc::{Receiver, TryRecvError};
 
-use office_preview::fonts::FontPacks;
 
 /// Where the pack stands for this run.
 enum Pack {
@@ -29,8 +28,8 @@ fn fonts_dir() -> Option<PathBuf> {
     crate::cache_dir().map(|c| c.join("office-fonts"))
 }
 
-/// The faces files open with now.
-pub fn packs() -> FontPacks {
+/// The CJK pack's folder, when files open with it now.
+pub fn pack_dir() -> Option<PathBuf> {
     PACK.with_borrow_mut(|pack| {
         if matches!(pack, Pack::Unknown) {
             *pack = match fonts_dir().filter(|d| office_preview::cjk::installed(d)) {
@@ -38,16 +37,16 @@ pub fn packs() -> FontPacks {
                 None => Pack::Missing,
             };
         }
-        FontPacks::new(match pack {
-            Pack::Ready(dir) => Some(dir.as_path()),
+        match pack {
+            Pack::Ready(dir) => Some(dir.clone()),
             _ => None,
-        })
+        }
     })
 }
 
 /// A file needs the CJK faces: fetches them unless they are here or on their way.
 pub fn want() {
-    let _ = packs();
+    let _ = pack_dir();
     PACK.with_borrow_mut(|pack| {
         if !matches!(pack, Pack::Missing) || rune::is_headless() {
             return;

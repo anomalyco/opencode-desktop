@@ -25,9 +25,10 @@ use crate::plugin_host::vm::Vmx;
 const SNAPSHOT_TIMEOUT: Duration = Duration::from_secs(5 * 60);
 const DEFAULT_INTERVAL: Duration = Duration::from_secs(30);
 
-/// Local and beta builds: memory diagnostics and the motion tools.
+/// Local and beta builds: memory diagnostics and the motion tools. Matches `app::channel()` so
+/// PR builds (`pr-*`, mapped to `Channel::Local`) do not disagree with `App.Channel`.
 pub fn debug_build() -> bool {
-    matches!(crate::updater::build_channel(), "local" | "beta")
+    matches!(super::app::channel(), opencode_plugin_spec::Channel::Local | opencode_plugin_spec::Channel::Beta)
 }
 
 pub fn build(lua: &Lua, vmx: &Rc<Vmx>, t: &Table) -> mlua::Result<()> {
@@ -272,10 +273,11 @@ fn private_dir(directory: &Path) -> std::io::Result<()> {
 /// Writes `memory.json` and `manifest.json`; the error of the snapshot that failed, if one did.
 fn write(dir: &Path, before: &Json, server: Json, started: i64, now: i64) -> std::io::Result<Option<String>> {
     let snapshot = match server["path"].as_str() {
-        Some(path) => {
-            let path = Path::new(path);
+        Some(raw_path) => {
+            let verified = browser_policy::verify_local_path(raw_path).ok().filter(|v| v.is_file);
+            let path = Path::new(raw_path);
             let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-            let bytes = std::fs::metadata(path).ok().map(|m| m.len());
+            let bytes = verified.as_ref().and_then(|v| std::fs::metadata(&v.path).ok()).map(|m| m.len());
             // The server joins the directory and file name, so the same join recognizes a snapshot it wrote there.
             let place = if dir.join(&name) == path { json!({ "file": name }) } else { json!({ "path": path.display().to_string() }) };
             let mut entry = json!({ "process": "server", "pid": server["pid"], "bytes": bytes, "memory": server["memory"] });

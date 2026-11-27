@@ -5,7 +5,6 @@ pub use opencode_feature_connect::*;
 use opencode_kernel::{CommandEntry, Feature, KernelBuilder, OverlayRegistration, Slot};
 use opencode_kit::integration::Integration;
 use rune::Tx;
-use rune::machine::Attempt;
 use serde_json::Value;
 use session_view::pickers::Model;
 
@@ -107,7 +106,9 @@ impl ConnectHost for App {
             variant: String::new(),
         };
         self.composer_ext.pickers.prefs.picked(&key);
-        self.composer_ext.pickers.selections.insert(scope, selection);
+        let draft = self.session(&scope).is_none();
+        self.composer_ext.pickers.pick(scope.clone(), selection, draft);
+        crate::pickers::saved::save(self, &scope);
     }
 
     fn models(&self) -> &[Model] {
@@ -144,15 +145,17 @@ impl ConnectHost for App {
         let mut selection = self.selection();
         selection.model = opencode_kit::model::ModelRef { id: m.id, provider: m.provider, variant: String::new() };
         self.composer_ext.pickers.prefs.picked(key);
-        self.composer_ext.pickers.selections.insert(scope, selection);
+        let draft = self.session(&scope).is_none();
+        self.composer_ext.pickers.pick(scope.clone(), selection, draft);
+        crate::pickers::saved::save(self, &scope);
     }
 
-    fn next_picker_reads_generation(&mut self) -> Attempt {
-        self.jobs.picker_reads.next()
+    fn picker_reads(&self) -> &crate::connect::PickerReads {
+        &self.jobs.picker_reads
     }
 
-    fn current_picker_reads_generation(&self) -> Attempt {
-        self.jobs.picker_reads.current()
+    fn picker_reads_mut(&mut self) -> &mut crate::connect::PickerReads {
+        &mut self.jobs.picker_reads
     }
 
     fn before_dialog_open(&mut self) {
@@ -344,6 +347,7 @@ mod scenes {
             latest: false,
             inputs: vec![],
             tools: true,
+            speed: None,
         }));
         super::preview_step(s, "drive", Step::Models { selected: "drive:model-1".into(), collapsed: HashSet::new() });
     }
@@ -408,6 +412,7 @@ mod scenes {
                     latest: true,
                     inputs: Default::default(),
                     tools: true,
+                    speed: None,
                 },
                 crate::pickers::Model {
                     key: "opencode:minimax-free".into(),
@@ -421,6 +426,7 @@ mod scenes {
                     latest: false,
                     inputs: Default::default(),
                     tools: true,
+                    speed: None,
                 },
             ];
             super::unpaid::preview(s);

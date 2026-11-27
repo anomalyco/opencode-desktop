@@ -68,5 +68,6 @@
   "zoom.reset": "إعادة تعيين التكبير",
   "zoom.percent": "{{percent}}%",
   "link.copy": "نسخ الرابط",
-  "history.clear": "مسح السجل"
+  "history.clear": "مسح السجل",
+  "extensions.compat.feature.management": "إدارة الإضافات الأخرى"
 }

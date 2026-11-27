@@ -322,14 +322,14 @@ fn worktree_target(state: &State) -> Option<(ServerKey, String)> {
     Some((entry.key.clone(), find_project(entry, dir)?.id.clone()))
 }
 
-/// `findProject` (`:333-337`): matched by comparable path.
+/// `findProject` (`:333-337`): matched by `sameDirectory` (`packages/util/src/path.ts:60-72`).
 fn find_project<'a>(server: &'a ServerSnapshot, directory: &str) -> Option<&'a Project> {
-    let key = comparable_path(directory);
-    server.used_projects.iter().find(|p| comparable_path(&p.worktree) == key)
+    let key = same_directory_key(directory);
+    server.used_projects.iter().find(|p| same_directory_key(&p.worktree) == key)
 }
 
-/// `comparablePath` (`util/src/path.ts:50-57`): forward slashes for Windows paths, no trailing
-/// slash except on roots.
+/// `comparablePath` (`packages/util/src/path.ts:51-57`): forward slashes for Windows paths, no
+/// trailing slash except on roots.
 pub fn comparable_path(path: &str) -> String {
     let windows = path.as_bytes().get(1) == Some(&b':') || path.starts_with("\\\\");
     let value = if windows { path.replace('\\', "/") } else { path.to_owned() };
@@ -342,4 +342,18 @@ pub fn comparable_path(path: &str) -> String {
         return format!("{trimmed}/");
     }
     trimmed.to_owned()
+}
+
+/// Normalization key for `containsDirectory` / `sameDirectory` (`packages/util/src/path.ts:60-72`):
+/// applies `comparable_path` and lowercases Windows drive (`^[a-z]:/`) and UNC (`//`) paths so
+/// `C:\Repos\x` and `c:\repos\x` compare equal while POSIX paths stay case-sensitive.
+pub fn same_directory_key(path: &str) -> String {
+    let key = comparable_path(path);
+    let b = key.as_bytes();
+    let windows_drive = b.len() >= 3 && b[0].is_ascii_alphabetic() && b[1] == b':' && b[2] == b'/';
+    if windows_drive || key.starts_with("//") {
+        key.to_lowercase()
+    } else {
+        key
+    }
 }

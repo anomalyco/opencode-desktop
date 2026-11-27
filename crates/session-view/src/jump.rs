@@ -7,6 +7,7 @@ use rune::{Anim, El, Icon, Tx, col, el, icon, row, spacer};
 use rune_kit::ScrollBar;
 
 use crate::TimelineHost;
+use crate::focus::FocusExt;
 use crate::follow::{self, Effect, Event, Follow};
 use crate::returning::{self, Returning};
 use crate::palette::Pal;
@@ -85,6 +86,31 @@ impl Ends {
     pub fn forget(&mut self, id: &str) {
         self.follow.remove(id);
         self.saved.remove(id);
+        self.held.borrow_mut().remove(id);
+        self.recall.forget(id);
+    }
+
+    /// Bounds scroll/recall state to active sessions plus up to `max_closed` closed sessions so
+    /// Undo Close Tab (⇧⌘T) preserves scroll position without unbounded growth.
+    pub fn retain_bounded(&mut self, keep: &dyn Fn(&str) -> bool, max_closed: usize) {
+        let mut closed: Vec<String> = self
+            .follow
+            .keys()
+            .chain(self.saved.keys())
+            .filter(|id| !keep(id))
+            .cloned()
+            .collect();
+        closed.sort();
+        closed.dedup();
+        if closed.len() <= max_closed {
+            return;
+        }
+        let keep_closed: std::collections::HashSet<&str> = closed[closed.len() - max_closed..].iter().map(String::as_str).collect();
+        let kept = |id: &str| keep(id) || keep_closed.contains(id);
+        self.follow.retain(|id, _| kept(id));
+        self.saved.retain(|id, _| kept(id));
+        self.held.borrow_mut().retain(|id, _| kept(id));
+        self.recall.retain(&kept);
     }
 
     /// Where session `id`'s timeline was read when it last showed, scrolled up: its first row
@@ -267,6 +293,7 @@ pub fn face(p: &Pal, radius: f32) -> El {
         .box_shadow(ring)
         .box_shadow(near)
         .box_shadow(far)
+        .focus_default(p)
         .hover(p.hover)
         .press(p.pressed)
         .hover_motion(Anim::INSTANT, Anim::INSTANT)
@@ -302,7 +329,7 @@ pub fn timeline_scroll<S: TimelineHost>(s: &S, p: &Pal, id: &str, scroll: El, ha
 /// older-history ring sits under.
 pub fn over<S: TimelineHost>(s: &S, p: &Pal, id: &str, scroll: El, pills: Vec<El>, top: f32) -> El {
     let scroll_fade = timeline_scroll(s, p, id, scroll, !pills.is_empty());
-    over_scroll(s, p, id, scroll_fade, pills, top)
+    over_scroll(s, p, id, scroll_fade, pills, top).scroll_bar_hover(&format!("scroll-{id}"))
 }
 
 /// [`over`] taking an already-built `timeline-fade` subtree from [`timeline_scroll`].
@@ -312,12 +339,25 @@ pub fn over_scroll<S: TimelineHost>(s: &S, p: &Pal, id: &str, scroll_fade: El, p
     let curve = crate::knobs::jump(s.knobs(), shown);
     let rise = if shown || s.reduced_motion() { 0.0 } else { s.knobs().get(&crate::knobs::JUMP_RISE) };
     let target = format!("scroll-{id}");
+    let session = id.to_owned();
     let mut button = face(p, s.knobs().get(&crate::knobs::CAPSULE_RADIUS))
         .opacity(if shown { 1.0 } else { 0.0 })
         .opacity_motion(curve)
         .offset(0.0, rise)
         .offset_motion(curve)
-        .on_press_tx(move |_: &mut S, tx: &mut Tx| tx.scroll_to_bottom(target.clone()));
+        .on_press_tx(move |s: &mut S, tx: &mut Tx| {
+            // Instant snap under reduced motion (`virtualizer.tsx:1168`); keyboard activation
+            // moves focus to the composer before this button becomes inert (`virtualizer.tsx:1171`).
+            if s.reduced_motion() {
+                s.ends_mut().set_at_end(&session, true);
+                tx.scroll_to_bottom_instant(target.clone());
+            } else {
+                tx.scroll_to_bottom(target.clone());
+            }
+            if tx.by_keys() {
+                s.focus_composer(tx);
+            }
+        });
     if !shown {
         button = button.inert();
     }
@@ -352,7 +392,4 @@ pub fn over_scroll<S: TimelineHost>(s: &S, p: &Pal, id: &str, scroll_fade: El, p
         // Over the timeline's top edge, not in it: a row there would move what's on screen.
         .children(s.loading_older(id).then(|| row().key("older-loading").pin(Some(0.0), Some(top + 12.0), Some(0.0), None).center()
             .child(activity_ring(p))))
-        // The thumb follows the hover of the whole area, Jump to latest included, as Desktop's
-        // `thumbHoverTarget={viewRoot()}` (`virtualizer.tsx:1157-1161`).
-        .scroll_bar_hover(&format!("scroll-{id}"))
 }

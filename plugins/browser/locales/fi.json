@@ -64,5 +64,6 @@
   "zoom.reset": "Palauta zoomaus",
   "zoom.percent": "{{percent}} %",
   "link.copy": "Kopioi linkki",
-  "history.clear": "Tyhjennä historia"
+  "history.clear": "Tyhjennä historia",
+  "extensions.compat.feature.management": "Muiden laajennusten hallinta"
 }

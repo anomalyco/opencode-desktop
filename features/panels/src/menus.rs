@@ -79,6 +79,7 @@ fn launcher_card_shell(host: &dyn PanelsHost, p: &Pal, plugin: &'static str, des
         .radius(8.0)
         .fill(p.layer1)
         .border(0.5, p.border)
+        .border_layout()
         .hover(p.layer2)
         .hover_motion(INSTANT, INSTANT)
         .child(left);
@@ -168,7 +169,7 @@ pub fn context_menus<H: PanelsHost + 'static>(host: &H, p: &Pal) -> Option<El> {
                         p,
                         "side-tab-menu-open-out",
                         None,
-                        opencode_i18n::t!("plugin.browser.external.menu"),
+                        opencode_i18n::t!("plugin.browser.menu.openPage"),
                         "",
                         url.is_some(),
                         move |s: &mut H, tx: &mut Tx| on_tab_menu_open_out(s, id, tx),
@@ -296,7 +297,7 @@ fn tab_menu_meta(host: &dyn PanelsHost, target_key: &str) -> TabMenuMeta {
 
 fn launcher_hint(host: &dyn PanelsHost, desc: &PanelLauncherDesc) -> String {
     match keymap::first_label(desc.shortcut) {
-        l if l.is_empty() => desc.command.and_then(|c| host.command_chord(c)).map(keymap::label).unwrap_or_default(),
+        l if l.is_empty() => desc.command.map(|c| keymap::sequence::label(&host.command_strokes(c))).unwrap_or_default(),
         l => l,
     }
 }

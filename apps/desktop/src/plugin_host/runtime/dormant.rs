@@ -50,14 +50,22 @@ pub struct Dormant {
     pub catch_up: BTreeMap<String, Vec<(String, serde_json::Value)>>,
     /// Wake requests queued by views of this window since the last poll.
     asked: std::cell::RefCell<Vec<(String, Wait)>>,
+    /// Count of settings-open retries for bundled settings plugins killed by a startup watchdog.
+    watchdog_retries: BTreeMap<String, u8>,
 }
 
 impl Dormant {
-    fn ensure_read(&mut self) {
+    pub(super) fn ensure_read(&mut self) {
         if self.records.is_unread() {
             let found = read_file();
             self.records.step(RecordsEvent::Loaded(found));
         }
+    }
+
+    /// [`Dormant::record`] of records already read ([`Dormant::ensure_read`]).
+    pub fn kept(&self, id: &str, hash: &str) -> Option<&Record> {
+        let locale = opencode_i18n::locale().id();
+        self.records.get(id).filter(|r| r.hash == hash && r.locale == locale)
     }
 
     /// The record of built-in `id` for `hash`, in the current language.
@@ -71,6 +79,21 @@ impl Dormant {
 /// Where the records are: a state row in a namespace the boot record carries whole.
 const RECORDS: (&str, &str) = (crate::storage::DEV, "plugins.contributions");
 
+/// `record`'s `session.panel` rows.
+fn panel_rows(record: &Record) -> impl Iterator<Item = &opencode_plugin_runtime::dormant::Entry> {
+    record.window.get("menu_items").into_iter().flatten().filter(|e| e.spec.get("menu").and_then(|v| v.as_str()) == Some("session.panel"))
+}
+
+/// Whether the plugin of `record` has to run for a session's New tab view to list its entries as
+/// it would: it has one there that answers a function (a row's `when`, a panel's `enabled`). A
+/// plugin with no entry there needn't, nor one whose entries are all in its record: of fifteen
+/// built-ins a side panel restored on New tab started before its first frame, four have such an
+/// entry (strobe `rec_7ecdd3`, `rec_5a45c9`, `rec_2fd572`: 18.5 ms of plugin starts).
+pub(super) fn launcher_needs(record: &Record) -> bool {
+    let asks = |e: &opencode_plugin_runtime::dormant::Entry, name: &str| e.fns.iter().any(|f| f == name);
+    let panel = record.window.get("panels").is_some_and(|es| es.iter().any(|e| !asks(e, "list") && asks(e, "enabled") && e.spec.get("launcher").and_then(|v| v.as_bool()) != Some(false)));
+    panel || panel_rows(record).any(|e| asks(e, "when"))
+}
 /// The records as written last: none when there are none yet, they don't read, or are of another
 /// version. Before the first frame this is the boot packet's, so it reads no file.
 fn read_file() -> Option<BTreeMap<String, Record>> {
@@ -228,8 +251,26 @@ pub fn each_app_half<R>(mut f: impl FnMut(&str, &Contribs) -> Option<R>) -> Vec<
     })
 }
 
+/// Debug-only scratch-root hold used to keep `updater` dormant while proving the Settings fallback.
+fn debug_held(id: &str) -> bool {
+    #[cfg(debug_assertions)]
+    {
+        id == "updater"
+            && std::env::var_os("OPENCODE_RUNE_HOLD_UPDATER_DORMANT").is_some()
+            && std::env::var_os("RUNE_DIRS_ROOT").is_some()
+    }
+    #[cfg(not(debug_assertions))]
+    {
+        let _ = id;
+        false
+    }
+}
+
 /// Starts plugin `id` now, for `why`, if it's dormant; true when it was and runs now.
 pub fn wake(app: &mut App, id: &str, why: Why) -> bool {
+    if debug_held(id) {
+        return false;
+    }
     let Some(i) = app.plugins.find(id).filter(|&i| matches!(app.plugins.list[i].life, Life::Dormant)) else { return false };
     let started = rune::time::Instant::now();
     let asleep = app.plugins.dormant.asleep.remove(id).unwrap_or_default();
@@ -238,7 +279,7 @@ pub fn wake(app: &mut App, id: &str, why: Why) -> bool {
     drive(app, i, LifeEvent::Load);
     // The events kept for it, but for those still waiting for this poll: it hears those with the rest.
     let pending = app.plugins.events.borrow().clone();
-    let kept: Vec<_> = asleep.events.into_iter().filter(|e| !pending.contains(e)).collect();
+    let kept: Vec<_> = asleep.events.into_inner().into_iter().filter(|e| !pending.contains(e)).collect();
     let caught = kept.len();
     if !kept.is_empty() {
         app.plugins.dormant.catch_up.entry(id.to_owned()).or_default().extend(kept);
@@ -307,13 +348,47 @@ pub fn wake_kind(app: &mut App, kind: &str, fns: &[&str]) -> bool {
     adopted || woke
 }
 
-/// Settings is opening: adopts any queued built-ins contributing commands or settings surfaces
-/// and wakes dormant ones so Settings › Shortcuts and plugin pages are complete immediately.
+/// Settings is opening: adopts any queued built-ins contributing commands or settings surfaces,
+/// wakes dormant ones, and retries any bundled settings plugin killed by a startup watchdog so
+/// Settings › Preferences, Shortcuts and plugin pages are complete immediately.
 pub fn wake_settings(app: &mut App) -> bool {
     super::boot::doze_owed(app);
     let adopted = super::boot::adopt_later_kinds(app, &["Command", "Setting", "SettingsPage"]);
     let woke = wake_owners(app, |c| !c.settings.is_empty() || !c.settings_pages.is_empty());
-    adopted || woke
+    let retried = retry_timed_out_settings(app);
+    adopted || woke || retried
+}
+
+/// Retries bundled settings plugins that hit a transient startup watchdog timeout (at most once
+/// per launch), so a CPU burst during boot never permanently drops a built-in Settings section.
+/// It runs beside the general restart (`lifecycle::restart_later`, one restart 2 s after a timed-out
+/// start): this one comes later, when Settings opens, which still matters where the watchdog's
+/// budget is wall time (Windows on ARM, web).
+fn retry_timed_out_settings(app: &mut App) -> bool {
+    const MAX_RETRIES: u8 = 1;
+    let ids: Vec<(usize, String)> = app
+        .plugins
+        .list
+        .iter()
+        .enumerate()
+        .filter(|(_, p)| {
+            p.tier == Tier::Bundled
+                && !app.plugins.disabled.contains(&p.manifest.id)
+                && matches!(&p.life, Life::Errored { error, .. } if error.contains("watchdog"))
+                && super::sources::contributions(&p.manifest.id).iter().any(|k| matches!(*k, "Setting" | "SettingsPage"))
+                && app.plugins.dormant.watchdog_retries.get(&p.manifest.id).copied().unwrap_or(0) < MAX_RETRIES
+        })
+        .map(|(i, p)| (i, p.manifest.id.clone()))
+        .collect();
+    let mut any = false;
+    for (i, id) in ids {
+        let n = app.plugins.dormant.watchdog_retries.entry(id.clone()).or_insert(0);
+        *n += 1;
+        eprintln!("plugins: retrying {id} on Settings open after startup watchdog (attempt {n}/{MAX_RETRIES})");
+        drive(app, i, LifeEvent::Load);
+        any = true;
+    }
+    any
 }
 
 /// Whether dormant plugin `id`'s recorded contribution `key` of `kind` handed over function `name`.
@@ -325,7 +400,15 @@ pub fn recorded_fn(app: &App, id: &str, kind: &str, key: &str, name: &str) -> bo
 /// entries there (panels, `session.panel` rows) start, so the entries are the ones they offer.
 pub fn wake_launchers(app: &mut App) -> bool {
     let adopted = super::boot::adopt_later_kinds(app, &["Panel", "MenuItem"]);
-    let woke = wake_owners(app, |c| !c.panels.is_empty() || c.menu_items.iter().any(|m| m.spec.menu == spec::MenuName::SessionPanel));
+    // A plugin whose entries there are all in its record (`launcher_needs`) stays asleep: the
+    // view lists them from it (`panels::asleep_launchers`), and opening one starts it. A launch
+    // reaches this before its first frame, for a side panel saved on New tab
+    // (`panels::sync_empty_side`).
+    let ids: Vec<String> = app.plugins.dormant.asleep.iter().filter(|(_, a)| launcher_needs(&a.record)).map(|(id, _)| id.clone()).collect();
+    let mut woke = false;
+    for id in ids {
+        woke |= wake(app, &id, Why::Use);
+    }
     adopted || woke
 }
 
@@ -379,8 +462,10 @@ fn push_once(list: &mut Vec<(String, Wait)>, id: &str, to: Wait) {
 }
 
 /// Whether session `session`'s side region is open on New tab (empty side strip, or adding a tab).
-fn session_shows_launchers(app: &App, session: &str) -> bool {
+pub(super) fn shows_launchers(app: &App, session: &str) -> bool {
     let side_state = app.kernel.slots.get(&crate::panels::SIDE);
+    // A subagent's page draws its root's strip (`App::panel_root`).
+    let session = app.panel_root(session);
     let st = side_state.sessions.get(session);
     let side_open = if app.settings.shared_side_panel {
         side_state.shared_open.unwrap_or(false)
@@ -401,19 +486,19 @@ fn session_shows_launchers(app: &App, session: &str) -> bool {
 /// the session, and the file viewers when it has a Files tab. A code block a plugin draws asks for
 /// it as it shows ([`want_now`]); a link handler answers when a link is opened.
 fn for_session(app: &App, session: &str) -> Vec<String> {
-    let side = app.kernel.slots.get(&crate::panels::SIDE).sessions.get(session);
+    let side = app.kernel.slots.get(&crate::panels::SIDE).sessions.get(app.panel_root(session));
     let with_tabs: Vec<&str> = side.map(|side| side.tab_state.tabs.all.iter().filter_map(|k| crate::panels::tabs::split_panel_key(k).map(|(plugin, _)| plugin)).collect()).unwrap_or_default();
     let files = with_tabs.contains(&"file");
-    let shows_launchers = session_shows_launchers(app, session);
+    let on_new_tab = shows_launchers(app, session);
     let has = |a: &Asleep, kind: &str| a.record.window.get(kind).is_some_and(|es| !es.is_empty());
-    let has_panel_menu = |a: &Asleep| a.record.window.get("menu_items").is_some_and(|es| es.iter().any(|e| e.spec.get("menu").and_then(|v| v.as_str()) == Some("session.panel")));
+
     app.plugins
         .dormant
         .asleep
         .iter()
         .filter(|(id, a)| {
             let slot = has(a, "slots") && (id.as_str() != "debug" || super::first_screen::debug_bar_shown());
-            let launcher = shows_launchers && (has(a, "panels") || has_panel_menu(a));
+            let launcher = on_new_tab && launcher_needs(&a.record);
             slot || has(a, "composer_pills") || with_tabs.contains(&id.as_str()) || (files && has(a, "file_viewers")) || launcher
         })
         .map(|(id, _)| id.clone())
@@ -422,7 +507,7 @@ fn for_session(app: &App, session: &str) -> Vec<String> {
 
 /// The window routes to session `session`: what its screen draws starts before its frame.
 pub fn wake_for_route(app: &mut App, session: &str) {
-    if session_shows_launchers(app, session) {
+    if shows_launchers(app, session) {
         super::boot::adopt_later_kinds(app, &["Panel", "MenuItem"]);
     }
     for id in for_session(app, session) {
@@ -439,13 +524,25 @@ pub fn near_session(app: &App, session: &str) {
     }
 }
 
+/// The sleeping plugins with a composer pill start from the next turn, one per turn: a launch
+/// leaves them out of its first frame (`first_screen`). True when one was asked for.
+pub fn want_pills(app: &App) -> bool {
+    let mut asked = app.plugins.dormant.asked.borrow_mut();
+    let ids: Vec<&String> = app.plugins.dormant.asleep.iter().filter(|(_, a)| a.wait < Wait::Next && a.record.window.get("composer_pills").is_some_and(|es| !es.is_empty())).map(|(id, _)| id).collect();
+    for id in &ids {
+        push_once(&mut asked, id, Wait::Next);
+    }
+    !ids.is_empty()
+}
+
 /// Keeps server event `ty` for each dormant plugin that listened for it.
-pub fn buffer_event(app: &mut App, ty: &str, data: &serde_json::Value) {
-    for a in app.plugins.dormant.asleep.values_mut().filter(|a| a.record.events.iter().any(|p| ty.starts_with(p.as_str()))) {
-        if a.events.len() >= KEPT_EVENTS {
-            a.events.pop_front();
+pub fn buffer_event(app: &App, ty: &str, data: &serde_json::Value) {
+    for a in app.plugins.dormant.asleep.values().filter(|a| a.record.events.iter().any(|p| ty.starts_with(p.as_str()))) {
+        let mut events = a.events.borrow_mut();
+        if events.len() >= KEPT_EVENTS {
+            events.pop_front();
         }
-        a.events.push_back((ty.to_owned(), data.clone()));
+        events.push_back((ty.to_owned(), data.clone()));
     }
 }
 
@@ -464,18 +561,25 @@ pub fn poll(app: &mut App, tx: &mut Tx) -> bool {
             a.wait = a.wait.max(to);
         }
     }
+    // A launch trace's hold (`--launch-trace-hold`): nothing sleeping starts until it's over.
+    if let Some(left) = crate::launch::trace::held() {
+        if app.plugins.dormant.asleep.values().any(|a| a.wait > Wait::FirstUse) {
+            tx.wake_after(left);
+        }
+        return false;
+    }
     if tx.input_waiting() {
-        if app.plugins.dormant.asleep.values().any(|a| a.wait == Wait::Next) {
+        if app.plugins.dormant.asleep.iter().any(|(id, a)| a.wait == Wait::Next && !debug_held(id)) {
             tx.wake_after(Duration::ZERO);
-        } else if app.plugins.dormant.asleep.values().any(|a| a.wait == Wait::Idle) {
+        } else if app.plugins.dormant.asleep.iter().any(|(id, a)| a.wait == Wait::Idle && !debug_held(id)) {
             tx.wake_after(crate::idle::AFTER);
         }
         return false;
     }
-    let due = |wait: Wait| app.plugins.dormant.asleep.iter().find(|(_, a)| a.wait == wait).map(|(id, _)| id.clone());
+    let due = |wait: Wait| app.plugins.dormant.asleep.iter().find(|(id, a)| a.wait == wait && !debug_held(id)).map(|(id, _)| id.clone());
     if let Some(id) = due(Wait::Next) {
         wake(app, &id, Why::Near);
-        if app.plugins.dormant.asleep.values().any(|a| a.wait > Wait::FirstUse) {
+        if app.plugins.dormant.asleep.iter().any(|(id, a)| a.wait > Wait::FirstUse && !debug_held(id)) {
             tx.wake_after(Duration::ZERO);
         }
         return true;
@@ -493,7 +597,7 @@ pub fn poll(app: &mut App, tx: &mut Tx) -> bool {
         return false;
     }
     wake(app, &id, Why::Idle);
-    if app.plugins.dormant.asleep.values().any(|a| a.wait > Wait::FirstUse) {
+    if app.plugins.dormant.asleep.iter().any(|(id, a)| a.wait > Wait::FirstUse && !debug_held(id)) {
         tx.wake_after(Duration::ZERO);
     }
     true

@@ -66,14 +66,21 @@ pub fn status<S: TimelineHost>(s: &S, session: &str) -> &'static str {
     if shell == Some(true) { opencode_i18n::t!("session.timeline.status.waitingShell") } else { opencode_i18n::t!("session.timeline.status.working") }
 }
 
-/// Whether the turn ends in the thought the model is writing, which stands in for the status
-/// line's Working (`timelineThinking`, `liveThought`).
+/// Whether the running turn ends in its Thinking row, which stands in for the status line's
+/// Working (`message-timeline.tsx:495-500` `liveThought`: the turn has a `Thinking` row): the
+/// thought the model is writing, or the finished thoughts the turn ends on while nothing else
+/// shows after them (`turns::fold_with`, anomalyco/opencode#66349). For a session that is busy.
 pub fn thinking<S: TimelineHost>(s: &S, session: &str) -> bool {
-    if s.timeline_detail().placement(crate::detail::Category::Thinking) == crate::detail::Placement::Hidden {
+    use opencode_kit::model::Message;
+    let detail = s.timeline_detail();
+    if detail.placement(crate::detail::Category::Thinking) == crate::detail::Placement::Hidden {
         return false;
     }
     s.with_transcript(session, |t| {
-        matches!(t.messages.last(), Some(opencode_kit::model::Message::Assistant(a)) if a.completed.is_none() && matches!(a.parts.last(), Some(opencode_kit::model::Part::Reasoning { completed: None, .. })))
+        // The turn's work: what follows the last message that is neither a step nor a notice.
+        let start = t.messages.iter().rposition(|m| !matches!(m, Message::Assistant(_) | Message::Notice(_))).map_or(0, |i| i + 1);
+        let entries = crate::timeline::entries(&t.messages[start..], &detail);
+        matches!(crate::turns::fold_with_flags(&entries, true, &detail, s.full_codemode(session)).last(), Some(crate::turns::Block::Thought { live: true, .. }))
     }) == Some(true)
 }
 
@@ -142,21 +149,28 @@ pub fn sync<S: TimelineHost>(s: &mut S) -> bool {
 /// The label alone on the text column, as Desktop's Working is. Hidden, it is drawn still: its
 /// loops would keep waking frames.
 pub fn row<S: TimelineHost>(s: &S, p: &Pal, session: &str, live: bool) -> El {
-    rune::row().h(H).center_y().child(label(s, p, session, live && !s.reduced_motion()))
+    rune::row().h(LINE).center_y().child(label(s, p, session, live && !s.reduced_motion()))
 }
 
 /// Desktop's Working lane under a turn (`h-9 pt-3`): its row is the bottom 24 of 36.
+/// Official's `StatusLane` (`timeline-next.css:523-541`) lays the 16 pt label flush at its top
+/// gap without the extra 4 pt centering of a 24 pt box (`LANE_TEXT_TOP`).
 pub const LANE_PAD: f32 = 12.0;
+pub const LANE_TEXT_TOP: f32 = 10.0;
 pub const H: f32 = 24.0;
 pub const LANE: f32 = LANE_PAD + H;
+/// The status line's height (`--line-height-compact`).
+pub const LINE: f32 = 16.0;
+/// The lane's row (`timeline-status-lane`: flex, centred, 8 apart): the status line and what
+/// sits beside it, the background hint's 24 pt button centred on the line and reaching 4 past it.
+pub const ROW_TOP: f32 = LANE_TEXT_TOP - (H - LINE) / 2.0;
 
 /// Desktop's reply Copy in that lane (`text-part-copy-wrapper`): a 20 pt square holding a 14 pt
-/// glyph in its middle, 8 pt under the reply's last line. The square hangs into the gutter so
-/// at rest the glyph's ink, not its square, lines up with the reply's letters, which start
-/// about half a point inside their box.
+/// glyph in its middle, 8 pt under the reply's last line, pulled 2 pt toward the text edge when
+/// it leads the footer (`message-part.css:607-609`, `margin-inline-start: -2px`).
 pub const COPY: f32 = 20.0;
 pub const COPY_GLYPH: f32 = 14.0;
-pub const COPY_AT: (f32, f32) = (-3.5, 8.0);
+pub const COPY_AT: (f32, f32) = (-2.0, 8.0);
 
 /// A label's width at the row's 13 px Inter.
 pub fn width(label: &str) -> f32 {
@@ -165,11 +179,14 @@ pub fn width(label: &str) -> f32 {
 
 fn label<S: TimelineHost>(s: &S, p: &Pal, session: &str, on: bool) -> El {
     let words = status(s, session);
+    if !on {
+        // Under reduced motion official inherits `[data-slot="timeline-status-label"]`'s muted ink
+        // (`timeline-next.css:566`, `packages/ui/src/typography/text-shimmer/text-shimmer.css:135-147`),
+        // not shimmer's faint base color.
+        return rune::row().child(text(words).key("label").font(UI).color(p.muted));
+    }
     let (weak, strong) = colors(p);
     let base = text(words).key("label").font(UI).color(weak);
-    if !on {
-        return rune::row().child(base);
-    }
     let clock = s.clock();
     let run = Run { since: s.working_state().since.get(session).copied().unwrap_or(clock), now: clock };
     let lit = weak.mix(strong, s.knobs().get(&WORKING_INTENSITY));

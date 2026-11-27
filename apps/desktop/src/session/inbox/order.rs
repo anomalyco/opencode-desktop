@@ -21,14 +21,29 @@ pub enum Group {
     /// The open session when no group shows it: unheaded, first.
     Current,
     Needs,
-    Unread,
+    /// The pinned sessions, then the settled ones: unheaded.
     Recent,
-    /// The pinned shelf below the list.
+    /// The shelf below the list, or a group in it (`workingPlacement`).
     Working,
+    /// Under a header that folds, shut at first.
+    Archived,
 }
 
 impl Group {
-    pub const ALL: [Group; 5] = [Group::Current, Group::Needs, Group::Unread, Group::Recent, Group::Working];
+    pub const ALL: [Group; 5] = [Group::Current, Group::Needs, Group::Recent, Group::Working, Group::Archived];
+}
+
+/// Which of the list's folds are open (`recentExpanded`, `archivedExpanded`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct Folds {
+    pub recent: bool,
+    pub archived: bool,
+}
+
+impl From<crate::restore::InboxUi> for Folds {
+    fn from(ui: crate::restore::InboxUi) -> Folds {
+        Folds { recent: ui.recent_expanded, archived: ui.archived_expanded }
+    }
 }
 
 /// One row: its session, on its server.
@@ -48,13 +63,14 @@ pub struct Order {
     pub rows: Vec<Shown>,
     /// Where each group's rows are in `rows`, in [`Group::ALL`]'s order.
     pub groups: [Range<usize>; 5],
+    /// How many of Recent's rows are pinned: they lead it, whatever Show more says.
+    pub pinned: usize,
     /// Recent has more than it shows shut.
     pub more: bool,
-    /// Shut, Recent shows its first [`RECENT_LIMIT`]: the open session past them shows as the
-    /// current row (its place in `rows`).
-    pub shut_current: Option<usize>,
-    /// Some session is archived: the Archived button shows.
-    pub archived: bool,
+    /// The open session's place in `rows`, in Recent or Archived: a fold that hides it (Recent
+    /// shut shows its pins and its first [`RECENT_LIMIT`], Archived shut none) shows it as the
+    /// current row.
+    pub open: Option<usize>,
     /// Which reading this is: a new one has a new number.
     pub generation: u64,
 }
@@ -64,12 +80,16 @@ impl Order {
         &self.rows[self.groups[g as usize].clone()]
     }
 
-    /// The places in `rows` group `g` shows, with Recent open (`expanded`) or shut.
-    pub fn shows(&self, g: Group, expanded: bool) -> Vec<usize> {
+    /// The places in `rows` group `g` shows under `folds`.
+    pub fn shows(&self, g: Group, folds: Folds) -> Vec<usize> {
         let range = self.groups[g as usize].clone();
         match g {
-            Group::Recent if !expanded => range.take(RECENT_LIMIT).collect(),
-            Group::Current if !expanded => range.chain(self.shut_current).collect(),
+            Group::Recent if !folds.recent => range.take(self.pinned + RECENT_LIMIT).collect(),
+            Group::Archived if !folds.archived => Vec::new(),
+            Group::Current => {
+                let folded = |at: &usize| !self.shows(Group::Recent, folds).contains(at) && !self.shows(Group::Archived, folds).contains(at);
+                range.chain(self.open.filter(folded)).collect()
+            }
             _ => range.collect(),
         }
     }
@@ -82,19 +102,17 @@ impl Order {
     fn of(app: &App, sections: &Sections<'_>) -> Order {
         let mut rows = Vec::new();
         let mut groups: [Range<usize>; 5] = Default::default();
-        for (g, entries) in [&sections.current, &sections.needs, &sections.unread, &sections.recent, &sections.working].into_iter().enumerate() {
+        for (g, entries) in [&sections.current, &sections.needs, &sections.recent, &sections.working, &sections.archived].into_iter().enumerate() {
             let start = rows.len();
             rows.extend(entries.iter().map(shown));
             groups[g] = start..rows.len();
         }
-        // Read with Recent open: shut, the open session past its cap stands first, unheaded.
-        let shut_current = if sections.current.is_empty() {
-            sections.recent.iter().skip(RECENT_LIMIT).position(|e| app.inbox_selected(e)).map(|k| groups[Group::Recent as usize].start + RECENT_LIMIT + k)
-        } else {
-            None
-        };
+        // Read with Recent and Archived open: shut, the open session they hide stands first, unheaded.
+        let open = [(Group::Recent, &sections.recent), (Group::Archived, &sections.archived)]
+            .into_iter()
+            .find_map(|(g, entries)| entries.iter().position(|e| app.inbox_selected(e)).map(|k| groups[g as usize].start + k));
         GENERATION.set(GENERATION.get() + 1);
-        Order { rows, groups, more: sections.more, shut_current, archived: sections.archived, generation: GENERATION.get() }
+        Order { rows, groups, pinned: sections.pinned, more: sections.more, open, generation: GENERATION.get() }
     }
 }
 
@@ -121,7 +139,7 @@ impl App {
         {
             return order.clone();
         }
-        let order = Rc::new(Order::of(self, &self.inbox_sections_with(true)));
+        let order = Rc::new(Order::of(self, &self.inbox_sections_with(true, true)));
         *self.sidebar_inbox.order.0.borrow_mut() = Some((key, order.clone()));
         order
     }
@@ -147,6 +165,7 @@ impl App {
             self.kernel.slots.version(&crate::session_menu::MENUS),
         )
             .hash(&mut h);
+        self.kernel.slots.version(&crate::tabs::pins::PINS).hash(&mut h);
         crate::servers::runtime::active(self).hash(&mut h);
         crate::servers::runtime::version().hash(&mut h);
         let inbox = &*self.sidebar_inbox;
@@ -157,7 +176,7 @@ impl App {
             kv.hash(&mut one);
             acc ^ one.finish()
         }).hash(&mut h);
-        inbox.archived.iter().map(|a| (&a.id, a.archived)).for_each(|a| a.hash(&mut h));
+        self.inbox_archived().iter().map(|a| (&a.id, &a.title, a.archived)).for_each(|a| a.hash(&mut h));
         inbox.other_servers_hash(&mut h);
         h.finish()
     }

@@ -9,7 +9,7 @@ use std::collections::HashMap;
 use std::rc::Rc;
 
 use mlua::{Lua, Table, Value};
-use rune::{Color, Cursor, El, GrowthSpec, Tx, col, el, icon, row, text};
+use rune::{Color, El, GrowthSpec, Tx, col, el, icon, row, text};
 use rune_kit::diff::FileStatus;
 use rune_luau::{Data, NodeArgs, Press};
 use rune_theme_opencode::tree_icons;
@@ -157,6 +157,13 @@ fn workspace(app: &App, p: &Pal, a: &NodeArgs, sid: &str, kinds: Rc<HashMap<Stri
         return col().key("files-tree-loading").w_full().grow(1.0).px(10.0).pt(8.0).child(text(opencode_i18n::t!("ui.sessionReview.image.loading")).font(UI_SMALL).color(p.muted));
     }
     if filter.is_empty() {
+        // Probe installed external apps off-thread as soon as the tree mounts, matching
+        // Desktop's `PierreFileTree` (`pierre-tree.tsx:162` -> `open-in-app.tsx:86-89`), so
+        // the first right-click already lists VS Code, PowerShell, etc.
+        #[cfg(not(target_arch = "wasm32"))]
+        if app.can_open_in() {
+            let _ = app.kernel.slots.get(&crate::open_in::OPEN_IN).options();
+        }
         let tree_hash = {
             use std::hash::{DefaultHasher, Hash, Hasher};
             let mut expanded_xor = 0u64;
@@ -213,6 +220,10 @@ fn picked(row: El, pick: &Option<Press>, path: &str) -> El {
 }
 
 fn change_tree(app: &App, p: &Pal, sid: &str, kinds: Rc<HashMap<String, String>>, selected: Option<String>, pick: Option<Press>) -> El {
+    #[cfg(not(target_arch = "wasm32"))]
+    if app.can_open_in() {
+        let _ = app.kernel.slots.get(&crate::open_in::OPEN_IN).options();
+    }
     let count = app.kernel.slots.get(&crate::review::REVIEW).sessions.get(sid).map_or(0, |r| r.tree.visible_len());
     let (sid_keys, sid_rows) = (sid.to_owned(), sid.to_owned());
     let pal = *p;
@@ -241,7 +252,9 @@ fn change_tree(app: &App, p: &Pal, sid: &str, kinds: Rc<HashMap<String, String>>
                 let glyph = (!dir).then(|| tree_icons::file(node.name.as_str()));
                 let on = selected.as_deref() == Some(tr.id);
                 let sr = &s.kernel.slots.get(&crate::review::REVIEW).sessions[&sid_rows];
-                let row = chrome::tree_row(&pal, node.name.as_str(), tr.depth, dir.then(|| sr.tree.is_expanded(tr.id)), glyph, on)
+                // Review uses the same `@pierre/trees` component (`12px`, weight `500`) as Files
+                // (`packages/gui-plugins/src/review/panel.tsx:473`, `file/pierre-tree.tsx:37, 79`).
+                let row = chrome::tree_row_in(&pal, node.name.as_str(), tr.depth, dir.then(|| sr.tree.is_expanded(tr.id)), glyph, on, chrome::PIERRE)
                     .position_in_set(i + 1, count)
                     .children((!dir).then(|| kinds.get(tr.id).and_then(|k| letter(&pal, k))).flatten())
                     .children(sr.folder_label(tr.id).map(|label| text(label).font(MONO_COUNT).color(pal.faint)));
@@ -261,13 +274,20 @@ fn change_tree(app: &App, p: &Pal, sid: &str, kinds: Rc<HashMap<String, String>>
         );
     // Desktop's Pierre tree scrolls itself, with its own bar (`session-review-v2.css:213-220`;
     // `--trees-fg` muted on `bg-base`, `gui-plugins/src/file/pierre-tree.tsx:36-38`).
-    crate::files::view::tree_scroll::<App>(p, "review-tree", list)
+    crate::files::view::tree_scroll::<App>(p, "review-tree", sid, list)
 }
 
-/// The change tree's Right and Left, as the Files tree's (`files::view::tree_key`).
+/// The change tree's Right, Left, PageUp and PageDown, as the Files tree's (`files::view::tree_key`).
 fn change_tree_key(s: &mut App, sid: &str, ev: &rune::KeyEvent, tx: &mut Tx) -> bool {
+    if ev.mods != rune::Mods::default() { return false; }
+    if matches!(ev.key, rune::Key::PageUp | rune::Key::PageDown)
+        && tx.focused().is_some_and(|k| k.starts_with("rt:"))
+    {
+        crate::files::view::page_tree(tx, "review-tree", sid, if ev.key == rune::Key::PageDown { 1 } else { -1 });
+        return true;
+    }
     let right = matches!(ev.key, rune::Key::Right);
-    if !(right || matches!(ev.key, rune::Key::Left)) || ev.mods != rune::Mods::default() { return false; }
+    if !(right || matches!(ev.key, rune::Key::Left)) { return false; }
     let Some(id) = tx.focused().and_then(|k| k.strip_prefix("rt:")).map(str::to_owned) else { return false };
     let Some(sr) = s.kernel.slots.get(&crate::review::REVIEW).sessions.get(sid) else { return false };
     let dir = sr.tree.get(&id).is_some_and(|n| n.dir);
@@ -296,6 +316,16 @@ fn filtered(app: &App, p: &Pal, sid: &str, query: &str, _kinds: Rc<HashMap<Strin
     if found.is_empty() {
         return col().key("review-filter-empty").w_full().grow(1.0).px(10.0).pt(8.0).child(text(opencode_i18n::t!("rune.files.noMatches")).font(UI_SMALL).color(p.muted));
     }
+    let effective_highlight = highlighted
+        .or_else(|| {
+            app.kernel
+                .slots
+                .get(&crate::review::REVIEW)
+                .sessions
+                .get(sid)
+                .and_then(|sr| sr.highlighted_filter_path.clone())
+        })
+        .filter(|h| found.iter().any(|p| p == h));
     let keys = found.clone();
     let sid_rows = sid.to_owned();
     let pal = *p;
@@ -306,7 +336,8 @@ fn filtered(app: &App, p: &Pal, sid: &str, query: &str, _kinds: Rc<HashMap<Strin
         move |s: &App, i| {
             let path = &found[i];
             let meta = s.kernel.slots.get(&crate::review::REVIEW).sessions.get(&sid_rows).and_then(|sr| sr.meta.iter().find(|m| &m.path == path));
-            let on = selected.as_deref() == Some(path.as_str()) || highlighted.as_deref().map_or(i == 0, |h| h == path);
+            let is_highlighted = effective_highlight.as_deref().map_or(i == 0, |h| h == path);
+            let on = selected.as_deref() == Some(path.as_str()) || is_highlighted;
             let (dir, name) = (Some(opencode_kit::path::parent(path)).filter(|d| !d.is_empty()), opencode_kit::path::basename(path));
             let t = tree_icons::file(name);
             let mut r = row()
@@ -319,8 +350,8 @@ fn filtered(app: &App, p: &Pal, sid: &str, query: &str, _kinds: Rc<HashMap<Strin
                 .fill(if on { pal.row_active } else { Color::TRANSPARENT })
                 .hover(pal.hover)
                 .hover_motion(rune::Anim::INSTANT, rune::Anim::INSTANT)
-                .cursor(Cursor::Pointer)
                 .role("option")
+                .checked(is_highlighted)
                 .child(icon(t.icon(), 16.0).color(if on { t.color(pal.dark) } else { pal.icon_muted }))
                 .child(text(name.to_owned()).font(UI_SMALL).color(pal.text).shrink().min_w(0.0).truncate_fade());
             r = match dir {
@@ -334,7 +365,7 @@ fn filtered(app: &App, p: &Pal, sid: &str, query: &str, _kinds: Rc<HashMap<Strin
         },
     );
     // The filter's rows in the same Pierre tree as the folders, with its bar.
-    crate::files::view::tree_scroll::<App>(p, "review-filter-scroll", list)
+    crate::files::view::tree_scroll::<App>(p, "review-filter-scroll", sid, list)
 }
 
 fn counts(p: &Pal, adds: u32, dels: u32) -> El {

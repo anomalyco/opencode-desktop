@@ -3,9 +3,11 @@
 //! each with its mark and its number key, over a footer tray with Dismiss, Back and Next or
 //! Submit. The header's chevron folds the dock down to its question.
 //!
-//! Keys: 1–9 pick, ↑/↓ (←/→, Home/End) move between answers, Space or ↵ picks the one moved to,
-//! ⌘↵ (Ctrl+↵) goes on or submits, ⌘[ (Alt+← off a Mac) goes back, Esc dismisses. In "Type your
-//! own answer", keys type, ↵ and Esc leave the field.
+//! Keys: 1–9 pick, ↑/↓ (←/→, Home/End) move between answers, Space picks the one moved to, the
+//! submit key (↵, or ⌘↵ / Ctrl+↵ by the setting) picks it and goes on or submits, the other Enter
+//! only picks, ⌘↵ (Ctrl+↵) always goes on, ⌘[ (Alt+← off a Mac) goes back, Esc dismisses. In "Type
+//! your own answer", keys type, the submit key goes on, the other Enter starts a new line, ↑ at
+//! its start goes back to the answers and Esc leaves the field.
 
 use std::f32::consts::PI;
 
@@ -25,7 +27,8 @@ const HINT: TextStyle = TextStyle::new(13.0, 440.0).lh(20.0);
 const LABEL: TextStyle = TextStyle::new(13.0, 440.0).lh(20.0).tracking(-0.04);
 /// `option-description`: compact leading (OpenCode ee5dfa9d41, `question-prompt.css`).
 const DESC: TextStyle = TextStyle::new(12.0, 440.0).lh(16.0).tracking(0.05);
-const INPUT: TextStyle = TextStyle::new(13.0, 440.0).lh(16.0);
+/// `question-custom-input`: 13 px on an 18 px line (`question-prompt.css:397-420`).
+const INPUT: TextStyle = TextStyle::new(13.0, 440.0).lh(18.0);
 /// A number key's cap (`keybind-v2` at the shortcut's 10 px, regular).
 const KEY: TextStyle = TextStyle::new(10.0, 400.0).lh(11.0).tracking(0.05).features("\"tnum\", \"lnum\"");
 fn custom_label() -> &'static str {
@@ -68,7 +71,7 @@ pub fn face<S: DockHost>(s: &S, p: &Pal) -> Option<Vec<El>> {
         .center_y()
         .child(text(title).key("q-title").font(HEAD).color(p.muted).wrap_anywhere().shrink())
         .child(spacer())
-        .child(row().key("q-header-actions").gap(8.0).center_y().children((total > 1).then(|| progress(s, p, &f, tab))).child(chevron::<S>(p, minimized)));
+        .child(row().key("q-header-actions").gap(8.0).center_y().children((total > 1).then(|| progress(s, p, &f, tab, live))).child(chevron::<S>(p, minimized, live)));
     let text_of = if field.description.is_empty() { &field.title } else { &field.description };
     let question = text(text_of.clone()).key("q-text").font(QUESTION).color(p.text).wrap_anywhere();
     let question = readable(p, if minimized { question.max_lines(3) } else { question });
@@ -85,7 +88,16 @@ pub fn face<S: DockHost>(s: &S, p: &Pal) -> Option<Vec<El>> {
     // Folded, the answers close to nothing but keep their place, and the body's gap above them.
     let folded = minimized.then(|| el().key("q-folded").w_full().h(0.0));
     let options = (!minimized).then(|| {
-        let mut answers = col().key(format!("q-options-{tab}")).w_full().gap(6.0).role(if multi { "group" } else { "radiogroup" });
+        // Answer cards are focusable `on_press` elements, so under `web_focus` Rune activates
+        // their `on_press` on unmodified Enter/Space before the window's `on_key` sees it.
+        // Handling option keys on the group lets Enter submit (or select per setting) first;
+        // Rune skips `El::on_key` while the typed-answer text field `q-input` has focus.
+        let mut answers = col()
+            .key(format!("q-options-{tab}"))
+            .w_full()
+            .gap(6.0)
+            .role(if multi { "group" } else { "radiogroup" })
+            .on_key(|s: &mut S, ev, tx| super::key(s, ev, tx));
         for (i, (value, label, desc)) in list.iter().enumerate() {
             let picked = picks.contains(value);
             let card = card(p, picked, ring && focus == i, d.keyboard)
@@ -97,13 +109,6 @@ pub fn face<S: DockHost>(s: &S, p: &Pal) -> Option<Vec<El>> {
                 .no_focus_ring()
                 .items_start()
                 .padding(10.0)
-                .on_press_tx(move |s: &mut S, tx: &mut Tx| {
-                    let Some(f) = asking(s) else { return };
-                    let (tab, _) = place(s, &f);
-                    select(s, &f, tab, i);
-                    let d = dock(s, &f);
-                    (d.focus, d.keyboard) = (i, tx.focus_visible());
-                })
                 .child(mark(p, multi, picked, d.keyboard))
                 .child(
                     col()
@@ -111,10 +116,21 @@ pub fn face<S: DockHost>(s: &S, p: &Pal) -> Option<Vec<El>> {
                         .grow(1.0)
                         .shrink()
                         .gap(4.0)
-                        .child(text(label.clone()).key("label").font(LABEL).color(p.text).wrap_anywhere())
-                        .children((!desc.is_empty()).then(|| text(desc.clone()).key("description").font(DESC).color(p.muted).wrap_anywhere())),
+                        .child(text(label.clone()).key("label").dir(rune::Direction::Auto).font(LABEL).color(p.text).wrap_anywhere())
+                        .children((!desc.is_empty()).then(|| text(desc.clone()).key("description").dir(rune::Direction::Auto).font(DESC).color(p.muted).wrap_anywhere())),
                 )
                 .children((i < 9).then(|| shortcut(p, i + 1, picked, d.keyboard)));
+            let card = if live {
+                card.on_press_tx(move |s: &mut S, tx: &mut Tx| {
+                    let Some(f) = asking(s) else { return };
+                    let (tab, _) = place(s, &f);
+                    select(s, &f, tab, i);
+                    let d = dock(s, &f);
+                    (d.focus, d.keyboard) = (i, tx.focus_visible());
+                })
+            } else {
+                card.disabled(true).focusable(false)
+            };
             answers = answers.child(card);
         }
         if has_custom(field) {
@@ -147,7 +163,8 @@ pub fn face<S: DockHost>(s: &S, p: &Pal) -> Option<Vec<El>> {
     let last = f.last(tab);
     // Both labels keep their room so the button doesn't change width between Next and Submit.
     let advance_w = [opencode_i18n::t!("ui.common.next"), opencode_i18n::t!("ui.common.submit")].map(|l| rune::text::measure(l, &[], BUTTON, None).0).into_iter().fold(0.0, f32::max) + 30.0;
-    let (submit, back) = if MAC { ("⌘⏎".to_owned(), "⌘[".to_owned()) } else { (format!("{}+⏎", opencode_i18n::t!("common.key.ctrl")), format!("{}+←", opencode_i18n::t!("common.key.alt"))) };
+    let submit = submit_hint(s.dock_question_submit());
+    let back = if MAC { "⌘[".to_owned() } else { format!("{}+←", opencode_i18n::t!("common.key.alt")) };
     let footer = row()
         .key("question-footer")
         .w_full()
@@ -166,34 +183,35 @@ pub fn face<S: DockHost>(s: &S, p: &Pal) -> Option<Vec<El>> {
         .paint_order(-1)
         .center_y()
         .transition(fade())
-        .child(button(p, "q-dismiss", opencode_i18n::t!("ui.common.dismiss"), Variant::GhostMuted, None, live).help(format!("{} Esc", opencode_i18n::t!("ui.common.dismiss"))).on_press_tx(|s: &mut S, tx: &mut Tx| {
-            if let Some(f) = asking(s) {
-                dismiss(s, &f, tx)
-            }
-        }))
+        .child({
+            let b = button(p, "q-dismiss", opencode_i18n::t!("ui.common.dismiss"), Variant::GhostMuted, None, live).help(format!("{} Esc", opencode_i18n::t!("ui.common.dismiss"))).help_above();
+            if live { b.on_press_tx(|s: &mut S, tx: &mut Tx| if let Some(f) = asking(s) { dismiss(s, &f, tx) }) } else { b }
+        })
         .child(spacer())
         .child(
             row()
                 .key("q-actions")
                 .gap(8.0)
                 .children((tab > 0).then(|| {
-                    button(p, "q-back", opencode_i18n::t!("ui.common.back"), Variant::Neutral, None, live).help(format!("{} {back}", opencode_i18n::t!("ui.common.back"))).on_press_tx(|s: &mut S, tx: &mut Tx| {
-                        let Some(f) = asking(s) else { return };
-                        let (tab, _) = place(s, &f);
-                        jump(s, &f, tab.saturating_sub(1), tx);
-                    })
+                    let b = button(p, "q-back", opencode_i18n::t!("ui.common.back"), Variant::Neutral, None, live).help(format!("{} {back}", opencode_i18n::t!("ui.common.back"))).help_above();
+                    if live {
+                        b.on_press_tx(|s: &mut S, tx: &mut Tx| {
+                            let Some(f) = asking(s) else { return };
+                            let (tab, _) = place(s, &f);
+                            jump(s, &f, tab.saturating_sub(1), tx);
+                        })
+                    } else {
+                        b
+                    }
                 }))
                 .child({
                     let label = if last { opencode_i18n::t!("ui.common.submit") } else { opencode_i18n::t!("ui.common.next") };
-                    button(p, "q-next", label, if last { Variant::Contrast } else { Variant::Neutral }, None, live)
+                    let b = button(p, "q-next", label, if last { Variant::Contrast } else { Variant::Neutral }, None, live)
                         .w(advance_w)
                         .justify_center()
                         .help(format!("{label} {submit}"))
-                        .on_press_tx(|s: &mut S, tx: &mut Tx| {
-                            if let Some(f) = asking(s) {
-                                next(s, &f, tx)
-                            }
-                        })
+                        .help_above();
+                    if live { b.on_press_tx(|s: &mut S, tx: &mut Tx| if let Some(f) = asking(s) { next(s, &f, tx) }) } else { b }
                 }),
         );
     Some(vec![body, footer])
@@ -206,13 +224,14 @@ fn feedback(keyboard: bool) -> Anim {
 }
 
 /// An answer's card (`question-option`): `bg-base` under a hairline; picked, a raised card on a
-/// `layer-01` wash (#62896); under the pointer, `layer-02`; moved to by key, the focus ring. The
+/// `layer-02` wash; under the pointer, `layer-01` (anomalyco/opencode#66169 swapped the two,
+/// `question-prompt.css:2`, `:488`); moved to by key, the focus ring. The
 /// hover's `background-color` and the wash's opacity (its `::before`) both ease on `feedback`;
 /// the hairline goes at once (`box-shadow` isn't transitioned). The hover is the pointer's own
 /// track, so moving over the answers commits nothing.
 fn card(p: &Pal, picked: bool, ring: bool, keyboard: bool) -> El {
     let ease = feedback(keyboard);
-    let wash = p.layer1;
+    let wash = p.layer2;
     // Its hairline, elevation and ring change at once (`Spring::NONE`): only the hover and the wash ease.
     let c = row().w_full().gap(8.0).radius(6.0).fill(p.bg_base).motion(Spring::NONE).hover_motion(ease, ease);
     let c = if picked {
@@ -220,7 +239,7 @@ fn card(p: &Pal, picked: bool, ring: bool, keyboard: bool) -> El {
         let [far, near, edge_ring, edge] = p.raised;
         c.box_shadow(edge).box_shadow(edge_ring).box_shadow(near).box_shadow(far)
     } else {
-        c.hover(p.layer2).box_shadow(Shadow { spread: 0.5, color: p.border, inset: true, ..Shadow::default() })
+        c.hover(p.layer1).box_shadow(Shadow { spread: 0.5, color: p.border, inset: true, ..Shadow::default() })
     };
     // Under a contrast theme every card has a solid edge, so the ring is 3 wide to stand clear of it.
     let c = if ring { c.box_shadow(Shadow { spread: if p.forced { 3.0 } else { crate::focus::WIDTH }, color: p.q.focus, inset: true, ..Shadow::default() }) } else { c };
@@ -228,38 +247,45 @@ fn card(p: &Pal, picked: bool, ring: bool, keyboard: bool) -> El {
 }
 
 /// The header's progress: a bar per question, accent once answered, muted on the current one.
-fn progress<S: DockHost>(s: &S, p: &Pal, f: &Form, tab: usize) -> El {
+fn progress<S: DockHost>(s: &S, p: &Pal, f: &Form, tab: usize, live: bool) -> El {
     row().key("q-progress").gap(2.0).center_y().children((0..f.fields.len()).map(|i| {
         let color = if i == tab { p.icon_muted } else if answered(s, f, i) { p.bg_accent } else { p.q.layer4 };
-        el().key(format!("q-seg-{i}"))
+        let seg = el()
+            .key(format!("q-seg-{i}"))
             .role("button")
             .label(opencode_i18n::t!("ui.tool.questions.numbered", number = i + 1))
             .size(20.0, 20.0)
             .radius(4.0)
             .focus_inset(p)
             .center()
-            .hover(p.hover)
-            .on_press_tx(move |s: &mut S, tx: &mut Tx| {
+            .child(el().key("bar").size(14.0, 2.0).fill(color));
+        if live {
+            seg.hover(p.hover).on_press_tx(move |s: &mut S, tx: &mut Tx| {
                 if let Some(f) = asking(s) {
                     jump(s, &f, i, tx)
                 }
             })
-            .child(el().key("bar").size(14.0, 2.0).fill(color))
+        } else {
+            seg.disabled(true).focusable(false).hit().cursor(rune::Cursor::NotAllowed)
+        }
     }))
 }
 
 /// The header's chevron (`icon-button-v2`, ghost, large): folds the dock to its question and back,
 /// turning over as it does.
-fn chevron<S: DockHost>(p: &Pal, minimized: bool) -> El {
-    el().key("q-minimize")
+fn chevron<S: DockHost>(p: &Pal, minimized: bool, live: bool) -> El {
+    let label = if minimized { opencode_i18n::t!("session.question.restore") } else { opencode_i18n::t!("session.question.minimize") };
+    let b = el()
+        .key("q-minimize")
         .role("button")
-        .label(if minimized { opencode_i18n::t!("session.question.restore") } else { opencode_i18n::t!("session.question.minimize") })
+        .label(label)
+        .expanded(!minimized)
         .size(28.0, 28.0)
         .radius(6.0)
         .center()
-        .hover(p.hover)
-        .press(p.pressed)
-        .on_press_tx(|s: &mut S, tx: &mut Tx| {
+        .child(icon(&ic::CHEVRON_DOWN, 16.0).color(p.icon_muted).rotate(if minimized { PI } else { 0.0 }).rotate_motion(FOLD));
+    if live {
+        b.focus_default(p).help(label).help_above().hover(p.hover).press(p.pressed).on_press_tx(|s: &mut S, tx: &mut Tx| {
             let Some(f) = asking(s) else { return };
             tx.motion_curve(FOLD);
             let (tab, _) = place(s, &f);
@@ -270,7 +296,9 @@ fn chevron<S: DockHost>(p: &Pal, minimized: bool) -> El {
             d.focus = focus;
             d.keyboard = false;
         })
-        .child(icon(&ic::CHEVRON_DOWN, 16.0).color(p.icon_muted).rotate(if minimized { PI } else { 0.0 }).rotate_motion(FOLD))
+    } else {
+        b.opacity(0.5).disabled(true).focusable(false)
+    }
 }
 
 /// An answer's mark (`question-option-check`): a circle for one answer, a square for many,
@@ -308,8 +336,10 @@ fn shortcut(p: &Pal, n: usize, picked: bool, keyboard: bool) -> El {
 }
 
 /// "Type your own answer" (`question-option[data-custom]`): its mark, the field in an answer's
-/// place, and its number key.
+/// place, and its number key. The field is of several lines and grows with its text
+/// (anomalyco/opencode#66169: a `textarea`, `question-prompt.css:361-420`).
 fn custom<S: DockHost>(s: &S, p: &Pal, f: &Form, tab: usize, multi: bool, editing: bool, ring: bool) -> El {
+    let live = !super::busy(s, f);
     let field = &f.fields[tab];
     let k = f.key(tab);
     let i = rows(field).len();
@@ -320,11 +350,9 @@ fn custom<S: DockHost>(s: &S, p: &Pal, f: &Form, tab: usize, multi: bool, editin
         .key("q-input")
         .spellcheck(s.composer_spellcheck())
         .label(custom_label())
-        .single_line()
-        // `dir="auto"` (`session-question-dock-classic.tsx:673`).
+        // `dir="auto"` (`session-question-dock-classic.tsx:725`).
         .dir(rune::Direction::Auto)
-        .grow(1.0)
-        .min_w(0.0)
+        .w_full()
         .color(p.text)
         .placeholder(custom_label(), if editing { p.faint } else { p.text })
         .caret(p.text, p.selection).selection_style(p.field_selection)
@@ -340,48 +368,66 @@ fn custom<S: DockHost>(s: &S, p: &Pal, f: &Form, tab: usize, multi: bool, editin
             }
         })
         .on_input_key(|s: &mut S, ev, tx| typed_key(s, ev, tx));
-    // Open, the field gets a box of its own with the focus ring.
+    // Six lines at most, then it scrolls inside itself, with a plain `overflow-y: auto` box's bar.
+    let input = crate::scroller::scroller(format!("q-input-scroll-{tab}")).build::<S>(p, col().grow(1.0).min_w(0.0).max_h(FIELD_MAX_H), input);
+    // Open, the field gets a box of its own with the focus ring. 5 over and under its 18 pt
+    // lines: 28 tall on one line, taller as it wraps or takes a new line.
     let input = if editing {
         let lit = Color::WHITE.alpha(0.02);
         row()
             .key("q-field")
             .grow(1.0)
             .min_w(0.0)
-            .h(28.0)
+            .min_h(28.0)
             .px(8.0)
-            .center_y()
+            .pt(5.0)
+            .pb(5.0)
             .radius(6.0)
             .fill(p.bg_base)
             .gradient(lit, Color::WHITE.alpha(0.0))
             .box_shadow(Shadow { spread: 1.0, color: p.q.focus, inset: true, ..Shadow::default() })
             .child(input)
     } else {
-        row().key("q-field").grow(1.0).min_w(0.0).h(28.0).center_y().child(input)
+        row().key("q-field").grow(1.0).min_w(0.0).min_h(28.0).pt(5.0).pb(5.0).child(input)
     };
     let keyboard = s.dock().keyboard;
-    card(p, on, ring, keyboard)
+    // `question-custom-toggle`: 4 under the row's top, level with the field's first line.
+    let mark_el = mark(p, multi, on, keyboard).key("q-custom-mark").mt(4.0).role(if multi { "checkbox" } else { "radio" }).label(custom_label());
+    let mark_el = if live {
+        mark_el.cursor(rune::Cursor::Pointer).on_press_tx(|s: &mut S, _: &mut Tx| {
+            let Some(f) = asking(s) else { return };
+            let (tab, _) = place(s, &f);
+            toggle_custom(s, &f, tab);
+            dock(s, &f).keyboard = false;
+        })
+    } else {
+        mark_el.disabled(true).focusable(false)
+    };
+    let row_card = card(p, on, ring, keyboard)
         .key("q-custom")
         .role(if multi { "checkbox" } else { "radio" })
         .label(custom_label())
         .checked(on)
         .no_focus_ring()
-        .h(40.0)
+        // `align-items: flex-start; min-block-size: 40px; padding-block: 6px`.
+        .min_h(40.0)
         .px(10.0)
-        .center_y()
-        .on_press_tx(|s: &mut S, _: &mut Tx| {
+        .pt(6.0)
+        .pb(6.0)
+        .items_start()
+        .child(mark_el)
+        .child(input)
+        .children((i < 9).then(|| shortcut(p, i + 1, on, keyboard)));
+    if live {
+        row_card.on_press_tx(|s: &mut S, _: &mut Tx| {
             let Some(f) = asking(s) else { return };
             let (tab, _) = place(s, &f);
             start_typing(s, &f, tab);
             dock(s, &f).keyboard = false;
         })
-        .child(mark(p, multi, on, keyboard).role(if multi { "checkbox" } else { "radio" }).label(custom_label()).on_press_tx(|s: &mut S, _: &mut Tx| {
-            let Some(f) = asking(s) else { return };
-            let (tab, _) = place(s, &f);
-            toggle_custom(s, &f, tab);
-            dock(s, &f).keyboard = false;
-        }))
-        .child(input)
-        .children((i < 9).then(|| shortcut(p, i + 1, on, keyboard)))
+    } else {
+        row_card.disabled(true).focusable(false)
+    }
 }
 
 /// Back: ⌘[ on a Mac, Alt+← elsewhere.
@@ -400,27 +446,33 @@ fn advance(ev: &KeyEvent) -> bool {
 /// A key while the Classic dock shows (its `nav`); false when it isn't the dock's.
 pub fn key<S: DockHost>(s: &mut S, ev: &KeyEvent, tx: &mut Tx) -> bool {
     let Some(f) = asking(s) else { return false };
+    if !super::focus_in_dock(tx.focused()) {
+        return false;
+    }
     let (tab, focus) = place(s, &f);
     let field = &f.fields[tab];
     let n = rows(field).len();
+    let focus = focused_option(tx.focused(), n, has_custom(field)).unwrap_or(focus);
     let count = count(field);
     let minimized = s.dock().minimized;
-    dock(s, &f).keyboard = true;
     // A reply on its way: Esc, Back and the advance key do nothing, and the rest aren't the dock's.
     if super::busy(s, &f) {
         return ev.key == Key::Escape || back(ev) || advance(ev);
     }
     if ev.key == Key::Escape {
+        dock(s, &f).keyboard = true;
         dismiss(s, &f, tx);
         return true;
     }
     if back(ev) {
+        dock(s, &f).keyboard = true;
         if tab > 0 {
             jump(s, &f, tab - 1, tx);
         }
         return true;
     }
     if advance(ev) {
+        dock(s, &f).keyboard = true;
         next(s, &f, tx);
         return true;
     }
@@ -436,6 +488,7 @@ pub fn key<S: DockHost>(s: &mut S, ev: &KeyEvent, tx: &mut Tx) -> bool {
         if minimized || i >= count {
             return false;
         }
+        dock(s, &f).keyboard = true;
         // A pick's mark fades in, and opening the typed answer's field moves its words in by the
         // field's padding, on the springs rather than at once.
         if i == n {
@@ -447,8 +500,9 @@ pub fn key<S: DockHost>(s: &mut S, ev: &KeyEvent, tx: &mut Tx) -> bool {
         reveal(s, tx);
         return true;
     }
-    // The rest move and pick among the answers, which a folded dock hides.
-    if minimized {
+    // The rest move and pick among the answers, which a folded dock hides; header and footer
+    // buttons keep their own Space/Enter/arrows (`session-question-dock-classic.tsx:354-396`).
+    if minimized || !focus_in_options(tx.focused()) {
         return false;
     }
     let rtl = opencode_i18n::direction() == opencode_i18n::Direction::Rtl;
@@ -463,33 +517,103 @@ pub fn key<S: DockHost>(s: &mut S, ev: &KeyEvent, tx: &mut Tx) -> bool {
     };
     if let Some(to) = to {
         tx.instant();
-        dock(s, &f).focus = to;
+        let d = dock(s, &f);
+        (d.focus, d.keyboard) = (to, true);
+        // The arrows and End land in the typed answer's field rather than on its mark, so the
+        // answer is typed at once (`session-question-dock-classic.tsx:235-247`, `:335`, `:421`).
+        if to >= n && ev.key != Key::Home {
+            enter_field(s, &f, tab);
+        }
         reveal(s, tx);
         return true;
     }
-    if matches!(&ev.key, Key::Text(t) if t == " ") || (ev.key == Key::Enter && !m.shift) {
-        if focus >= n { toggle_custom(s, &f, tab) } else { select(s, &f, tab, focus) }
+    let space = matches!(&ev.key, Key::Text(t) if t == " ");
+    let enter = enter(ev, s.dock_question_submit());
+    if !space && enter.is_none() {
+        return false;
+    }
+    if tx.key_repeat() {
         return true;
     }
-    false
+    dock(s, &f).keyboard = true;
+    match enter {
+        // The submit key on an answer picks it first on a single choice; on many, it moves on
+        // with the answers already marked (`session-question-dock-classic.tsx:440-445`).
+        Some(Enter::Submit) if focus < n => {
+            if !f.multi(tab) {
+                select(s, &f, tab, focus);
+            }
+            next(s, &f, tx);
+        }
+        // On the typed answer's mark it opens the field while that is still empty on a single
+        // choice, since there is nothing to pick yet (`:449-457`).
+        Some(Enter::Submit) if f.multi(tab) => next(s, &f, tx),
+        Some(Enter::Submit) if s.dock().typed.get(&f.key(tab)).is_none_or(|t| t.text.trim().is_empty()) => toggle_custom(s, &f, tab),
+        Some(Enter::Submit) => {
+            let k = f.key(tab);
+            let d = s.dock_mut();
+            d.custom.insert(k.clone());
+            d.picks.remove(&k);
+            next(s, &f, tx);
+        }
+        // Space and the other Enter only pick.
+        _ if focus >= n => toggle_custom(s, &f, tab),
+        _ => select(s, &f, tab, focus),
+    }
+    true
 }
 
-/// Keys in the open "Type your own answer": ↵ and Esc leave the field for its card, ⌘↵ and Back
-/// as anywhere; everything else types.
+/// Puts the caret in the typed answer's field without picking that answer: typing in it does
+/// (`session-question-dock-classic.tsx:730-735`).
+fn enter_field<S: DockHost>(s: &mut S, f: &Form, tab: usize) {
+    s.composer_edit_mut().focused = false;
+    s.dock_mut().typed_mut(&f.id, &f.fields[tab].key).focused = true;
+}
+
+/// Keys in the open "Type your own answer" (`session-question-dock-classic.tsx:738-771`): Esc
+/// leaves the field for its card, ⌘↵ and Back as anywhere, ↑ at the field's start goes back to
+/// the answers above it, the submit key moves on; everything else types, the other Enter a new
+/// line.
 fn typed_key<S: DockHost>(s: &mut S, ev: &KeyEvent, tx: &mut Tx) -> bool {
     let Some(f) = asking(s) else { return false };
     let (tab, _) = place(s, &f);
     let n = rows(&f.fields[tab]).len();
     let m = ev.mods;
-    if ev.key == Key::Escape || (ev.key == Key::Enter && !m.cmd && !m.ctrl && !m.alt) {
+    if ev.key == Key::Escape {
         stop_typing(s, &f, tab);
         let d = dock(s, &f);
         (d.focus, d.keyboard) = (n, true);
+        reveal(s, tx);
         return true;
     }
     if advance(ev) || back(ev) {
         stop_typing(s, &f, tab);
         return key(s, ev, tx);
+    }
+    let at_start = s.dock().typed.get(&f.key(tab)).is_none_or(|t| t.focus == 0 && t.anchor == 0);
+    if ev.key == Key::Up && n > 0 && at_start && !m.shift && !m.alt && !m.cmd && !m.ctrl {
+        tx.instant();
+        stop_typing(s, &f, tab);
+        let d = dock(s, &f);
+        (d.focus, d.keyboard) = (n - 1, true);
+        reveal(s, tx);
+        return true;
+    }
+    if !m.cmd && !m.ctrl {
+        match enter(ev, s.dock_question_submit()) {
+            Some(Enter::Submit) => {
+                if !tx.key_repeat() {
+                    dock(s, &f).keyboard = true;
+                    next(s, &f, tx);
+                }
+                return true;
+            }
+            Some(Enter::Select) if !m.shift => {
+                insert_typed_newline(s, &f, tab);
+                return true;
+            }
+            _ => {}
+        }
     }
     s.dock_shortcut(ev, tx)
 }

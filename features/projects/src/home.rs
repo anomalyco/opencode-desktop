@@ -672,7 +672,9 @@ fn target(host: &dyn ProjectsHost) -> Target {
     let view = host.home_state().servers.iter().find(|v| v.key == key);
     let health = view.and_then(|v| v.health.clone());
     let offline = host.is_live() && host.is_offline();
-    let cached = view.is_some_and(|v| v.loaded) && !offline;
+    // A list kept from the last run counts as the server's cached one: it shows at once, as a
+    // list already shown stays while its server is away, and the launch's own reads replace it.
+    let cached = (view.is_some_and(|v| v.loaded) || host.lists_saved_sessions(&key)) && !offline;
     let connection = match health {
         Some(Health::Probe(ProbeResult::Unauthorized) | Health::Auth) => Connection::Unavailable(Unavailable::Auth),
         Some(Health::Incompatible) => Connection::Unavailable(Unavailable::Incompatible),

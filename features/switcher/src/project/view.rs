@@ -2,6 +2,7 @@
 //! `<Dialog size="large" fit>` on `bg-base` with `--v2-elevation-overlay` and 12 pt corners.
 
 use opencode_i18n::t;
+use opencode_ui::focus::FocusExt as _;
 use opencode_ui::keymap::{Bind, keycaps};
 use opencode_ui::widgets::DialogSize;
 use rune::{Color, Cx, Direction, El, PointerEvent, Span, Spring, TextStyle, Transition, Tx, col, el, icon, row, text};
@@ -44,7 +45,9 @@ pub fn view<H: ProjectSwitcherHost + 'static>(s: &H, p: &Pal, cx: &Cx<H>) -> [El
     let lit = active(host, &list_rows);
     let (placeholder, step_title) = step_meta(&open.mode);
 
-    let leading = if matches!(open.mode, StepMode::Others | StepMode::Servers) {
+    // Every step past the first steps back from the search field's arrow (`dialog.tsx`:
+    // `view().ownsEscape`), the worktree step too (opencode#66090).
+    let leading = if !matches!(open.mode, StepMode::Projects) {
         search_back_shell(p).on_press_tx(|s: &mut H, tx: &mut Tx| super::back(s, tx))
     } else {
         icon(&ic::MAGNIFYING_GLASS, 16.0).color(p.icon_muted)
@@ -55,10 +58,19 @@ pub fn view<H: ProjectSwitcherHost + 'static>(s: &H, p: &Pal, cx: &Cx<H>) -> [El
         .on_input_key(|s: &mut H, ev, tx| super::key_or_shortcut(s, ev, tx));
     let search = search_row_shell(leading, input);
 
-    let mut list = col().key("project-switcher-results").w_full().px(6.0).pb(6.0).gap(2.0);
-    let mut content_h = 6.0_f32;
+    // `command-palette-results` (`location/dialog.css:51-62`): 6 in at the sides and foot, rows 2
+    // apart, 4 above the first row unless a group title starts the group.
+    let mut list = col().key("project-switcher-results").w_full().px(6.0).pb(6.0).gap(2.0).pt(if step_title.is_some() { 0.0 } else { 4.0 });
+    let mut content_h = if step_title.is_some() { 6.0_f32 } else { 10.0 };
+    // `currentDestination`: the drilled project's row the draft runs in shows a check.
+    let current = match &open.mode {
+        StepMode::Worktrees { project, .. } if host.draft_project().is_some_and(|d| &d.id == project) => host.draft_dir(),
+        _ => None,
+    };
     if let Some(title) = step_title {
-        list = list.child(step_back_shell(p, title).on_press_tx(|s: &mut H, tx: &mut Tx| super::back(s, tx)));
+        // The list's heading, not a control or a Tab stop (opencode#66090): it was the step's
+        // back button.
+        list = list.role("group").label_static(title).child(step_title_shell(p, title));
         content_h += 32.0;
     }
     if list_rows.is_empty() {
@@ -77,16 +89,18 @@ pub fn view<H: ProjectSwitcherHost + 'static>(s: &H, p: &Pal, cx: &Cx<H>) -> [El
         // worktrees (`dialog.tsx:371-382`).
         let after_actions = idx > 0 && matches!(r.kind, RowKind::Worktree { main: false, .. }) && !matches!(list_rows[idx - 1].kind, RowKind::Worktree { main: false, .. });
         if idx > 0 && (r.kind == RowKind::Add || after_actions) {
-            list = list.child(el().key(format!("psw-divider-{idx}")).h(0.5).my(2.0).mx(-6.0).fill(p.border_muted));
-            content_h += 8.5;
+            // `new-session-location-action-divider`: a 1 pt rule at half its height, 2 above and below (`5 pt` + `2 pt` flex gap = `7 pt`).
+            list = list.child(rune::hairline(p.border).key(format!("psw-divider-{idx}")).my(2.0).mx(-6.0));
+            content_h += 7.0;
         }
-        list = list.child(draw_row(s, p, r, lit.as_deref() == Some(r.key.as_str()), q, w));
+        let checked = current.is_some_and(|dir| matches!(&r.kind, RowKind::Worktree { directory, .. } if same_dir(directory, dir)));
+        list = list.child(draw_row(s, p, r, lit.as_deref() == Some(r.key.as_str()), q, w).children(checked.then(|| icon(&ic::CHECK, 16.0).color(p.icon_muted))));
         content_h += 34.0;
     }
     content_h -= 2.0;
 
-    // The search block (6 above, the field) and the divider (9 between 4 and 4).
-    let head_h = 6.0 + 28.0 + 17.0;
+    // The search block (6 above, the field) and `new-session-location-divider` (1 pt, 6 above, 2 below).
+    let head_h = 6.0 + 28.0 + 6.0 + 1.0 + 2.0;
     let scroll_h = content_h.min(max_h - head_h).max(0.0);
     // `MenuScroll` (`new-session/location/dialog.tsx:335`): its thumb shows while the list scrolls.
     let scroll = opencode_ui::scroller::scroller("project-switcher-scroll")
@@ -116,6 +130,7 @@ fn search_back_shell(p: &Pal) -> El {
         .mx(-4.0)
         .center()
         .radius(4.0)
+        .focus_inset(p)
         .hover(p.hover)
         .child(icon(&ic::ARROW_LEFT, 16.0).color(p.icon_muted).mirror_in_rtl())
 }
@@ -145,16 +160,16 @@ fn search_row_shell(leading: El, input: El) -> El {
         .child(input)
 }
 
-fn step_back_shell(p: &Pal, title: &'static str) -> El {
-    row()
-        .key("project-switcher-back")
-        .role("button")
-        .label_static(t!("session.new.location.back"))
-        .h(28.0)
-        .px(6.0)
-        .center_y()
-        .radius(2.0)
-        .child(text(title).font(UI).color(p.muted))
+/// `command-palette-group-title` in the location dialog (`location/dialog.css:70-80`): 10 above
+/// and 2 below an 18 pt line, 8 in, 12 pt `text-faint`.
+const GROUP_TITLE: TextStyle = TextStyle::new(12.0, 440.0).lh(18.0).tracking(0.05);
+
+fn group_title_shell(key: &'static str) -> El {
+    row().key(key).h(30.0).px(8.0).pt(10.0).pb(2.0).center_y()
+}
+
+fn step_title_shell(p: &Pal, title: &'static str) -> El {
+    group_title_shell("project-switcher-title").child(text(title).font(GROUP_TITLE).color(p.faint))
 }
 
 fn empty_shell(p: &Pal, waiting: bool) -> El {
@@ -167,12 +182,13 @@ fn empty_shell(p: &Pal, waiting: bool) -> El {
 }
 
 fn other_heading_shell(p: &Pal) -> El {
-    row()
-        .key("psw-other-heading")
-        .h(28.0)
-        .px(6.0)
-        .center_y()
-        .child(text(t!("session.new.location.otherProjects")).font(UI).color(p.muted))
+    group_title_shell("psw-other-heading").child(text(t!("session.new.location.otherProjects")).font(GROUP_TITLE).color(p.faint))
+}
+
+/// `sameDirectory`: one folder however its separators and trailing slash are written.
+fn same_dir(a: &str, b: &str) -> bool {
+    let norm = |s: &str| s.trim_end_matches(['/', '\\']).replace('\\', "/");
+    norm(a) == norm(b)
 }
 
 fn build_dialog_card(p: &Pal, placeholder: &'static str, w: f32, total_h: f32, search: El, scroll: El) -> El {
@@ -189,7 +205,8 @@ fn build_dialog_card(p: &Pal, placeholder: &'static str, w: f32, total_h: f32, s
         .transition(Transition::none())
         .motion(Spring::NONE)
         .child(col().key("project-switcher-search").w_full().pt(6.0).px(6.0).child(search))
-        .child(el().key("project-switcher-divider").h(0.5).w_full().mt(8.0).mb(8.5).fill(p.border))
+        // A 1 pt rule drawn at half its height (`scaleY(0.5)`), 6 under the field and 2 above the rows.
+        .child(rune::hairline(p.border).key("project-switcher-divider").w_full().mt(6.0).mb(2.0))
         .child(scroll)
 }
 
@@ -248,11 +265,10 @@ fn row_main(s: &dyn ProjectSwitcherHost, p: &Pal, r: &SwitcherRow, q: &str, w: f
                 .center_y()
                 .child(title.shrink().min_w(0.0))
                 .children(tag)
-                .children(branch.map(|b| row().gap(4.0).center_y().child(icon(&ic::BRANCH, 12.0).color(p.icon_muted)).child(text(b.to_owned()).font(UI).color(p.muted).truncate())));
+                .children(branch.map(|b| row().gap(4.0).center_y().child(icon(&ic::BRANCH, 16.0).color(p.icon_muted)).child(text(b.to_owned()).font(UI).color(p.muted).truncate())));
             main.child(s.project_badge(p, project, &r.title))
                 .child(row().key("text").grow(1.0).shrink().min_w(0.0).gap(6.0).center_y().child(name).child(description(&r.subtitle)))
         }
-        RowKind::Base { .. } => main.child(icon(&ic::BRANCH, 16.0).color(p.icon_muted)).child(title).child(description(&r.subtitle)).child(keycaps(p, Bind::BranchChoose)),
         RowKind::Branch => main.child(icon(&ic::BRANCH_OUT, 16.0).color(p.icon_muted)).child(title.dir(Direction::Auto)),
         RowKind::Server { key } => main.child(icon(servers::glyph(servers::kind(s, key)), 16.0).color(p.icon_muted)).child(
             row()
@@ -304,6 +320,7 @@ fn drill_shell(p: &Pal, key: &str, label: &str) -> El {
         .mx(-2.0)
         .radius(4.0)
         .center()
+        .focus_inset(p)
         .hover_group()
         .hover(p.hover)
         .child(icon(&ic::CHEVRON_RIGHT, 16.0).mirror_in_rtl().color(p.icon_faint).group_color(p.icon))

@@ -13,10 +13,10 @@ mod focus;
 mod folders;
 pub mod mobile;
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::time::Duration;
 
-use opencode_code_view::data::review::{FetchedDiffs, ReviewFileMeta, build_change_tree, collapsed_folders};
+use opencode_code_view::data::review::{FetchedDiffs, FetchedVcs, ReviewFileMeta, build_change_tree, collapsed_folders};
 use opencode_code_view::{DiffDocState, ExpandMode};
 use opencode_kit::client::Server;
 use opencode_kit::wire_error::WireError;
@@ -27,8 +27,9 @@ use rune_kit::{FileNode, TreeModel};
 use serde_json::Value;
 
 pub use engine::{
-    apply_reply, ensure_session, execute_job, note_event, open_for_session, poll, refresh, request_file_text,
-    set_diff_mode, set_expand_mode, set_mode, set_session_mode, show, sync_narrow_wrap,
+    apply_reply, ensure_session, execute_job, note_branch_updated, note_event, open_for_session, poll,
+    prefetch_vcs, refresh, refresh_on_open, request_file_text, set_diff_mode, set_expand_mode, set_mode,
+    set_session_mode, show, sync_narrow_wrap,
 };
 pub use focus::{Anchor, Located, focus_change, locate};
 pub use folders::{expand_folder, toggle_folder};
@@ -116,7 +117,12 @@ pub struct SessionReview {
     pub tree: TreeModel<FileNode<ReviewFileMeta>>,
     /// The file the preview shows: the one picked, else the server's first.
     pub active_path: Option<String>,
+    /// The file highlighted by arrow keys inside the Review sidebar filter list (`review/panel.tsx:410-422`).
+    pub highlighted_filter_path: Option<String>,
     pub load: Load,
+    /// Pending jump target when `open_for_session` requested a file not yet in a hydrated cache
+    /// while a background refresh is in flight.
+    pub(crate) pending_focus: Option<(String, Option<Anchor>)>,
     pub branch_current: Option<String>,
     pub branch_default: Option<String>,
     /// The narrow window's Changes view: its open files (`mobile`).
@@ -137,7 +143,9 @@ impl Default for SessionReview {
             listed: Vec::new(),
             tree: TreeModel::new().key("review-tree"),
             active_path: None,
+            highlighted_filter_path: None,
             load: Load::Loading { focus: None },
+            pending_focus: None,
             branch_current: None,
             branch_default: None,
             narrow: mobile::NarrowReview::default(),
@@ -173,6 +181,49 @@ impl SessionReview {
             self.tree.select(path);
             self.stamp += 1;
         }
+    }
+
+    /// Resets a session's diff state when switching to an uncached mode so the previous mode's
+    /// rows do not linger while the new mode loads.
+    pub(crate) fn clear_for_mode_switch(&mut self) {
+        self.meta.clear();
+        self.listed.clear();
+        self.folders.clear();
+        self.tree = TreeModel::new().key("review-tree");
+        self.diffs = DiffDocState::default();
+        self.narrow = mobile::NarrowReview::default();
+        self.root_count = 0;
+        self.active_path = None;
+        self.highlighted_filter_path = None;
+        self.pending_focus = None;
+        self.load.restart();
+        self.stamp += 1;
+    }
+
+    /// Hydrates this session from a cached diff snapshot so reopen, same-directory session
+    /// switches, and mode switches paint on frame 1 while a background refresh runs
+    /// (`packages/gui-plugins/src/review/model.ts:296, 311, 327-330`, `machine.ts:212-215, 238-240`).
+    pub(crate) fn hydrate_from_cache(
+        &mut self,
+        cached: &CachedReview,
+        vcs: Option<&CachedVcs>,
+        diff_mode: DiffMode,
+        expand_mode: ExpandMode,
+        wrap: bool,
+    ) {
+        self.branch_current = vcs
+            .and_then(|v| v.branch_current.clone())
+            .or_else(|| cached.branch_current.clone());
+        self.branch_default = vcs
+            .and_then(|v| v.branch_default.clone())
+            .or_else(|| cached.branch_default.clone());
+        self.root_count = cached.count;
+        self.folders = cached.folders.iter().map(|p| (p.clone(), folders::Listing::default())).collect();
+        self.land(cached.files.clone(), cached.meta.clone(), cached.listed.clone(), diff_mode, expand_mode, wrap);
+        let no_git = vcs.map_or(cached.no_git, |v| v.lacks_provider && cached.count == 0);
+        // Revision 0 marks the hydrated state ready to paint immediately while keeping it older
+        // than `ReviewPane.revision` (>= 1) so `ensure_session` still refreshes in the background.
+        let _ = self.load.landed(self.mode, 0, no_git);
     }
 
     /// Takes a new list of changes: the tree keeps the folders the user closed, the preview keeps
@@ -271,6 +322,63 @@ impl Refresh {
     }
 }
 
+/// Canonical directory key for VCS and diff caches: normalizes separators and folds ASCII case on
+/// Windows drive/UNC paths (`opencode_kit::path::windows`).
+pub fn dir_key(dir: &str) -> String {
+    let trimmed = opencode_kit::path::trim(dir);
+    if opencode_kit::path::windows(trimmed) {
+        trimmed.replace('\\', "/").to_ascii_lowercase()
+    } else {
+        trimmed.replace('\\', "/")
+    }
+}
+
+/// Cached `/api/vcs` metadata for one `(server_base, dir_key)`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CachedVcs {
+    pub branch_current: Option<String>,
+    pub branch_default: Option<String>,
+    pub lacks_provider: bool,
+}
+
+/// Cache key mirroring Desktop's query key (`packages/gui-plugins/src/review/model.ts:327-330`):
+/// Git/Branch diffs are shared per `(server_base, directory, mode)`; Turn diffs are per session.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub enum ReviewCacheKey {
+    Vcs { server_base: String, directory: String, mode: ChangeMode },
+    Turn { server_base: String, session_id: String },
+}
+
+impl ReviewCacheKey {
+    pub fn for_target(server_base: &str, directory: &str, session_id: &str, mode: ChangeMode) -> Self {
+        match mode {
+            ChangeMode::Turn => Self::Turn { server_base: server_base.to_owned(), session_id: session_id.to_owned() },
+            ChangeMode::Git | ChangeMode::Branch => Self::Vcs {
+                server_base: server_base.to_owned(),
+                directory: dir_key(directory),
+                mode,
+            },
+        }
+    }
+}
+
+/// Last landed diff snapshot for one [`ReviewCacheKey`], used to paint reopen, same-directory
+/// session switches, and mode switches immediately while refreshing in the background.
+#[derive(Clone)]
+pub struct CachedReview {
+    pub files: Vec<FileDiff>,
+    pub meta: Vec<ReviewFileMeta>,
+    pub listed: Vec<String>,
+    pub folders: Vec<String>,
+    pub count: usize,
+    pub no_git: bool,
+    pub branch_current: Option<String>,
+    pub branch_default: Option<String>,
+    pub seq: u64,
+}
+
+const REVIEW_CACHE_CAP: usize = 8;
+
 pub struct ReviewPane {
     pub sessions: HashMap<String, SessionReview>,
     pub empty_diffs: DiffDocState,
@@ -279,8 +387,18 @@ pub struct ReviewPane {
     pub refresh: Refresh,
     pub revision: u64,
     pub(crate) diff_fetch: Latest<FetchedDiffs>,
+    pub(crate) vcs_fetch: Latest<(String, String, Option<FetchedVcs>)>,
     pub(crate) file_fetch: Latest<(String, String, Option<String>)>,
     pub(crate) asked: Option<(String, ChangeMode, u64)>,
+    /// Desktop's `waiting` (`packages/gui-plugins/src/review/machine.ts:22-28, 50, 92`): sessions
+    /// whose changes were wanted before the server listed them, so their folder isn't known.
+    /// Nothing is asked for them, since the server would answer for its own folder; they show
+    /// as loading, and [`poll`] asks once the folder is known.
+    pub(crate) waiting: HashSet<String>,
+    pub(crate) vcs_asked: Option<(String, String)>,
+    pub(crate) vcs_cache: HashMap<(String, String), CachedVcs>,
+    pub(crate) cache: HashMap<ReviewCacheKey, CachedReview>,
+    pub(crate) cache_seq: u64,
 }
 
 impl Default for ReviewPane {
@@ -296,25 +414,69 @@ impl Default for ReviewPane {
             // Opening the panel asks at once, while `filesystem.changed` waits out
             // `FILESYSTEM_DEBOUNCE` in `Refresh` (`packages/gui-plugins/src/review/model.ts:403`).
             diff_fetch: Latest::default(),
+            vcs_fetch: Latest::default(),
             file_fetch: Latest::default(),
             asked: None,
+            waiting: HashSet::new(),
+            vcs_asked: None,
+            vcs_cache: HashMap::new(),
+            cache: HashMap::new(),
+            cache_seq: 0,
         }
     }
 }
 
 impl ReviewPane {
-    /// The data or the pending live request already covers this document. Merely asking
-    /// for the same thing again while rendering must not enqueue a follow-up commit.
+    /// The data, the pending live request or the wait for the session's folder already covers
+    /// this document. Merely asking for the same thing again while rendering must not enqueue a
+    /// follow-up commit.
     pub fn has_read(&self, sid: &str, mode: ChangeMode) -> bool {
-        self.sessions
-            .get(sid)
-            .is_some_and(|sr| sr.mode == mode && sr.load.loaded_revision() == Some((mode, self.revision)))
-            || self.asked.as_ref().is_some_and(|(id, m, rev)| id == sid && *m == mode && *rev == self.revision)
+        self.sessions.get(sid).is_some_and(|sr| {
+            sr.mode == mode && (sr.load.loaded_revision() == Some((mode, self.revision)) || self.waiting.contains(sid))
+        }) || self.asked.as_ref().is_some_and(|(id, m, rev)| id == sid && *m == mode && *rev == self.revision)
+    }
+
+    /// Session `sid`'s changes were wanted before the server listed it: what was said about it
+    /// then (its source) was a default, and the engine reads its saved one once it's listed
+    /// ([`ensure_session`]).
+    pub fn wait_for_listing(&mut self, sid: &str) {
+        self.waiting.insert(sid.to_owned());
+    }
+
+    /// Whether session `sid` waits for the server to list it (Desktop's `waiting`): nothing is
+    /// known about it yet, its saved source included.
+    pub fn waits(&self, sid: &str) -> bool {
+        self.waiting.contains(sid)
     }
 
     pub fn set_waker(&mut self, waker: Waker) {
         self.diff_fetch.set_waker(waker.clone());
+        self.vcs_fetch.set_waker(waker.clone());
         self.file_fetch.set_waker(waker);
+    }
+
+    pub(crate) fn store_cache(&mut self, key: ReviewCacheKey, mut entry: CachedReview) {
+        self.cache_seq += 1;
+        entry.seq = self.cache_seq;
+        self.cache.insert(key, entry);
+        while self.cache.len() > REVIEW_CACHE_CAP {
+            if let Some(oldest) = self.cache.iter().min_by_key(|(_, v)| v.seq).map(|(k, _)| k.clone()) {
+                self.cache.remove(&oldest);
+            } else {
+                break;
+            }
+        }
+    }
+
+    /// Drops cached diffs and VCS records for sessions and directories no open tab or route keeps
+    /// (`App::rest`), keeping memory bounded when windows rest.
+    pub fn prune_cache(&mut self, keep_sessions: &HashSet<&str>, keep_dirs: &HashSet<String>) {
+        self.cache.retain(|k, _| match k {
+            ReviewCacheKey::Turn { session_id, .. } => keep_sessions.contains(session_id.as_str()),
+            ReviewCacheKey::Vcs { directory, .. } => keep_dirs.contains(directory),
+        });
+        self.vcs_cache.retain(|(_, dir), _| keep_dirs.contains(dir));
+        self.waiting.retain(|sid| self.sessions.contains_key(sid));
     }
 }
 
@@ -364,6 +526,14 @@ pub trait ReviewHost: opencode_kernel::AppEnv {
     fn live_server(&self) -> Option<&Server>;
     /// Fixture JSON root used when [`Self::live_server`] is `None`.
     fn fixture_root(&self) -> Option<&Value> {
+        None
+    }
+
+    /// The source session `sid` last chose, where the host keeps one (Desktop's stored review
+    /// state). Asked when a session the engine waited for is listed: it's kept under the
+    /// session's folder, which nothing knew before.
+    fn saved_mode(&self, sid: &str) -> Option<ChangeMode> {
+        let _ = sid;
         None
     }
 
