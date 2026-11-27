@@ -343,12 +343,6 @@ pub fn key_files(host: &mut dyn FilesHost, ev: &KeyEvent, tx: &mut Tx) -> bool {
     }
 
     if let Some(path) = active_path {
-        if ev.mods == rune::Mods::default()
-            && matches!(&ev.key, Key::Text(t) if t == " ")
-            && video::toggle_play(host, &sid, &path, tx)
-        {
-            return true;
-        }
         let scroll_key = format!("file-code-{sid}-{path}-scroll");
         let rendered_find_enter = host
             .files()

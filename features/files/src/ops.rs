@@ -207,7 +207,8 @@ pub fn ensure_file_loaded(host: &mut dyn FilesHost, session_id: &str, path: &str
         .sessions
         .get(session_id)
         .and_then(|w| w.videos.get(path))
-        .is_some_and(video::FileVideo::failed);
+        .is_some_and(video::FileVideo::failed)
+        || host.files().video_auth_failed(session_id, path);
     if video::is_video(path) && !failed {
         let video_dir = if server.is_local() {
             host.session_physical_directory(session_id)
@@ -227,9 +228,16 @@ pub fn ensure_file_loaded(host: &mut dyn FilesHost, session_id: &str, path: &str
             return;
         }
         // On a local server, `source() == None` means confinement refused a symlink/junction or
-        // missing file: never fall back to `/api/fs/read/...`.
+        // missing file: never fall back to `/api/fs/read/...`. Insert a terminal Missing doc so
+        // OpenDocument stops re-requesting on every render and never leaves a loading spinner.
         if server.is_local() {
-            host.files_mut().reads.clear_stale(session_id, path);
+            let pane = host.files_mut();
+            pane.reads.clear_stale(session_id, path);
+            let wrap = pane.wrap;
+            let ws = pane.sessions.entry(session_id.to_owned()).or_default();
+            let mut doc = wrap.doc(path, "");
+            doc.set_missing();
+            ws.docs.insert(path.to_owned(), doc);
             return;
         }
         // Password-protected remote server: never put `auth_token` in a URL; download via

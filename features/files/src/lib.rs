@@ -448,6 +448,40 @@ impl FilesPane {
         }
     }
 
+    pub(crate) fn video_auth_failed(&self, sid: &str, path: &str) -> bool {
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            self.auth_videos.has_failed(sid, path)
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            let _ = (sid, path);
+            false
+        }
+    }
+
+    pub fn forget_video_auth(&mut self, sid: &str, path: &str) {
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            self.auth_videos.clear(sid, path);
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            let _ = (sid, path);
+        }
+    }
+
+    pub(crate) fn forget_video_auth_session(&mut self, sid: &str) {
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            self.auth_videos.forget_session(sid);
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            let _ = sid;
+        }
+    }
+
     pub fn set_waker(&mut self, waker: Waker) {
         self.dir_fetch.set_waker(waker.clone());
         self.reads.set_waker(waker.clone());
