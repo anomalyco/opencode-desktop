@@ -538,11 +538,14 @@ pub(super) fn spawn_probe_waking(s: &App, beta_tabs: bool, fallback_fixture: boo
                 Ready { server: Some(actual), beta_tabs: None, first: Some(Err(msg)), page: None }
             }
         } else {
-            // The window counts its patience from here (`poll`).
-            REACHED.store(true, Ordering::Relaxed);
-            took.set(Instant::now()).ok();
-            if let Some(w) = &wake {
-                w();
+            if discover_local {
+                // Only set `REACHED` / `took` after a verified local reach so remote timeouts
+                // never stand in sidecar's saved list or falsely report `Link::Slow`.
+                REACHED.store(true, Ordering::Relaxed);
+                took.set(Instant::now()).ok();
+                if let Some(w) = &wake {
+                    w();
+                }
             }
             let beta_tabs = beta_tabs.then(crate::tabs::from_beta).flatten();
             let page = ask_page(&actual, page);

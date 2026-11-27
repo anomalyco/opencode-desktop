@@ -49,7 +49,8 @@ pub(super) fn column(s: &App, p: &Pal, selected: Option<&model::Project>, wide: 
         });
     } else {
         for proj in used {
-            rows = rows.child(project_row(s, p, server, proj, selected.is_some_and(|sel| sel.id == proj.id), row_w));
+            let active = selected.is_some_and(|sel| opencode_servers::home::same_directory_key(&sel.directory) == opencode_servers::home::same_directory_key(&proj.directory));
+            rows = rows.child(project_row(s, p, server, proj, active, row_w));
         }
     }
     if !wide {
@@ -181,7 +182,7 @@ pub(super) fn project_row(s: &App, p: &Pal, server: &ServerKey, proj: &model::Pr
         })
     };
     let mut r = row()
-        .key(format!("hp-{}-{}", proj.id, proj.directory))
+        .key(format!("hp-{ctx_server}-{}-{}", proj.id, proj.directory))
         .w(width)
         .h(28.0)
         .center_y()
@@ -217,12 +218,23 @@ pub(crate) fn icon_button(p: &Pal, key: &str, label: &str, glyph: &'static Icon,
 /// local server's), Clear notifications (while any of its sessions is unread), then Close.
 /// Server `server`'s project `id`: the menu reads it there, and its picks act there.
 fn open_menu(s: &mut App, server: &ServerKey, id: &str, dir: &str, tx: &mut Tx) {
-    crate::servers::runtime::with_server(s, server, |s| open_project_menu(s, id, menu_key(server, id, dir), tx));
+    crate::servers::runtime::with_server(s, server, |s| open_project_menu_in(s, id, Some(dir), menu_key(server, id, dir), tx));
 }
 
 /// `open_menu` under the element keyed `anchor`, for the server the window works against.
 pub(crate) fn open_project_menu(s: &mut App, id: &str, anchor: String, tx: &mut Tx) {
-    let Some(proj) = s.project(id).cloned() else { return };
+    open_project_menu_in(s, id, None, anchor, tx);
+}
+
+fn open_project_menu_in(s: &mut App, id: &str, dir: Option<&str>, anchor: String, tx: &mut Tx) {
+    let proj = dir
+        .and_then(|d| {
+            let key = opencode_servers::home::same_directory_key(d);
+            s.projects.iter().find(|p| p.id == id && opencode_servers::home::same_directory_key(&p.directory) == key)
+        })
+        .or_else(|| s.project(id))
+        .cloned();
+    let Some(proj) = proj else { return };
     let server = crate::servers::runtime::active(s).clone();
     let unread = project_unread(s, &proj).next().is_some();
     let local = matches!(&*s.source, crate::Source::Live { server, .. } if server.is_local());
@@ -423,7 +435,7 @@ pub(crate) fn home_projects_popover(s: &App, p: &Pal) -> Option<[El; 2]> {
     if s.route != Route::Home || !s.project_state.home_menu_open {
         return None;
     }
-    let selected_id = s.home_selected().map(|p| p.id.as_str());
+    let selected_dir = s.home_selected().map(|p| opencode_servers::home::same_directory_key(&p.directory));
     let scope = super::scoped(s);
     let width = if scope { 280.0 } else { s.project_state.trigger_w.max(160.0) };
     let server = crate::servers::runtime::active(s);
@@ -443,12 +455,13 @@ pub(crate) fn home_projects_popover(s: &App, p: &Pal) -> Option<[El; 2]> {
             s.clear_home_project(tx);
             super::picked(s, tx);
         });
-        if selected_id.is_none() {
+        if selected_dir.is_none() {
             all = all.fill(p.layer3);
         }
         let mut list = col().key("home-projects-options").w_full().gap(4.0);
         for proj in s.used_projects() {
-            list = list.child(project_row(s, p, server, proj, selected_id == Some(proj.id.as_str()), row_w));
+            let active = selected_dir.as_deref() == Some(opencode_servers::home::same_directory_key(&proj.directory).as_str());
+            list = list.child(project_row(s, p, server, proj, active, row_w));
         }
         let add = nav_row(p, "hpm-add", &ic::FOLDER_ADD_LEFT, t!("home.project.add")).w_full().mt(4.0);
         let add = if failed {

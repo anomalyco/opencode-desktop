@@ -27,7 +27,7 @@ pub enum State {
         target: Target,
         attempt: Attempt,
     },
-    /// Keeping prior sessions visible while refetching after a reconnect or directory update.
+    /// Keeping prior sessions visible while refetching after a reconnect, remount, or directory update.
     Refreshing {
         target: Target,
         attempt: Attempt,
@@ -37,14 +37,19 @@ pub enum State {
         target: Target,
         sessions: Vec<SessionInfo>,
     },
-    /// Server disconnected while sessions were shown: keep showing them and refetch on reconnect.
+    /// Server disconnected or Home unmounted while sessions were shown: keep showing them and refetch on return/reconnect.
     Stale {
         target: Target,
         sessions: Vec<SessionInfo>,
     },
+    /// Fetch failed for `target`; retries automatically on reconnect or next Home visit.
+    Failed {
+        target: Target,
+    },
 }
 
 pub enum Event {
+    LeftHome,
     Synced { target: Option<Target>, connected: bool },
     Resolved { attempt: Attempt, sessions: Option<Vec<SessionInfo>> },
 }
@@ -57,6 +62,24 @@ pub enum Effect {
 impl State {
     pub fn step(&mut self, seq: &mut Seq, event: Event) -> Effects<Effect> {
         match event {
+            Event::LeftHome => match std::mem::take(self) {
+                State::Loaded { target, sessions } | State::Stale { target, sessions } => {
+                    *self = State::Stale { target, sessions };
+                    Effects::none()
+                }
+                State::Refreshing { target, sessions, .. } => {
+                    *self = State::Stale { target, sessions };
+                    Effects::one(Effect::Cancel)
+                }
+                State::Loading { .. } => {
+                    *self = State::Idle;
+                    Effects::one(Effect::Cancel)
+                }
+                State::Failed { .. } | State::Idle => {
+                    *self = State::Idle;
+                    Effects::none()
+                }
+            },
             Event::Synced { target: None, .. } => {
                 let had_in_flight = matches!(self, State::Loading { .. } | State::Refreshing { .. });
                 *self = State::Idle;
@@ -87,7 +110,7 @@ impl State {
                     return if had_in_flight { Effects::one(Effect::Cancel) } else { Effects::none() };
                 }
                 match std::mem::take(self) {
-                    cur @ (State::Loading { .. } | State::Refreshing { .. } | State::Loaded { .. })
+                    cur @ (State::Loading { .. } | State::Refreshing { .. } | State::Loaded { .. } | State::Failed { .. })
                         if cur.target() == Some(&target) =>
                     {
                         *self = cur;
@@ -113,11 +136,17 @@ impl State {
             }
             Event::Resolved { attempt, sessions } => match std::mem::take(self) {
                 State::Loading { target, attempt: current } if current == attempt => {
-                    *self = State::Loaded { target, sessions: sessions.unwrap_or_default() };
+                    *self = match sessions {
+                        Some(sessions) => State::Loaded { target, sessions },
+                        None => State::Failed { target },
+                    };
                     Effects::none()
                 }
                 State::Refreshing { target, attempt: current, sessions: prev } if current == attempt => {
-                    *self = State::Loaded { target, sessions: sessions.unwrap_or(prev) };
+                    *self = match sessions {
+                        Some(sessions) => State::Loaded { target, sessions },
+                        None => State::Stale { target, sessions: prev },
+                    };
                     Effects::none()
                 }
                 other => {
@@ -133,7 +162,8 @@ impl State {
             State::Loading { target, .. }
             | State::Refreshing { target, .. }
             | State::Loaded { target, .. }
-            | State::Stale { target, .. } => Some(target),
+            | State::Stale { target, .. }
+            | State::Failed { target } => Some(target),
             State::Idle => None,
         }
     }
@@ -183,6 +213,15 @@ impl ProjectSessions {
         }
     }
 
+    /// Cancels in-flight work and marks cached sessions stale when leaving Home (`refetchOnMount`).
+    pub fn leave_home(&mut self) {
+        for effect in self.state.step(&mut self.seq, Event::LeftHome) {
+            if matches!(effect, Effect::Cancel) {
+                self.fetch.cancel();
+            }
+        }
+    }
+
     /// Polls in-flight results and syncs the target to the currently selected Home project.
     /// Returns `true` when loaded sessions changed.
     pub fn poll(&mut self, target: Option<Target>, connected: bool, server: Option<Server>) -> bool {
@@ -193,7 +232,8 @@ impl ProjectSessions {
             let after_len = self.current_len();
             changed = before_len != after_len || after_len.is_some_and(|n| n > 0);
         }
-        let effects = self.state.step(&mut self.seq, Event::Synced { target, connected });
+        let can_fetch = connected && server.is_some();
+        let effects = self.state.step(&mut self.seq, Event::Synced { target, connected: can_fetch });
         for effect in effects {
             match effect {
                 Effect::Cancel => self.fetch.cancel(),

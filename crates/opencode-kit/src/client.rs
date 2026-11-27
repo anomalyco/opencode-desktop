@@ -695,11 +695,11 @@ impl Server {
         use worker::{Handshake, StreamEffect, StreamEvent, stream_step};
         let down = |kind: WireKind| WireError::new("GET", "/api/event", kind);
         let config = net_trust::agent_config_for(&self.base)
+            .timeout_resolve(Some(worker::CONNECT_TIMEOUT))
             .timeout_connect(Some(worker::CONNECT_TIMEOUT))
             .timeout_recv_response(Some(worker::CONNECT_TIMEOUT))
             .timeout_per_read(Some(stream.idle))
-            .http_status_as_error(false)
-            .max_redirects(0);
+            .http_status_as_error(false).max_redirects(0);
         let agent: ureq::Agent = if http::loopback(&self.base) { config.proxy(None) } else { config }.build().into();
         let mut req = agent.get(format!("{}/api/event", self.base)).header("Accept", "text/event-stream");
         if let Some(a) = &self.auth {

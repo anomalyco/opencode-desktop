@@ -112,8 +112,7 @@ pub struct Waiter {
 pub struct State {
     pub entries: Vec<(ServerKey, Slot)>,
     pub waiters: Vec<Waiter>,
-    /// Servers whose event stream is up: its 15 s heartbeat already says they're alive, so the
-    /// poll leaves them be (beyond Desktop, which polls every server every 10 s regardless).
+    /// Servers whose event stream is currently up, used to deduplicate immediate drop/open nudges.
     pub streaming: Vec<ServerKey>,
 }
 
@@ -294,28 +293,19 @@ fn nudged(state: &mut State, key: &ServerKey) -> Effects<Effect> {
     fx
 }
 
-/// A server's event stream opened or dropped: one that opened needs no poll while it stays up;
-/// one that dropped is probed now and polled again.
+/// A server's event stream opened or dropped: nudge an immediate probe on drop, or on open when
+/// cached health was not Healthy. The 10 s poll stays active for all endpoints (`health-machine.ts`).
 fn streaming(state: &mut State, key: ServerKey, up: bool) -> Effects<Effect> {
     if state.streaming.contains(&key) == up {
         return Effects::none();
     }
-    let was = state.polling();
     if up {
         state.streaming.push(key.clone());
     } else {
         state.streaming.retain(|k| *k != key);
     }
-    // One that opened while its last probe said otherwise (unreachable, signed out) is asked once
-    // more, so what Home shows catches up with the stream.
     let stale = !matches!(state.health(&key), Some(Health::Probe(ProbeResult::Healthy { .. })));
-    let mut fx = if up && !stale { Effects::none() } else { nudged(state, &key) };
-    match (was, state.polling()) {
-        (false, true) => fx.push(Effect::TimerStart { interval_ms: SERVER_HEALTH_POLL_MS }),
-        (true, false) => fx.push(Effect::TimerStop),
-        _ => {}
-    }
-    fx
+    if up && !stale { Effects::none() } else { nudged(state, &key) }
 }
 
 /// `answered` (`:291-311`): a superseded, unlisted or disposed probe changes nothing.

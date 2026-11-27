@@ -90,10 +90,9 @@ impl HomeSearchHost for App {
             return true;
         }
         // Worktree inventories load on demand (`packages/app/src/home/sessions/records.ts:48-58`);
-        // fall back to project ID only for non-"global" git projects so unrelated non-git
-        // folders never match each other.
-        project.id != "global"
-            && (self.project_for_session(session).is_some_and(|p| p.id == project.id) || session.project == project.id)
+        // fall back to direct `session.project` match only for non-"global" git projects (never
+        // `project_containing`, so nested repos cannot leak into a parent git project).
+        project.id != "global" && !session.project.is_empty() && session.project == project.id
     }
 
     fn project_directories(&self, project: &Project) -> Vec<String> {

@@ -146,12 +146,13 @@ enum Timeout {
     Due { attempt: Attempt, at: f64 },
 }
 
-/// A managed server's reach, as its health says: a drop runs the plugin's `reconnect` once.
+/// A managed server's reach: a drop (SSE or health) runs the plugin's `reconnect` once until
+/// the stream comes back (`on_stream_up`) or a newer health probe (`health::version()`) settles Healthy.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Link {
     Unknown,
     Up,
-    Down,
+    Reconnecting { since_health_version: u64 },
 }
 
 thread_local! {
@@ -179,20 +180,41 @@ pub fn authenticating(key: &str) -> bool {
     ACTIONS.with_borrow(|a| a.get(key).is_some_and(|s| matches!(s.machine, plugin_server::State::Authenticating { .. })))
 }
 
+/// A managed plugin server's SSE stream opened/reconnected: mark `Link::Up` so any later
+/// drop triggers `reconnect` again.
+pub fn on_stream_up(app: &App, key: &opencode_kit::servers::ServerKey) {
+    if key.is_sidecar() || key.as_str().starts_with("http://") || key.as_str().starts_with("https://") {
+        return;
+    }
+    sync_actions(app);
+    ACTIONS.with_borrow_mut(|a| {
+        if let Some(slot) = a.get_mut(key.as_str()) {
+            slot.link = Link::Up;
+        }
+    });
+}
+
 /// A managed plugin server's SSE stream dropped: call its plugin's `reconnect` immediately
-/// (`packages/app/src/runtime/server/client.tsx:100-118`, `resolveEndpoint`), marking `Link::Down`
-/// so the health poll does not fire a duplicate reconnect for the same outage.
+/// (`packages/app/src/runtime/server/client.tsx:100-118`, `resolveEndpoint`), entering
+/// `Link::Reconnecting` so stale `Healthy` probes do not reset it and trigger 1 s storms.
 pub fn on_stream_down(app: &mut App, key: &opencode_kit::servers::ServerKey, tx: &mut Tx) {
     let key_str = key.as_str();
+    if key.is_sidecar() || key_str.starts_with("http://") || key_str.starts_with("https://") {
+        return;
+    }
+    sync_actions(app);
     let is_managed = all(app).into_iter().any(|c| !c.by_address() && c.key == key_str && c.rec.managed && c.rec.state == ServerState::Ready);
     if !is_managed {
         return;
     }
+    let hv = crate::servers::health::version();
     let should_call = ACTIONS.with_borrow_mut(|a| {
         let slot = a.get_mut(key_str)?;
-        let was_down = slot.link == Link::Down;
-        slot.link = Link::Down;
-        Some(!was_down)
+        if matches!(slot.link, Link::Reconnecting { .. }) {
+            return Some(false);
+        }
+        slot.link = Link::Reconnecting { since_health_version: hv };
+        Some(true)
     });
     if should_call == Some(true) {
         super::server_sources::call(app, key_str, "reconnect", None, tx);
@@ -225,18 +247,27 @@ pub fn poll_actions(app: &mut App, tx: &mut Tx) {
         run_actions(app, &key, effects.unwrap_or_default(), tx);
     }
     let managed: Vec<String> = all(app).into_iter().filter(|c| !c.by_address() && c.rec.managed && c.rec.state == ServerState::Ready).map(|c| c.key).collect();
+    let hv = crate::servers::health::version();
     let dropped: Vec<String> = ACTIONS.with_borrow_mut(|a| {
         a.iter_mut()
             .filter_map(|(key, slot)| {
-                let managed = managed.contains(key);
+                let is_managed = managed.contains(key);
                 let health = crate::servers::health::get(&opencode_kit::servers::ServerKey::new(key));
-                let now = match health {
-                    Some(opencode_servers::health::Health::Probe(opencode_servers::health::ProbeResult::Healthy { .. })) => Link::Up,
-                    Some(opencode_servers::health::Health::Probe(opencode_servers::health::ProbeResult::Unreachable)) => Link::Down,
-                    _ => slot.link,
-                };
-                let was = std::mem::replace(&mut slot.link, now);
-                (managed && was == Link::Up && now == Link::Down).then(|| key.clone())
+                match (slot.link, health) {
+                    (Link::Reconnecting { since_health_version }, Some(opencode_servers::health::Health::Probe(opencode_servers::health::ProbeResult::Healthy { .. }))) if hv != since_health_version => {
+                        slot.link = Link::Up;
+                        None
+                    }
+                    (Link::Unknown, Some(opencode_servers::health::Health::Probe(opencode_servers::health::ProbeResult::Healthy { .. }))) => {
+                        slot.link = Link::Up;
+                        None
+                    }
+                    (Link::Up, Some(opencode_servers::health::Health::Probe(opencode_servers::health::ProbeResult::Unreachable))) if is_managed => {
+                        slot.link = Link::Reconnecting { since_health_version: hv };
+                        Some(key.clone())
+                    }
+                    _ => None,
+                }
             })
             .collect()
     });

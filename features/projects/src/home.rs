@@ -420,21 +420,20 @@ fn send(host: &mut dyn ProjectsHost, event: machine::Event) {
 }
 
 fn step(host: &mut dyn ProjectsHost, event: machine::Event) -> Effects<machine::Effect> {
-    let before = selection(host).server;
     let fx = machine::step(&mut host.home_state_mut().machine, event);
-    follow(host, before);
+    follow(host);
     fx
 }
 
-/// The selection moved to another server (or the checkout hasn't followed it yet) while Home shows.
-fn follow(host: &mut dyn ProjectsHost, _before: Option<ServerKey>) {
+/// Keep the window checkout aligned with Home's focused server (`server(host)`, matching
+/// `servers::runtime::desired`) while Home shows.
+fn follow(host: &mut dyn ProjectsHost) {
     if !host.is_home_route() || host.settings_open() {
         return;
     }
-    if let Some(key) = selection(host).server
-        && key != host.active_server()
-    {
-        host.switch_server(&key);
+    let want = server(host);
+    if want != host.active_server() {
+        host.switch_server(&want);
     }
 }
 

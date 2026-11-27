@@ -21,7 +21,7 @@ use rune::Tx;
 
 use crate::{App, Route, Source};
 
-/// A short drop says nothing; the stream thread already retries after 250 ms.
+/// A short drop says nothing; the stream thread retries after 1 s (official `reconnectDelay`).
 pub const QUIET: f64 = opencode_kit::servers::link::QUIET;
 /// The event stream is reopened after this long with nothing on it, matching official
 /// `defaultIdleTimeout = 45_000` (`packages/client/src/solid/connection.ts:35`). The server
@@ -308,14 +308,20 @@ fn probed(s: &mut App, tx: &mut Tx) -> bool {
     use crate::view::server_unavailable::{self as unavailable, Cover};
     let now = *s.clock;
     let mut changed = false;
+    let active_key = crate::servers::runtime::active(s).clone();
     for key in s.checkout.keys() {
         let server = key.as_str().to_owned();
-        let launch_offline = s.launch.phase(&server).is_some_and(crate::launch::Phase::offline);
+        let healthy = crate::servers::health::get(&key).is_some_and(|h| opencode_servers::health::is_healthy(Some(&h)));
+        // Only treat launch's Offline phase as authoritative over a healthy probe for the active
+        // server (or when the server is Unlisted); a parked server's healthy probe clears it.
+        let launch_offline = s.launch.phase(&server).is_some_and(|p| {
+            matches!(p, crate::launch::Phase::Unlisted) || (key == active_key && p.offline())
+        });
         let probe = match unavailable::cover(&key) {
             Some(Cover::SignedOut) => Probe::SignedOut,
             Some(Cover::Incompatible) => Probe::Incompatible,
             None if launch_offline || unavailable::unreachable(&key) => Probe::Unreachable,
-            None if crate::servers::health::get(&key).is_some_and(|h| opencode_servers::health::is_healthy(Some(&h))) => Probe::Answering,
+            None if healthy => Probe::Answering,
             None => Probe::Unknown,
         };
         if s.services.server_links.heard.get(&server).copied().unwrap_or(Probe::Unknown) == probe {

@@ -393,13 +393,34 @@ pub fn home_search_results<'a>(host: &'a dyn HomeSearchHost, selected: Option<&P
         return vec![];
     }
     let project_id = selected.map(|p| p.id.as_str());
+    // Multiple non-git folders share `id == "global"`: fetch a wider slice before directory filtering.
+    let limit = if project_id == Some("global") { 200 } else { 50 };
     let mut records: Vec<&'a SessionInfo> = host
-        .find_home_sessions(project_id, q, 50)
+        .find_home_sessions(project_id, q, limit)
         .into_iter()
         .filter(|(score, _, _)| *score >= opencode_search::SUBSTRING)
         .filter_map(|(_, _, id)| host.search_session(&id))
-        .filter(|s| s.archived.is_none())
+        .filter(|s| s.archived.is_none() && selected.is_none_or(|proj| host.session_in_project(s, proj)))
+        .take(50)
         .collect();
+    // Also match quiet-project sessions loaded by `project_sessions` outside the global index.
+    if let Some(proj) = selected {
+        let (scope, _) = host.home_search_scope();
+        let fold = opencode_search::SearchFold::for_query(q);
+        let needle = fold.fold(q);
+        for s in host.home_search().project_sessions.sessions_for(&scope) {
+            if records.len() >= 50 {
+                break;
+            }
+            if s.archived.is_none()
+                && !records.iter().any(|r| r.id == s.id)
+                && host.session_in_project(s, proj)
+                && fold.fold(&s.title).contains(&needle)
+            {
+                records.push(s);
+            }
+        }
+    }
     // Then the sessions only their messages match (full text), each with its line of context.
     for r in host.fulltext_home_rows() {
         if !records.iter().any(|s| s.id == r.session)
@@ -541,6 +562,7 @@ pub fn poll_home_search(host: &mut dyn HomeSearchHost, tx: &mut Tx) -> bool {
     }
     // The search goes with Home (`disposed`): back on Home, it starts empty.
     if !host.is_home() {
+        host.home_search_mut().project_sessions.leave_home();
         if host.home_search().search.focused || !host.home_search().search.query.is_empty() || !host.search_input().text.is_empty() {
             home_search_step(host, Event::Closed, tx);
             host.home_search_mut().search = Search::default();

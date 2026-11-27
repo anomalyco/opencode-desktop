@@ -375,7 +375,7 @@ impl App {
                 Err(_) if fallback_fixture => return false,
                 // No answer before the first frame: the launch tries again from `poll`.
                 Err(_) => {
-                    self.launch.set_phase(ServerKey::SIDECAR, launch::Phase::Offline { retries: 0, retry_at: 0.0 });
+                    self.launch.set_phase(ServerKey::SIDECAR, launch::Phase::Offline { retries: 0, retry_at: 0.0, health_version: 0 });
                     None
                 }
             }

@@ -114,7 +114,7 @@ pub fn server_for(conn: &ServerConn) -> Option<opencode_kit::client::Server> {
     }
     let http = conn.http()?;
     let server = opencode_kit::client::Server::anonymous(&http.url);
-    Some(match &http.password {
+    Some(match http.password.as_deref().filter(|p| !p.is_empty()) {
         Some(p) => server.with_password(p),
         None => server,
     })
