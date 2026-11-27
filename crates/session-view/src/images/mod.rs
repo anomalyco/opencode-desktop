@@ -13,7 +13,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 
-use rune::{El, Image, ImageCache, SurfaceFit, TextStyle, Waker, col, el, row, text};
+use rune::{Color, El, Image, ImageCache, SurfaceFit, TextStyle, Waker, col, el, row, text};
 
 use opencode_kit::model::{Attachment, Message, Transcript};
 
@@ -708,28 +708,43 @@ pub fn gallery<S: TimelineHost>(s: &S, p: &Pal, key: &str, files: &[Attachment],
         .collect();
     let ((bw, bh), tiles) = bento::tiles(&sizes, crate::genui::width(s) - inset);
     let mut block = el().key(key).size(bw, bh);
+    // Inset shadows paint beneath `pixels_fit`, so mirror official's `&::after` hairline overlay
+    // (`packages/session-ui/src/components/message-part.css:801-815`): 0.5 pt `border-base` at rest,
+    // fading to `border-strong` on hover (`transition: box-shadow 0.15s ease`).
+    let ring = |name: &'static str, color: Color| {
+        el().key(name).pin(Some(0.0), Some(0.0), Some(0.0), Some(0.0)).radius(bento::RADIUS).box_shadow(Pal::ring_in(color)).inert().a11y_hidden()
+    };
+    let bordered = |e: El, interactive: bool| {
+        if interactive {
+            e.hover_group()
+                .hover_motion(crate::style::HOVER_FADE, crate::style::HOVER_FADE)
+                .child(ring("border", p.border).group_opacity(1.0, 0.0))
+                .child(ring("hover-border", p.q.border_strong).group_opacity(0.0, 1.0))
+        } else {
+            e.child(ring("border", p.border))
+        }
+    };
     for ((i, k, f, st), [x, y, w, h]) in shown.into_iter().zip(tiles) {
         let tile = el().key(k.clone()).label(f.name.clone()).size(w, h).radius(bento::RADIUS).fill(p.layer2);
         block = block.child(match st {
             TileState::Ready(img) => {
                 let held = el().key(format!("{k}-held")).size(w, h).absolute(x, y);
                 // The tile crops to its slot rather than letterboxing inside it.
-                let thumb = tile.box_shadow(Pal::ring_in(p.border_muted)).pixels_fit(img.pixels(), SurfaceFit::Fill).absolute(x, y);
+                let thumb = bordered(tile.pixels_fit(img.pixels(), SurfaceFit::Fill).absolute(x, y), true);
                 // `[data-slot="tool-result-image"] { cursor: zoom-in }` (`message-part.css:772,799`).
                 opens(s, thumb, held, Strip::new(key, strip.clone(), i), img, message).cursor(rune::Cursor::ZoomIn)
             }
-            TileState::Loading => tile.box_shadow(Pal::ring_in(p.border_muted)).absolute(x, y),
+            TileState::Loading => bordered(tile.absolute(x, y), false),
             TileState::Failed => {
                 let err_label = opencode_i18n::t!("ui.fileMedia.state.error", kind = opencode_i18n::t!("ui.fileMedia.kind.image"));
                 let failed = tile
-                    .box_shadow(Pal::ring_in(p.border_muted))
                     .center()
                     .absolute(x, y)
                     .child(rune::icon(&OUTLINE_PHOTO, 20.0).color(p.icon_faint));
                 if f.media.is_some() {
                     let retry = f.clone();
                     // `[data-slot="tool-result-image"][data-retry] { cursor: pointer }` (`message-part.css:821`).
-                    failed
+                    bordered(failed, true)
                         .role("button")
                         .label(err_label)
                         .cursor(rune::Cursor::Pointer)
@@ -738,7 +753,7 @@ pub fn gallery<S: TimelineHost>(s: &S, p: &Pal, key: &str, files: &[Attachment],
                             s.media_store().retry(&retry);
                         })
                 } else {
-                    failed.role("img").label(err_label)
+                    bordered(failed, false).role("img").label(err_label)
                 }
             }
         });
