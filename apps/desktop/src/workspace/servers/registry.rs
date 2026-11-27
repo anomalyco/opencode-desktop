@@ -113,7 +113,7 @@ pub fn server_for(conn: &ServerConn) -> Option<opencode_kit::client::Server> {
         return crate::servers::runtime::own_server();
     }
     let http = conn.http()?;
-    let server = opencode_kit::client::Server::new(&http.url);
+    let server = opencode_kit::client::Server::anonymous(&http.url);
     Some(match &http.password {
         Some(p) => server.with_password(p),
         None => server,

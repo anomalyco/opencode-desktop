@@ -291,17 +291,46 @@ fn shown(h: &Runtime) -> Shown {
 /// A server whose address refused every connection the reach watcher tried in the last second
 /// answers Unreachable at once, with no request (the watcher sees it come back sooner than this
 /// poll would): the answer, for the caller to settle.
+/// `checkServerHealth` (`packages/app/src/runtime/server/health.ts:26-143`): 30 s timeout, 2
+/// transport retries (100 ms, 200 ms), 401 -> Unauthorized, validated `ServerInfo` JSON.
+fn probe_http(server: &opencode_kit::client::Server, conn: &ServerConn) -> ProbeResult {
+    if let Some(http) = conn.http().filter(|_| !conn.builtin()) {
+        return opencode_kit::servers::probe::probe(http);
+    }
+    // Sidecar already carries its resolved Basic auth header on `server`, so probe with the
+    // same 2-retry / 100 ms linear backoff policy as `checkServerHealth`.
+    let deadline = rune::time::Instant::now() + opencode_kit::servers::probe::PROBE_TIMEOUT;
+    let mut count = 0u32;
+    loop {
+        match server.get("/api/info") {
+            Ok(v) => match opencode_kit::servers::probe::ServerInfo::from_json(&v) {
+                Some(info) => return ProbeResult::Healthy { version: Some(info.version), hostname: info.hostname },
+                None => return ProbeResult::Unreachable,
+            },
+            Err(e) if e.status() == Some(401) => return ProbeResult::Unauthorized,
+            Err(e) if count < opencode_kit::servers::probe::PROBE_RETRIES
+                && matches!(e.kind, opencode_kit::wire_error::WireKind::Unreachable(_) | opencode_kit::wire_error::WireKind::Dropped(_) | opencode_kit::wire_error::WireKind::Tls(_) | opencode_kit::wire_error::WireKind::Other(_)) =>
+            {
+                count += 1;
+                let wait = opencode_kit::servers::probe::PROBE_RETRY_DELAY * count;
+                if rune::time::Instant::now() + wait >= deadline {
+                    return ProbeResult::Unreachable;
+                }
+                rune::task::sleep(wait);
+            }
+            Err(_) => return ProbeResult::Unreachable,
+        }
+    }
+}
+
 fn probe(s: &App, key: &ServerKey, attempt: Attempt) -> Option<ProbeResult> {
-    let server = HEALTH.with_borrow(|h| h.conns.get(key).cloned()).and_then(|c| super::registry::server_for(&c))?;
+    let conn = HEALTH.with_borrow(|h| h.conns.get(key).cloned())?;
+    let server = super::registry::server_for(&conn)?;
     let discover_sidecar = key.is_sidecar() && crate::arg("--server").is_none();
     // The windows' quiet poll: answers landing together wake the window once, and draw only if
     // something changed.
     let wake = s.launch.inbox_wake.clone().or_else(|| (*s.waker).clone());
     let patient = HEALTH.with_borrow_mut(|h| h.patient.remove(key));
-    if !patient && !discover_sidecar && server.refusing() {
-        server.watch_reach(wake);
-        return Some(ProbeResult::Unreachable);
-    }
     let ask_home = HEALTH.with_borrow(|h| !h.homes.contains_key(key));
     let send = HEALTH.with_borrow(|h| h.answers.0.clone());
     let key = key.clone();
@@ -313,14 +342,7 @@ fn probe(s: &App, key: &ServerKey, attempt: Attempt) -> Option<ProbeResult> {
             } else {
                 server.clone()
             };
-            let result = match current.get("/api/info") {
-                Ok(v) => {
-                    let text = |k: &str| v[k].as_str().filter(|t| !t.is_empty()).map(str::to_owned);
-                    ProbeResult::Healthy { version: text("version"), hostname: text("hostname") }
-                }
-                Err(e) if e.status() == Some(401) => ProbeResult::Unauthorized,
-                Err(_) => ProbeResult::Unreachable,
-            };
+            let result = probe_http(&current, &conn);
             if !patient || result != ProbeResult::Unreachable || started.elapsed() >= PATIENCE {
                 break (current, result);
             }
@@ -330,14 +352,7 @@ fn probe(s: &App, key: &ServerKey, attempt: Attempt) -> Option<ProbeResult> {
         let (server, result) = if result == ProbeResult::Unreachable && discover_sidecar && super::sidecar::managed() {
             match super::sidecar::reconnect() {
                 Ok(restarted) => {
-                    let res = match restarted.get("/api/info") {
-                        Ok(v) => {
-                            let text = |k: &str| v[k].as_str().filter(|t| !t.is_empty()).map(str::to_owned);
-                            ProbeResult::Healthy { version: text("version"), hostname: text("hostname") }
-                        }
-                        Err(e) if e.status() == Some(401) => ProbeResult::Unauthorized,
-                        Err(_) => ProbeResult::Unreachable,
-                    };
+                    let res = probe_http(&restarted, &conn);
                     (restarted, res)
                 }
                 Err(_) => (server, result),
@@ -345,9 +360,6 @@ fn probe(s: &App, key: &ServerKey, attempt: Attempt) -> Option<ProbeResult> {
         } else {
             (server, result)
         };
-        if result == ProbeResult::Unreachable && !discover_sidecar {
-            server.watch_reach(wake.clone());
-        }
         let healthy = matches!(result, ProbeResult::Healthy { .. });
         let discovered = discover_sidecar.then(|| server.clone());
         send.send(Answer::Probe { key: key.clone(), attempt, result, discovered }).ok();

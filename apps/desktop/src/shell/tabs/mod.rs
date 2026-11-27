@@ -308,6 +308,17 @@ pub fn load_projects(server: &str) -> Option<Vec<String>> {
     Some(list.iter().filter_map(|x| x.as_str().map(str::to_owned)).collect())
 }
 
+/// Project IDs used on `key` (`ServerScope.fromServerKey`, `runtime/server/scope.ts:25-30`),
+/// falling back to `server_base` for legacy address-keyed entries.
+pub fn load_projects_for_key(key: &ServerKey, server_base: &str) -> Option<Vec<String>> {
+    let v = crate::storage::json(GLOBAL, "server")?;
+    let list = v["usedProjectIDs"]
+        .get(key.scope().as_str())
+        .or_else(|| v["usedProjectIDs"].get(scope(server_base)))?
+        .as_array()?;
+    Some(list.iter().filter_map(|x| x.as_str().map(str::to_owned)).collect())
+}
+
 /// The scope Desktop keys a server's projects by (`ServerKey::scope`): the app's own server's
 /// is `local`.
 fn scope(server: &str) -> String {

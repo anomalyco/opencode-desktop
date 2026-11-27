@@ -597,8 +597,6 @@ impl Server {
         self.get("/api/project").map(|v| model::parse_projects(&v))
     }
 
-
-
     /// Every direct subagent session of `session`, newest first, in pages of 200 (Desktop's
     /// `listChildren`).
     pub fn children(&self, session: &str) -> Result<Vec<model::SessionInfo>, WireError> {
@@ -689,18 +687,19 @@ impl Server {
         out
     }
 
-    /// Reads `stream` as `epoch` until it ends or goes silent for `stream.idle`; drives `state`
-    /// through its `server.connected` handshake and frames. Only once `server.connected` arrives
-    /// does it enter `Open`, so a stream a captive portal answers (a redirect, a web page) is a
-    /// failure, not a reconnect. A stream replaced after a network change or a wake
-    /// (`streams::verify`) ends quietly, sending nothing more; `stream.heard()` is told of every
-    /// line, heartbeats included.
+    /// Reads `stream` as `epoch` (`packages/client/src/solid/connection.ts`): 2 s connect/header
+    /// timeout, `stream.idle` (45 s) read timeout, gated on `server.connected`.
     #[cfg(not(target_arch = "wasm32"))]
     fn events(&self, stream: &streams::Stream, epoch: u64, state: &mut worker::StreamState) -> Result<(), WireError> {
         use crate::wire_error::{read_failure, transport};
         use worker::{Handshake, StreamEffect, StreamEvent, stream_step};
         let down = |kind: WireKind| WireError::new("GET", "/api/event", kind);
-        let config = net_trust::agent_config_for(&self.base).timeout_per_read(Some(stream.idle)).http_status_as_error(false).max_redirects(0);
+        let config = net_trust::agent_config_for(&self.base)
+            .timeout_connect(Some(worker::CONNECT_TIMEOUT))
+            .timeout_recv_response(Some(worker::CONNECT_TIMEOUT))
+            .timeout_per_read(Some(stream.idle))
+            .http_status_as_error(false)
+            .max_redirects(0);
         let agent: ureq::Agent = if http::loopback(&self.base) { config.proxy(None) } else { config }.build().into();
         let mut req = agent.get(format!("{}/api/event", self.base)).header("Accept", "text/event-stream");
         if let Some(a) = &self.auth {
@@ -738,7 +737,7 @@ impl Server {
             let connected = matches!(&event, Incoming::Event { ty, .. } if ty == "server.connected");
             let mut pending_frame = Some(event);
             let mut delivered = false;
-            for effect in stream_step(state, StreamEvent::Frame { connected }) {
+            for effect in stream_step(state, StreamEvent::Frame { connected, now: Instant::now() }) {
                 match effect {
                     StreamEffect::DeliverHandshake(h) => {
                         let msg = match h {

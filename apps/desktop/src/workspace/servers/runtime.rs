@@ -294,7 +294,7 @@ pub fn reported(probe: &opencode_servers::health::Probe) {
 fn server_for(conn: &ServerConn, own: &Server) -> Server {
     let Some(http) = conn.http().filter(|_| !conn.builtin()) else { return own.clone() };
     // Added and plugin servers have the same passive page readers as the initial server.
-    let mut server = Server::new(&http.url);
+    let mut server = Server::anonymous(&http.url);
     if let Some(p) = &http.password {
         server = server.with_password(p);
     }

@@ -179,6 +179,26 @@ pub fn authenticating(key: &str) -> bool {
     ACTIONS.with_borrow(|a| a.get(key).is_some_and(|s| matches!(s.machine, plugin_server::State::Authenticating { .. })))
 }
 
+/// A managed plugin server's SSE stream dropped: call its plugin's `reconnect` immediately
+/// (`packages/app/src/runtime/server/client.tsx:100-118`, `resolveEndpoint`), marking `Link::Down`
+/// so the health poll does not fire a duplicate reconnect for the same outage.
+pub fn on_stream_down(app: &mut App, key: &opencode_kit::servers::ServerKey, tx: &mut Tx) {
+    let key_str = key.as_str();
+    let is_managed = all(app).into_iter().any(|c| !c.by_address() && c.key == key_str && c.rec.managed && c.rec.state == ServerState::Ready);
+    if !is_managed {
+        return;
+    }
+    let should_call = ACTIONS.with_borrow_mut(|a| {
+        let slot = a.get_mut(key_str)?;
+        let was_down = slot.link == Link::Down;
+        slot.link = Link::Down;
+        Some(!was_down)
+    });
+    if should_call == Some(true) {
+        super::server_sources::call(app, key_str, "reconnect", None, tx);
+    }
+}
+
 /// `poll`: each plugin server's machine follows its entry, a sign-in that ran out of time ends,
 /// and a managed server whose health dropped runs its plugin's `reconnect`.
 pub fn poll_actions(app: &mut App, tx: &mut Tx) {

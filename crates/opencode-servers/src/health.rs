@@ -158,10 +158,10 @@ impl State {
         self.get(key).map(Slot::health)
     }
 
-    /// `polling` (`:347-349`): any server has an endpoint, and its event stream isn't up to say
-    /// it's alive.
+    /// `polling` (`packages/app/src/runtime/server/health-machine.ts:347-349`): any server has an
+    /// endpoint (polled every `SERVER_HEALTH_POLL_MS` = 10 s, matching official).
     pub fn polling(&self) -> bool {
-        self.entries.iter().any(|(k, s)| !matches!(s, Slot::Staged { .. }) && !self.streaming.contains(k))
+        self.entries.iter().any(|(_, s)| !matches!(s, Slot::Staged { .. }))
     }
 }
 
@@ -238,13 +238,11 @@ fn listed(slot: Option<&Slot>, input: &Input) -> Slot {
     }
 }
 
-/// A probe still in flight keeps running: a server slower than the poll still answers (`:244-256`).
+/// A probe still in flight keeps running: a server slower than the poll still answers
+/// (`packages/app/src/runtime/server/health-machine.ts:244-256`).
 fn polled(state: &mut State) -> Effects<Effect> {
     let mut fx = Effects::none();
     for (key, slot) in &mut state.entries {
-        if state.streaming.contains(key) {
-            continue;
-        }
         if let Slot::Settled { endpoint, result, attempt } = slot {
             let attempt = Attempt(attempt.0 + 1);
             fx.push(Effect::Probe { key: key.clone(), attempt, http: endpoint.http.clone() });

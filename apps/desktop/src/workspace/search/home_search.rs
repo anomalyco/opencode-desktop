@@ -83,8 +83,31 @@ impl HomeSearchHost for App {
         App::project_for_session(self, session)
     }
 
+    fn session_in_project(&self, session: &SessionInfo, project: &Project) -> bool {
+        let dir = opencode_kit::path::trim(session.directory.trim());
+        let root = opencode_kit::path::trim(project.directory.trim());
+        if (!dir.is_empty() && opencode_kit::path::same(dir, root)) || self.has_worktree_at(project, dir) {
+            return true;
+        }
+        // Worktree inventories load on demand (`packages/app/src/home/sessions/records.ts:48-58`);
+        // fall back to project ID only for non-"global" git projects so unrelated non-git
+        // folders never match each other.
+        project.id != "global"
+            && (self.project_for_session(session).is_some_and(|p| p.id == project.id) || session.project == project.id)
+    }
+
+    fn project_directories(&self, project: &Project) -> Vec<String> {
+        let mut dirs = vec![project.directory.clone()];
+        dirs.extend(self.project_worktrees(&project.id, &project.directory));
+        dirs
+    }
+
     fn merged_roots(&self) -> Vec<&SessionInfo> {
         App::merged_roots(self, &[])
+    }
+
+    fn merged_roots_with<'a>(&'a self, extra: &'a [SessionInfo]) -> Vec<&'a SessionInfo> {
+        App::merged_roots(self, extra)
     }
 
     fn find_home_sessions(&self, project_id: Option<&str>, query: &str, limit: usize) -> Vec<(i32, i64, Box<str>)> {
