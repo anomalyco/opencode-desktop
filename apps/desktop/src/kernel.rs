@@ -129,6 +129,7 @@ pub fn build() -> Kernel<App> {
     b.with_feature(&crate::review::ReviewFeature);
     b.with_feature(&crate::session_menu::SessionMenuFeature);
     b.with_feature(&crate::settings::SettingsFeature);
+    b.with_feature(&crate::background_notice::BackgroundNoticeFeature);
     b.with_feature(&crate::subagents::SubagentsFeature);
     b.with_feature(&crate::switcher::SwitcherFeature);
     b.with_feature(&crate::surfaces::terminal::TerminalSurfaceFeature);
