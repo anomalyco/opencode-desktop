@@ -38,6 +38,8 @@ pub struct WidgetState {
     pub created: i64,
     /// The program error its last report recorded (any client's); the status stays as it was.
     pub failure: Option<WidgetFailure>,
+    /// Superseded: the widget that replaced it, its message and call (`supersededBy`).
+    pub superseded_by: Option<(String, String)>,
 }
 
 /// A widget's recorded program error (`Widget.Failure`).
@@ -103,7 +105,13 @@ impl WidgetState {
             wait: v["wait"].as_bool().unwrap_or(false),
             created: i(&v["time"]["created"]),
             failure: WidgetFailure::parse(&v["failure"]),
+            superseded_by: call_ref(&v["supersededBy"]),
         })
+    }
+
+    /// The key that names it across the server's sessions: [`instance_key`].
+    pub fn instance_key(&self) -> String {
+        instance_key(&self.session, &self.message, &self.call)
     }
 
     /// The key a client looks it up by: [`widget_key`].
@@ -120,6 +128,49 @@ impl WidgetState {
     pub fn widget_template_key(&self) -> String {
         format!("{}@{}", self.name, self.version)
     }
+}
+
+/// One widget of the server as `instances` lists it (`Widget.Instance`): its state, the data its
+/// call ran on, and its session's title and location, where its calls go.
+#[derive(Clone, Debug, PartialEq)]
+pub struct WidgetInstance {
+    pub state: WidgetState,
+    /// The widgets it replaced (`replaces`, any number of updates back), by [`instance_key`].
+    pub replaced: Vec<String>,
+    /// The `widget` call's `data`; `Null` when its message couldn't be read.
+    pub data: Value,
+    pub session_title: Option<String>,
+    /// Its session's location: the directory the widget's calls go to.
+    pub directory: String,
+    /// Epoch ms: answered, else posted.
+    pub updated: i64,
+}
+
+impl WidgetInstance {
+    pub fn parse(v: &Value) -> Option<WidgetInstance> {
+        Some(WidgetInstance {
+            replaced: {
+                let session = s(&v["state"]["sessionID"]);
+                v["replaced"].as_array().into_iter().flatten().filter_map(call_ref).map(|(m, c)| instance_key(&session, &m, &c)).collect()
+            },
+            state: WidgetState::parse(&v["state"])?,
+            data: v["data"].clone(),
+            session_title: v["session"]["title"].as_str().filter(|t| !t.is_empty()).map(str::to_owned),
+            directory: s(&v["session"]["location"]["directory"]),
+            updated: i(&v["updated"]),
+        })
+    }
+}
+
+/// A widget's key across the server (the Mini apps dashboard's tiles keep it):
+/// `sessionID:messageID:callID`.
+pub fn instance_key(session: &str, message: &str, call: &str) -> String {
+    format!("{session}:{message}:{call}")
+}
+
+/// A `{ messageID, callID }` reference to a widget call.
+fn call_ref(v: &Value) -> Option<(String, String)> {
+    Some((v["messageID"].as_str()?.to_owned(), v["callID"].as_str()?.to_owned()))
 }
 
 /// A widget's key: its message's id and its call's (a call id is unique only within its message).

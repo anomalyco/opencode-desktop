@@ -3,6 +3,7 @@ pub mod code_view;
 pub mod egg;
 pub mod files;
 pub mod glitch;
+pub mod mini_apps;
 #[cfg(feature = "office")]
 pub mod office;
 pub mod review;

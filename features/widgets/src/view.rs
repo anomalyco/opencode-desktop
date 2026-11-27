@@ -66,6 +66,45 @@ pub fn view<H: WidgetsHost + TimelineHost>(s: &H, p: &Pal, session: &str, messag
     Some(session_view::widget::frame(s, p, session, &key, &e.label, e.machine.face(), &e.local, Some(&hooks::<H>(&key)), Place::Inline(buttons), &chips(s, e)))
 }
 
+/// The widget instance key `key` (`sessionID:messageID:callID`, [`crate::instances`]) names
+/// now, `width` points wide, live and interactive, wherever the host shows it (a dashboard tile,
+/// its own window). `None` while the server's widgets aren't read or it isn't among them; it
+/// runs once [`crate::instances::open`] opened it.
+pub fn instance_view<H: WidgetsHost + TimelineHost>(s: &H, p: &Pal, key: &str, width: f32) -> Option<El> {
+    let i = s.widgets().instances.resolve(key)?;
+    let st = &i.state;
+    Some(tile(s, p, &st.session, &st.key(), st.label(), Some(&st.status), width))
+}
+
+/// Widget `key` (`message/call`) of session `session` outside the timeline (a Mini apps tile),
+/// `width` points wide: live and interactive as in the timeline, its events going to its own
+/// session. `label` names it until it opens; `closed` is how it ended, from its state, until then.
+pub fn tile<H: WidgetsHost + TimelineHost>(s: &H, p: &Pal, session: &str, key: &str, label: &str, closed_as: Option<&WidgetStatus>, width: f32) -> El {
+    let Some(e) = s.widgets().entries.get(key) else {
+        let how = closed_as.and_then(closed);
+        let face = match &how {
+            Some(how) => Face::Closed { view: None, how },
+            None => Face::Loading,
+        };
+        return session_view::widget::frame(s, p, session, key, label, face, &Local::default(), None, Place::Tile { buttons: Buttons::default(), width }, &[]);
+    };
+    if s.widgets().screen.is(key) {
+        return session_view::widget::frame(s, p, session, key, &e.label, e.machine.face(), &e.local, None, Place::Elsewhere, &[]);
+    }
+    let again = key.to_owned();
+    let retry: opencode_widget_view::Action<H> = Rc::new(move |s: &mut H, _tx: &mut Tx| retry(s, &again));
+    let expand = offers(e).then(|| {
+        let id = key.to_owned();
+        Rc::new(move |s: &mut H, tx: &mut Tx| {
+            let now = tx.clock();
+            crate::fullscreen::send(s, ScreenEvent::Enter(id.clone()), now, tx);
+        }) as opencode_widget_view::Action<H>
+    });
+    let refused = matches!(s.widgets().widget_templates.get(&e.widget_template), Some(WidgetTemplate::Ready(c)) if c.refused());
+    let buttons = Buttons { retry: (!refused).then_some(retry), expand, failure: recorded::<H>(s, e, session, key) };
+    session_view::widget::frame(s, p, session, key, &e.label, e.machine.face(), &e.local, Some(&hooks::<H>(key)), Place::Tile { buttons, width }, &chips(s, e))
+}
+
 /// Widget `key`'s recorded program error (`State.failure`, any client's) while it's open: its
 /// words, unless the widget shows its own error, then "The agent was told about this error." or
 /// the "Ask agent to fix it" button.

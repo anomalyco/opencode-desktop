@@ -225,7 +225,7 @@ pub(crate) fn poll(host: &mut dyn WidgetsHost, tx: &mut Tx) {
         return;
     };
     let full = host.widgets().screen.is(&id);
-    let here = e.machine.open_here() && (full || shown.as_deref() == Some(e.session.as_str()));
+    let here = e.machine.open_here() && (full || host.widgets().here(&id, &e.session, shown.as_deref()));
     // Focus on the widget's frame, or a control in it (keyed by its node path).
     let inside = tx.focused().is_some_and(|k| k == format!("widget-{id}") || (full && k == format!("widget-screen-{id}")) || k == "w" || k.starts_with("w."));
     if !here || !inside {

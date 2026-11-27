@@ -14,6 +14,7 @@
 
 mod engine;
 pub mod fullscreen;
+pub mod instances;
 pub mod input;
 mod live;
 mod storage;
@@ -24,7 +25,7 @@ mod transport;
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use opencode_kit::model::{WidgetCall, WidgetState, WidgetStatus};
+use opencode_kit::model::{WidgetCall, WidgetInstance, WidgetState, WidgetStatus};
 use opencode_widget::{Closed, Effect, Event, Mode, Phase, Status, Widget, WidgetEvent};
 use opencode_widget_view::Local;
 use rune::Tx;
@@ -33,7 +34,8 @@ use serde_json::Value;
 pub use engine::{Compiled, Grants, Kind, LoadError, Program, compile, compile_as, offset};
 pub use opencode_widget::{RespondError, fixtures};
 pub use storage::StorageCopy;
-pub use view::{screen_key, screen_view, view};
+pub use instances::{Instances, InstancesError};
+pub use view::{instance_view, screen_key, screen_view, tile, view};
 /// The shader slots' GPU side, for the host's compositor.
 pub use opencode_widget_view::shader;
 
@@ -121,6 +123,12 @@ pub struct Widgets {
     screen_rect: [f32; 4],
     /// Each storage widget template's space (by server and name) as this window last told its runs.
     told: HashMap<storage::Place, storage::Told>,
+    /// The widgets shown outside the timeline, by key, per view that shows them (Mini apps, a
+    /// widget's own window): they run while they show, whatever session the timeline shows, and
+    /// stay through a rest.
+    outside: HashMap<&'static str, std::collections::HashSet<String>>,
+    /// The server's widgets across its sessions, for views outside the timeline.
+    pub instances: Instances,
 }
 
 impl Widgets {
@@ -141,6 +149,31 @@ impl Widgets {
         self.sessions.get(session).map(|s| &s.states)
     }
 
+    /// Names the widgets (by [`opencode_kit::model::widget_key`]) view `by` shows outside the
+    /// timeline now ([`Widgets::outside`]); whether that changed.
+    pub fn set_outside(&mut self, by: &'static str, keys: std::collections::HashSet<String>) -> bool {
+        if self.outside.get(by).is_some_and(|k| *k == keys) || (keys.is_empty() && !self.outside.contains_key(by)) {
+            return false;
+        }
+        if keys.is_empty() {
+            self.outside.remove(by);
+        } else {
+            self.outside.insert(by, keys);
+        }
+        true
+    }
+
+    /// Whether widget `id` shows outside the timeline.
+    fn is_outside(&self, id: &str) -> bool {
+        self.outside.values().any(|k| k.contains(id))
+    }
+
+    /// Whether widget `id` of `session` may show now: its session is the one the timeline shows
+    /// (`shown`), or it shows outside the timeline.
+    pub(crate) fn here(&self, id: &str, session: &str, shown: Option<&str>) -> bool {
+        shown == Some(session) || self.is_outside(id)
+    }
+
     /// Whether any widget has typing waiting to be committed.
     fn pending(&self) -> bool {
         self.entries.values().any(|e| e.local.has_pending())
@@ -157,6 +190,9 @@ pub trait WidgetsHost {
     fn widget_calls(&self, session: &str) -> Vec<WidgetCall>;
     /// Reads `session`'s widget states (`states`) off the UI thread; answers with [`states`].
     fn fetch_states(&mut self, session: &str);
+    /// Reads the server's widgets (`instances`) off the UI thread after `delay` seconds; answers
+    /// with [`instances::loaded`].
+    fn fetch_instances(&mut self, delay: f64);
     /// Fetches and compiles `name@version`'s program (`program`, in `session`'s location) off the
     /// UI thread; answers with [`loaded`].
     fn fetch_program(&mut self, session: &str, name: &str, version: &str);
@@ -400,8 +436,10 @@ pub fn states(host: &mut dyn WidgetsHost, session: &str, result: Result<Vec<Widg
 /// Whether it touched a session this window reads.
 pub fn changed(host: &mut dyn WidgetsHost, data: &Value) -> bool {
     let Some(state) = WidgetState::parse(&data["state"]) else { return false };
+    // Widgets shown outside the timeline hear it too, whatever session it is.
+    let outside = instances::changed(host, &state, data) | follow(host, &state);
     let session = data["sessionID"].as_str().map_or_else(|| state.session.clone(), str::to_owned);
-    let Some(s) = host.widgets_mut().sessions.get_mut(&session) else { return false };
+    let Some(s) = host.widgets_mut().sessions.get_mut(&session) else { return outside };
     match &mut s.states {
         States::Ready(map) => {
             map.insert(state.key(), state);
@@ -416,6 +454,8 @@ pub fn changed(host: &mut dyn WidgetsHost, data: &Value) -> bool {
 /// Plugins changed in a location (`plugin.updated`): sessions whose states couldn't be read
 /// (the widgets plugin wasn't loaded yet) are read again.
 pub fn plugins_changed(host: &mut dyn WidgetsHost) {
+    // The server's widgets too, when they were wanted and the plugin wasn't loaded then.
+    instances::plugins_changed(host);
     let failed: Vec<String> = host.widgets().sessions.iter().filter(|(_, s)| matches!(s.states, States::Failed)).map(|(id, _)| id.clone()).collect();
     for session in failed {
         if let Some(s) = host.widgets_mut().sessions.get_mut(&session) {
@@ -428,6 +468,7 @@ pub fn plugins_changed(host: &mut dyn WidgetsHost) {
 /// The connection came back: events published meanwhile were missed, so each session's states
 /// are read again when it next shows.
 pub fn reconnected(host: &mut dyn WidgetsHost) {
+    instances::refresh(host);
     let w = host.widgets_mut();
     w.sessions.clear();
     w.read.clear();
@@ -469,21 +510,52 @@ pub fn sync(host: &mut dyn WidgetsHost) -> bool {
                 changed = true;
             }
             None => {
-                let (machine, effects) = Widget::open(c.data().clone(), status(&state.status));
-                let data = engine::Data::new(&machine.data);
                 let label = c.input["title"].as_str().filter(|t| !t.is_empty()).unwrap_or(state.label()).to_owned();
-                let entry = Entry { session: session.clone(), message: c.message.clone(), call: c.call.clone(), widget_template: state.widget_template_key(), label, machine, data, local: Local::default(), seen: state.status.clone(), run: live::Run::default(), reported: Default::default(), capture_wanted: false, asking: false };
-                host.widgets_mut().entries.insert(key.clone(), entry);
-                for effect in effects {
-                    if let Some(next) = run(host, &key, effect) {
-                        advance(host, &key, next);
-                    }
-                }
+                open_entry(host, &state, c.data().clone(), label);
                 changed = true;
             }
         }
     }
     changed
+}
+
+/// Opens widget `state`'s machine on `data`, called `label`, and runs what opening asks for.
+fn open_entry(host: &mut dyn WidgetsHost, state: &WidgetState, data: Value, label: String) {
+    let key = state.key();
+    let (machine, effects) = Widget::open(data, status(&state.status));
+    let data = engine::Data::new(&machine.data);
+    let entry = Entry { session: state.session.clone(), message: state.message.clone(), call: state.call.clone(), widget_template: state.widget_template_key(), label, machine, data, local: Local::default(), seen: state.status.clone(), run: live::Run::default(), reported: Default::default(), capture_wanted: false, asking: false };
+    host.widgets_mut().entries.insert(key.clone(), entry);
+    for effect in effects {
+        if let Some(next) = run(host, &key, effect) {
+            advance(host, &key, next);
+        }
+    }
+}
+
+/// Opens widget `instance` outside the timeline (Mini apps), from what `instances` listed, unless
+/// this window runs it already; one it runs follows the instance's status. Whether it changed.
+pub fn open(host: &mut dyn WidgetsHost, instance: &WidgetInstance) -> bool {
+    let state = &instance.state;
+    if host.widgets().entries.contains_key(&state.key()) {
+        return follow(host, state);
+    }
+    open_entry(host, state, instance.data.clone(), state.label().to_owned());
+    true
+}
+
+/// A widget this window runs heard its state from elsewhere than its session's `states` (Mini
+/// apps' `instances`, or a `changed` event of a session the timeline doesn't read): its status
+/// reaches its machine once. Whether it changed.
+pub fn follow(host: &mut dyn WidgetsHost, state: &WidgetState) -> bool {
+    let key = state.key();
+    let Some(e) = host.widgets_mut().entries.get_mut(&key) else { return false };
+    if e.seen == state.status {
+        return false;
+    }
+    e.seen = state.status.clone();
+    advance(host, &key, Event::Status(status(&state.status)));
+    true
 }
 
 /// Draws the canvases that are due (shown, sized, and changed or at their next frame), and asks
@@ -647,10 +719,12 @@ pub fn poll(host: &mut dyn WidgetsHost, now: f64, tx: &mut Tx) -> bool {
     changed
 }
 
-/// Lets go of the widgets of sessions `keep` doesn't name (a window at rest).
+/// Lets go of the widgets of sessions `keep` doesn't name (a window at rest), but for those shown
+/// outside the timeline.
 pub fn rest(host: &mut dyn WidgetsHost, keep: &dyn Fn(&str) -> bool) {
     let w = host.widgets_mut();
-    w.entries.retain(|_, e| keep(&e.session));
+    let outside: std::collections::HashSet<String> = w.outside.values().flatten().cloned().collect();
+    w.entries.retain(|id, e| keep(&e.session) || outside.contains(id));
     w.sessions.retain(|s, _| keep(s));
     w.read.retain(|s, _| keep(s));
 }

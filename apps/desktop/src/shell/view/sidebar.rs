@@ -191,7 +191,7 @@ fn surface_width(s: &App) -> f32 {
 /// share it, Home, Search sessions and New session, then the tabs (or the inbox).
 fn contents(s: &App, p: &Pal, top: f32) -> El {
     let chrome = chrome();
-    let home = s.route == Route::Home && !s.settings_open();
+    let home = s.route == Route::Home && !s.settings_open() && crate::surfaces::mini_apps::shown(s).is_none();
     let new = || action_row(p, "new", &ic::EDIT, t!("command.session.new"), crate::keymap::Bind::TabNew.keycaps(), false)
         .matched(super::titlebar::NAV_NEW).matched_crop().motion(GLIDE)
         .on_press_tx(|s: &mut App, tx: &mut Tx| s.new_session(tx))
@@ -248,16 +248,21 @@ fn actions(s: &App, p: &Pal, home: bool, new: impl Fn() -> El) -> Vec<El> {
                 s.open_session_search(tx)
             })
     };
+    // Mini apps: the server's widgets outside their sessions, a page of its own as Settings is.
+    let mini_apps = || {
+        action_row(p, "mini-apps", &ic::DOT_GRID, t!("rune.miniApps.title"), Vec::new(), crate::surfaces::mini_apps::shown(s).is_some())
+            .on_press_tx(|s: &mut App, tx: &mut Tx| crate::surfaces::mini_apps::toggle(s, tx))
+    };
     let settings = || {
         action_row(p, "sidebar-settings", &ic::SETTINGS_GEAR, t!("sidebar.settings"), crate::keymap::Bind::Settings.keycaps(), s.settings_open())
             .on_press_tx(|s: &mut App, tx| s.toggle_settings(tx))
     };
     if s.settings.navigation_prototype() {
-        vec![new(), home_row(), settings()]
+        vec![new(), home_row(), mini_apps(), settings()]
     } else if s.project_navigation() {
-        vec![new(), search(), settings()]
+        vec![new(), search(), mini_apps(), settings()]
     } else {
-        vec![home_row(), search(), new()]
+        vec![home_row(), search(), mini_apps(), new()]
     }
 }
 

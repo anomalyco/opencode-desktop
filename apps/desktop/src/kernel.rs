@@ -136,6 +136,7 @@ pub fn build() -> Kernel<App> {
     b.with_feature(&crate::tabs::groups::TabGroupsFeature);
     b.with_feature(&crate::tabs::sections::SidebarSectionsFeature);
     b.with_feature(&crate::session::widgets::WidgetsFeature);
+    b.with_feature(&crate::surfaces::mini_apps::MiniAppsFeature);
     b.with_feature(&crate::plugin_host::PluginHostFeature);
     b.register_overlay(
         OverlayRegistration::<App>::new("overlay.pickers")

@@ -51,14 +51,23 @@ impl WidgetsHost for App {
         });
     }
 
-    fn fetch_program(&mut self, session: &str, name: &str, version: &str) {
-        let (name, version) = (name.to_owned(), version.to_owned());
-        let directory = self.widget_directory(session);
-        self.job(move |srv| {
-            // Compiled on the job thread too: the window only takes the finished program.
-            let result = srv.widget_program(&directory, &name, &version).map_err(|e| LoadError::Client(e.to_string())).and_then(|p| compile_as(&p.program, &p.mode, grant(&p.capabilities), offset(&p.program, &p.source))).map(Arc::new);
-            Box::new(move |s: &mut App, _tx: &mut Tx| loaded(s, &name, &version, result)) as Apply
+    fn fetch_instances(&mut self, delay: f64) {
+        if !self.live() {
+            return;
+        }
+        // Any location answers for the whole server: the open session's, else the server's own.
+        let directory = self.active_session_id().map(|id| self.widget_directory(id)).unwrap_or_default();
+        self.job_after(std::time::Duration::from_secs_f64(delay), move |srv| {
+            let result = srv.widget_instances(&directory).map_err(|e| match e {
+                e if opencode_kit::client::Server::widget_unavailable(&e) => InstancesError::Unavailable,
+                e => InstancesError::Failed(e.to_string()),
+            });
+            Box::new(move |s: &mut App, _tx: &mut Tx| instances::loaded(s, result)) as Apply
         });
+    }
+
+    fn fetch_program(&mut self, session: &str, name: &str, version: &str) {
+        fetch_program(self, session, name, version, 0);
     }
 
     fn post_report(&mut self, session: &str, message: &str, call: &str, error: Value, ask: bool) {
@@ -151,6 +160,23 @@ impl WidgetsHost for App {
     }
 }
 
+/// Reads `name@version`'s program in `session`'s location; while the plugin is still loading
+/// there (`rpc.unavailable`, a location no session of this window opened yet), again a little later.
+fn fetch_program(s: &App, session: &str, name: &str, version: &str, tries: u32) {
+    let (session, name, version) = (session.to_owned(), name.to_owned(), version.to_owned());
+    let directory = s.widget_directory(&session);
+    let delay = std::time::Duration::from_secs_f64(if tries == 0 { 0.0 } else { instances::RETRY_S });
+    s.job_after(delay, move |srv| {
+        // Compiled on the job thread too: the window only takes the finished program.
+        let answer = srv.widget_program(&directory, &name, &version);
+        if matches!(&answer, Err(e) if opencode_kit::client::Server::widget_unavailable(e)) && tries < 5 {
+            return Box::new(move |s: &mut App, _tx: &mut Tx| fetch_program(s, &session, &name, &version, tries + 1)) as Apply;
+        }
+        let result = answer.map_err(|e| LoadError::Client(e.to_string())).and_then(|p| compile_as(&p.program, &p.mode, grant(&p.capabilities), offset(&p.program, &p.source))).map(Arc::new);
+        Box::new(move |s: &mut App, _tx: &mut Tx| loaded(s, &name, &version, result)) as Apply
+    });
+}
+
 /// `closed`: answered already, here or on another client.
 fn respond_error(e: WidgetError) -> RespondError {
     match e {
@@ -160,9 +186,11 @@ fn respond_error(e: WidgetError) -> RespondError {
 }
 
 impl App {
-    /// The location the widgets plugin answers `session`'s calls in: its directory.
+    /// The location the widgets plugin answers `session`'s calls in: its directory, as this
+    /// window knows the session, else as the server's widgets list it (a widget shown outside its
+    /// timeline, of a session this window never opened).
     fn widget_directory(&self, session: &str) -> String {
-        self.session(session).map(|i| i.directory.clone()).unwrap_or_default()
+        self.session(session).map(|i| i.directory.clone()).or_else(|| self.widgets().instances.directory(session).map(str::to_owned)).unwrap_or_default()
     }
 }
 

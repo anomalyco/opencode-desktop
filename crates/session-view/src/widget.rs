@@ -63,6 +63,8 @@ fn words() -> Rc<Words> {
 pub enum Place<S> {
     /// In the timeline, with its frame's buttons.
     Inline(Buttons<S>),
+    /// Outside the timeline (a Mini apps tile), `width` points wide, with its frame's buttons.
+    Tile { buttons: Buttons<S>, width: f32 },
     /// In the timeline while it is full screen: a placeholder.
     Elsewhere,
     /// Full screen, filling a window `size` points big; `close` leaves it.
@@ -76,6 +78,7 @@ pub fn frame<S: TimelineHost>(s: &S, p: &Pal, session: &str, id: &str, label: &s
     let fullscreen = matches!(place, Place::Screen { .. });
     let width = match &place {
         Place::Screen { size, .. } => (size[0] - 2.0 * opencode_widget_view::PAD).max(200.0),
+        Place::Tile { width, .. } => width.max(120.0),
         _ => crate::style::content_w(),
     };
     let store = s.media_store().markdown.clone();
@@ -88,7 +91,7 @@ pub fn frame<S: TimelineHost>(s: &S, p: &Pal, session: &str, id: &str, label: &s
     let words = words();
     let look = Look { kit: crate::palette::kit(p), markdown: &markdown, image: &image, words: &words, width, scale: crate::scroller::device_scale(), dark: p.dark, scope: id, chips, fullscreen };
     match place {
-        Place::Inline(buttons) => opencode_widget_view::frame(&look, local, hooks, face, label, buttons).key(format!("widget-{id}")),
+        Place::Inline(buttons) | Place::Tile { buttons, .. } => opencode_widget_view::frame(&look, local, hooks, face, label, buttons).key(format!("widget-{id}")),
         Place::Elsewhere => opencode_widget_view::placeholder(&look, label).key(format!("widget-{id}")),
         Place::Screen { size, close } => opencode_widget_view::screen(&look, local, hooks, face, label, size[1], close).key(format!("widget-screen-{id}")),
     }

@@ -126,7 +126,7 @@ pub(crate) fn poll(host: &mut dyn WidgetsHost, now: f64, tx: &mut Tx) -> bool {
     for id in ids {
         let Some(e) = host.widgets().entries.get(&id) else { continue };
         // Full screen, it shows whatever the timeline does.
-        let visible = host.widgets().screen.is(&id) || (e.local.shown() && shown.as_deref() == Some(e.session.as_str()));
+        let visible = host.widgets().screen.is(&id) || (e.local.shown() && host.widgets().here(&id, &e.session, shown.as_deref()));
         if e.machine.waiting() {
             if visible {
                 advance(host, &id, Event::Shown);

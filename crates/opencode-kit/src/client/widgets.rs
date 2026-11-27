@@ -9,7 +9,7 @@ use std::time::Duration;
 use serde_json::{Value, json};
 
 use super::{Server, encode_component};
-use crate::model::WidgetState;
+use crate::model::{WidgetInstance, WidgetState};
 use crate::wire_error::WireError;
 
 const RPC_ID: &str = "opencode.widget";
@@ -76,6 +76,13 @@ impl Server {
     pub fn widget_states(&self, directory: &str, session: &str) -> Result<Vec<WidgetState>, WidgetError> {
         let out = self.widget_rpc(directory, "states", json!({ "sessionID": session }))?;
         Ok(out.as_array().into_iter().flatten().filter_map(WidgetState::parse).collect())
+    }
+
+    /// Every widget of the server, across its sessions, superseded ones left out, last updated
+    /// first (`instances`). Any location answers for the whole server.
+    pub fn widget_instances(&self, directory: &str) -> Result<Vec<WidgetInstance>, WidgetError> {
+        let out = self.widget_rpc(directory, "instances", json!({}))?;
+        Ok(out.as_array().into_iter().flatten().filter_map(WidgetInstance::parse).collect())
     }
 
     /// Widget template `name` at `version` with its program (`program`): a version never changes, so

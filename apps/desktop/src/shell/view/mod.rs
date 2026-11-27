@@ -265,7 +265,7 @@ fn shell(s: &App, cx: &mut Cx<App>) -> El {
         .on_drop_files(crate::dropzone::drop)
         .accepts_files(|path| !session_view::images::drag::is_own(path))
         .on_drop_hover(crate::dropzone::hover)
-        .child(if s.settings_open() { crate::settings::page(s, p, settings_sz) } else { match &*s.route {
+        .child(if s.settings_open() { crate::settings::page(s, p, settings_sz) } else if crate::surfaces::mini_apps::shown(s).is_some() { crate::surfaces::mini_apps::page(s, p) } else { match &*s.route {
             Route::Home => home(s, p, [panel_sz.0, panel_sz.1], cx.layout_size("zoom").unwrap_or([0.0, 0.0])),
             Route::Session { id, .. } => session_page(s, p, id),
             Route::Draft(_) => draft_page(s, p, panel_sz.0),
