@@ -8,6 +8,7 @@
 
 use std::cell::RefCell;
 use std::collections::HashMap;
+use std::collections::hash_map::Entry;
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::ops::Range;
 
@@ -26,10 +27,25 @@ struct SessionCache {
     first_id: Option<String>,
     last_id: Option<String>,
     per_msg: Vec<Option<u64>>,
-    ranges: HashMap<(usize, usize), u64>,
+    /// Cached range hash keyed by `range.start -> (range.end, hash)` so growing turns replace
+    /// their previous prefix entry instead of accumulating stale `(start, end)` keys.
+    ranges: HashMap<usize, (usize, u64)>,
 }
 
 impl SessionCache {
+    fn new(version: u64, edits: bool, script_diffs: bool, t: &Transcript) -> Self {
+        Self {
+            version,
+            edits,
+            script_diffs,
+            len: t.messages.len(),
+            first_id: t.messages.first().map(|m| m.id().to_owned()),
+            last_id: t.messages.last().map(|m| m.id().to_owned()),
+            per_msg: vec![None; t.messages.len()],
+            ranges: HashMap::new(),
+        }
+    }
+
     fn reset(&mut self, version: u64, edits: bool, script_diffs: bool, t: &Transcript) {
         self.version = version;
         self.edits = edits;
@@ -46,6 +62,13 @@ impl SessionCache {
         self.len == t.messages.len()
             && self.first_id.as_deref() == t.messages.first().map(Message::id)
             && self.last_id.as_deref() == t.messages.last().map(Message::id)
+    }
+
+    fn get_range(&self, range: &Range<usize>) -> Option<u64> {
+        self.ranges
+            .get(&range.start)
+            .filter(|&&(end, _)| end == range.end)
+            .map(|&(_, v)| v)
     }
 }
 
@@ -71,57 +94,54 @@ pub(super) fn of<S: TimelineHost>(
         if !map.contains_key(&t.session) && map.len() >= KEPT {
             map.clear();
         }
-        let entry = map.entry(t.session.clone()).or_insert_with(|| SessionCache {
-            version: u64::MAX,
-            edits,
-            script_diffs,
-            len: 0,
-            first_id: None,
-            last_id: None,
-            per_msg: Vec::new(),
-            ranges: HashMap::new(),
-        });
-
-        let same_flags = entry.edits == edits && entry.script_diffs == script_diffs;
-        if same_flags && entry.version == version && entry.same_shape(t) {
-            if let Some(&v) = entry.ranges.get(&(range.start, range.end)) {
-                return v;
-            }
-        } else if same_flags && entry.version != u64::MAX {
-            match s.transcript_changed_from(&t.session, entry.version) {
-                Some(usize::MAX) if entry.same_shape(t) => {
-                    // Only another session (e.g. a running subagent) streamed between versions.
-                    entry.version = version;
-                    if let Some(&v) = entry.ranges.get(&(range.start, range.end)) {
+        let entry = match map.entry(t.session.clone()) {
+            Entry::Occupied(occ) => {
+                let entry = occ.into_mut();
+                let same_flags = entry.edits == edits && entry.script_diffs == script_diffs;
+                if same_flags && entry.version == version && entry.same_shape(t) {
+                    if let Some(v) = entry.get_range(&range) {
                         return v;
                     }
-                }
-                Some(at) if at == 0 || entry.first_id.as_deref() == t.messages.first().map(Message::id) => {
-                    entry.per_msg.truncate(at.min(entry.per_msg.len()));
-                    entry.per_msg.resize(t.messages.len(), None);
-                    entry.ranges.retain(|&(_, e), _| e <= at);
-                    entry.version = version;
-                    entry.len = t.messages.len();
-                    entry.first_id = t.messages.first().map(|m| m.id().to_owned());
-                    entry.last_id = t.messages.last().map(|m| m.id().to_owned());
-                    if let Some(&v) = entry.ranges.get(&(range.start, range.end)) {
-                        return v;
+                } else if same_flags {
+                    match s.transcript_changed_from(&t.session, entry.version) {
+                        Some(usize::MAX) if entry.same_shape(t) => {
+                            // Only another session (e.g. a running subagent) streamed between versions.
+                            entry.version = version;
+                            if let Some(v) = entry.get_range(&range) {
+                                return v;
+                            }
+                        }
+                        Some(usize::MAX) => entry.reset(version, edits, script_diffs, t),
+                        Some(at) if at == 0 || entry.first_id.as_deref() == t.messages.first().map(Message::id) => {
+                            entry.per_msg.truncate(at.min(entry.per_msg.len()));
+                            entry.per_msg.resize(t.messages.len(), None);
+                            entry.ranges.retain(|_, &mut (end, _)| end <= at);
+                            entry.version = version;
+                            entry.len = t.messages.len();
+                            entry.first_id = t.messages.first().map(|m| m.id().to_owned());
+                            entry.last_id = t.messages.last().map(|m| m.id().to_owned());
+                            if let Some(v) = entry.get_range(&range) {
+                                return v;
+                            }
+                        }
+                        _ => entry.reset(version, edits, script_diffs, t),
                     }
+                } else {
+                    entry.reset(version, edits, script_diffs, t);
                 }
-                _ => entry.reset(version, edits, script_diffs, t),
+                entry
             }
-        } else {
-            entry.reset(version, edits, script_diffs, t);
-        }
+            Entry::Vacant(vac) => vac.insert(SessionCache::new(version, edits, script_diffs, t)),
+        };
 
         let mut h = DefaultHasher::new();
         (range.end - range.start).hash(&mut h);
-        for i in range.start..range.end {
-            let mh = *entry.per_msg[i].get_or_insert_with(|| message_hash(&t.messages[i], edits, script_diffs));
+        for (slot, m) in entry.per_msg[range.clone()].iter_mut().zip(&t.messages[range.clone()]) {
+            let mh = *slot.get_or_insert_with(|| message_hash(m, edits, script_diffs));
             mh.hash(&mut h);
         }
         let combined = h.finish();
-        entry.ranges.insert((range.start, range.end), combined);
+        entry.ranges.insert(range.start, (range.end, combined));
         combined
     })
 }

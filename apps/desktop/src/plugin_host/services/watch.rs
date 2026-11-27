@@ -210,7 +210,7 @@ pub fn sync_editor_watches(app: &App, p: &crate::plugin_host::Plugin, index: usi
 
 /// Running sessions and their ancestors (up to 32 levels), precomputed once per bulk
 /// `Sessions.Changed` sweep so each catalog session checks a set instead of walking parents.
-fn running_ancestors(app: &App) -> std::collections::HashSet<&str> {
+pub(super) fn running_ancestors(app: &App) -> std::collections::HashSet<&str> {
     let mut out = std::collections::HashSet::new();
     for r in app.running.iter() {
         for cur in std::iter::successors(Some(r.as_str()), |cur| app.session(cur)?.parent.as_deref()).take(32) {

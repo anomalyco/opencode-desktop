@@ -53,10 +53,21 @@ pub fn encode_suffix_within(messages: &[Message], max_bytes: usize) -> Vec<u8> {
     let mut chunks: Vec<Vec<u8>> = Vec::new();
     let mut body_len = 0usize;
     for m in messages.iter().rev() {
+        let next_count = chunks.len() + 1;
+        if !chunks.is_empty()
+            && 1usize
+                .saturating_add(varint_len(next_count))
+                .saturating_add(body_len)
+                >= max_bytes
+        {
+            break;
+        }
         let mut one = W(Vec::new());
         message(&mut one, m);
-        let next_count = chunks.len() + 1;
-        let next_total = 1 + varint_len(next_count) + body_len + one.0.len();
+        let next_total = 1usize
+            .saturating_add(varint_len(next_count))
+            .saturating_add(body_len)
+            .saturating_add(one.0.len());
         if !chunks.is_empty() && next_total > max_bytes {
             break;
         }

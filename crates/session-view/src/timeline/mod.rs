@@ -391,7 +391,6 @@ pub fn entries<'a>(messages: &'a [Message], detail: &crate::detail::Detail) -> V
     }).collect()
 }
 
-
 /// A turn heading's words take at most this many characters of the prompt.
 const TURN_WORDS: usize = 80;
 

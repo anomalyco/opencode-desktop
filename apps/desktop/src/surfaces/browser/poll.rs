@@ -308,8 +308,12 @@ impl App {
             || self.settings_open()
             || self.narrow()
             || self.workspace_panes.browser.host.tabs().is_empty()
-            || (!self.side_open() && !self.bottom_open())
         {
+            return Vec::new();
+        }
+        let side_is_open = self.side_open();
+        let bottom_is_open = self.bottom_open();
+        if !side_is_open && !bottom_is_open {
             return Vec::new();
         }
         let Some(reg) = self.resolve_side_region() else {
@@ -321,8 +325,6 @@ impl App {
             .sessions
             .get(&reg.session_id)
             .map_or(&empty, |st| &st.tab_state.tabs);
-        let side_is_open = self.side_open();
-        let bottom_is_open = self.bottom_open();
         let panel_surfaces = self.workspace_panes.browser.panel_surfaces.borrow();
         let mut visible = Vec::new();
         for pane in SESSION_PANES {
