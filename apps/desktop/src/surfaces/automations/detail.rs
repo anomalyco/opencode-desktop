@@ -15,7 +15,7 @@ use crate::App;
 
 use super::AUTOMATIONS;
 use super::format::{Delivery, described_cron, format_date, outcome_note, relative_time, split_output, status_label};
-use super::parts::{BODY, CODE, META, META_MED, BODY_MED, TITLE, body_card, field, icon_button, session_link, status_dot};
+use super::parts::{BODY, BODY_MED, CODE, META, META_MED, TITLE, body_card, code_inline, field, icon_button, session_link, status_dot};
 use super::source::{self, Entry, MutatePhase, Operation};
 
 /// The card that holds what a run does: its prompt, code or command.
@@ -69,7 +69,8 @@ pub(super) fn inspector(s: &App, p: &Pal, entry: &Entry, context: &[String]) -> 
         .gap(24.0)
         .child(header(s, p, entry, context))
         .child(primary)
-        .child(el().w_full().h(1.0).fill(p.border).a11y_hidden())
+        // A hairline, as between the list's groups: a step under the pane's own borders.
+        .child(el().w_full().h(1.0).fill(p.border_muted).a11y_hidden())
         .child(meta);
     // `mx-auto`: the article keeps its measure and sits in the middle of a wide pane.
     col().w_full().items_center().child(article)
@@ -99,8 +100,9 @@ fn header(s: &App, p: &Pal, entry: &Entry, context: &[String]) -> El {
     }
     // Official's Delete is a ghost-muted word beside Pause (`view.tsx:150`). It asks first
     // (`delete_dialog`), so here it is a trash glyph that stays quiet until the pointer is on it.
-    // Its wash bleeds 6 pt past the article's edge, which the glyph then stands on.
-    let delete = icon_button(p, "auto-delete", t!("automations.delete.title"), &ic::OUTLINE_TRASH, p.danger).mr(-6.0);
+    // Its wash bleeds past the article's edge by its 6 pt of padding and the 1.5 pt of air in the
+    // glyph's own box, so the trash's ink stands on the edge the cards and the rule keep.
+    let delete = icon_button(p, "auto-delete", t!("automations.delete.title"), &ic::OUTLINE_TRASH, p.danger).mr(-7.5);
     actions = actions.child(if busy {
         delete.disabled(true).opacity(0.5)
     } else {
@@ -166,16 +168,16 @@ fn when_block(s: &App, p: &Pal, entry: &Entry) -> El {
         line = format!("{line} · {}", t!("automations.nextRun", time = relative_time(next, *s.now_ms)));
         tip = Some(format_date(next, &info.tz));
     }
-    if cron.is_some() {
-        line.push_str(" ·");
-    }
     let mut zone = text(line).key("auto-when-tz").font(BODY).color(p.muted);
     if let Some(tip) = tip {
         zone = zone.help(tip);
     }
-    let mut sub = row().w_full().flex_wrap().gap(6.0).center_y().child(zone);
+    // A word space between the three, so the dot sits evenly between the words and the cron.
+    let mut sub = row().w_full().flex_wrap().gap(4.0).center_y().child(zone);
     if let Some(cron) = cron {
-        sub = sub.child(text(cron.to_owned()).key("auto-when-cron").font(CODE).color(p.faint).dir(Direction::Ltr));
+        sub = sub
+            .child(text("·").font(BODY).color(p.muted).a11y_hidden())
+            .child(code_inline(text(cron.to_owned())).key("auto-when-cron").color(p.faint).dir(Direction::Ltr));
     }
     block = block.child(sub);
     block

@@ -10,8 +10,9 @@ use rune::TextStyle;
 /// `session_view::fold`'s limits: past 12 lines a body shows 8, so a fold always hides 5 at least.
 pub const OVER: usize = 12;
 pub const SHOW: usize = 8;
-/// The fade at the folded edge.
-pub const FADE: f32 = 40.0;
+/// The fade at the folded edge: three of the inspector's lines, so the text thins out over
+/// them rather than its last line alone going grey.
+pub const FADE: f32 = 60.0;
 
 /// One body's fold.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

@@ -18,8 +18,9 @@ const SEARCH_TEXT: TextStyle = TextStyle::new(12.0, 440.0).lh(16.0);
 
 /// The list's width beside the inspector (`route.tsx:107`, `minmax(300px, 360px)`).
 const LIST_W: f32 = 320.0;
-/// The most the list takes over the inspector in a narrow window.
-const LIST_BAND_H: f32 = 260.0;
+/// The most the list takes over the inspector in a narrow window: a header, four rows and half
+/// of the fifth, so the cut falls through a row and shows there is more to scroll to.
+const LIST_BAND_H: f32 = 288.0;
 
 pub fn page(s: &App, p: &Pal, panel_sz: [f32; 2]) -> El {
     let all = source::entries(s);

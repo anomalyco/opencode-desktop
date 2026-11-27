@@ -22,6 +22,15 @@ pub(super) const META: TextStyle = TextStyle::new(12.0, 440.0).lh(20.0);
 pub(super) const META_MED: TextStyle = TextStyle::new(12.0, 530.0).lh(20.0);
 pub(super) const CODE: TextStyle = TextStyle::new(12.0, 440.0).lh(20.0).mono();
 
+/// [`CODE`] on a line of [`BODY`] is a size smaller in the same 20 pt line, so centred its
+/// baseline lands half a point over the sans's. Set this much lower, the two share one.
+pub(super) const CODE_DROP: f32 = 0.5;
+
+/// Mono text that shares a line with [`BODY`], on its baseline.
+pub(super) fn code_inline(words: El) -> El {
+    words.font(CODE).mt(CODE_DROP).mb(-CODE_DROP)
+}
+
 /// The label column every row of the inspector shares, and the gap to its values.
 const LABEL_W: f32 = 88.0;
 const LABEL_GAP: f32 = 16.0;
@@ -56,6 +65,8 @@ pub(super) fn session_link(p: &Pal, key: &str, server: ServerKey, id: &str, titl
     const BLEED: f32 = 4.0;
     let name = match &title {
         Some(title) => text(title.clone()).font(font).color(p.text),
+        // Beside 12 pt [`META`] the mono is already on the baseline.
+        None if font == BODY_MED => code_inline(text(short_id(id))).color(p.muted).help(id.to_owned()),
         None => text(short_id(id)).font(CODE).color(p.muted).help(id.to_owned()),
     };
     let session = id.to_owned();
