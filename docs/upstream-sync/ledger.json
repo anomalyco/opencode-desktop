@@ -2,29 +2,29 @@
   "generated_at": "2026-11-28",
   "upstream_repo": "anomalyco/opencode",
   "upstream_reference_base": "f6e0c2d0833ffe772035f221fed923e1cd5fb408",
-  "upstream_head": "ef0431d44c13a6b12d7bd41f2c30b84ae14ecd64",
+  "upstream_head": "31a291bd03a554f1dd9c74009b5d4c0b7a8ae281",
   "upstream_pre_window_base": "3751be8138ebcf33343eb3f3d011b32fc814103c",
   "rune_desktop_repo": "anomalyco/opencode-rune",
-  "rune_desktop_head": "26ad040cab",
-  "post_1114_commit_count": 801,
+  "rune_desktop_head": "32c394e814",
+  "post_1114_commit_count": 803,
   "post_1114_in_ledger": 269,
-  "post_1114_skipped": 532,
+  "post_1114_skipped": 534,
   "post_1114_skipped_breakdown": {
     "test-only": 35,
     "ci-bench-deps": 27,
     "docs-site-data": 84,
     "tui-only": 34,
     "cli-acp-only": 15,
-    "server-core-ai-codemode-internal": 337
+    "server-core-ai-codemode-internal": 339
   },
   "pre_1114_carryover_rows": 15,
   "total_ledger_rows": 290,
   "status_counts": {
-    "have it": 242,
+    "have it": 243,
     "not applicable": 39,
     "differs on purpose": 1,
     "partly": 1,
-    "missing": 7
+    "missing": 6
   },
   "rows": [
     {
@@ -7209,13 +7209,17 @@
       ],
       "summary": "Groups a Code Mode execute script's multiple file changes into a single patch group card matching direct multi-file patches.",
       "size": "S",
-      "status": "missing",
-      "status_evidence": "Open PR #1402 (head 9c5ed802ef, CI running): groups consecutive diff-bearing script file changes into one stacked patch group.",
+      "status": "have it",
+      "status_evidence": "Merged in #1402 (dev 32c394e814, CI run 46010205048 green): groups consecutive diff-bearing script file changes into one stacked patch group (stacked_group with shared outer corners, -1 pt border overlap, per-file disclosure keyed by first change id, scriptChangeRuns) while keeping direct edits as separated cards. Post-merge bulk headless verification queued.",
       "depends_on": "UP-255",
       "risks": "none",
       "workstream": "UPSTREAM",
       "pr_refs": [
         1402
+      ],
+      "rune_files": [
+        "crates/session-view/src/tools/files.rs",
+        "crates/session-view/src/tools/script.rs"
       ]
     },
     {
