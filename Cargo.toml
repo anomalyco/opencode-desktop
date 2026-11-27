@@ -82,6 +82,7 @@ rune-luau = { git = "https://github.com/anomalyco/rune", rev = "9391c20d56daa850
 rune-mermaid = { git = "https://github.com/anomalyco/rune", rev = "9391c20d56daa8508c6b825c973157be5eb4a89a" }
 rune-theme-opencode = { git = "https://github.com/anomalyco/rune", rev = "9391c20d56daa8508c6b825c973157be5eb4a89a" }
 rune-fx = { git = "https://github.com/anomalyco/rune", rev = "9391c20d56daa8508c6b825c973157be5eb4a89a" }
+rune-gpu = { git = "https://github.com/anomalyco/rune", rev = "9391c20d56daa8508c6b825c973157be5eb4a89a" }
 rune-i18n = { git = "https://github.com/anomalyco/rune", rev = "9391c20d56daa8508c6b825c973157be5eb4a89a" }
 procwatch = { git = "https://github.com/anomalyco/rune", rev = "9391c20d56daa8508c6b825c973157be5eb4a89a" }
 rune-knobs = { git = "https://github.com/anomalyco/rune", rev = "9391c20d56daa8508c6b825c973157be5eb4a89a" }

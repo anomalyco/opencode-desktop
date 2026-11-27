@@ -18,7 +18,7 @@ wgpu = { version = "30", default-features = false }
 # Live GPU canvases on Rune's Metal backend: replayed on a stock wgpu Metal device made on Rune's
 # own MTLDevice (wgpu's validation), their textures shown through `rune_gpu::metal::texture_from_raw`.
 [target.'cfg(target_os = "macos")'.dependencies]
-rune-gpu = { git = "https://github.com/anomalyco/rune", rev = "9391c20d56daa8508c6b825c973157be5eb4a89a" }
+rune-gpu = { workspace = true }
 objc2 = "0.6"
 objc2-metal = "0.3"
 
