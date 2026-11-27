@@ -301,7 +301,11 @@ impl SessionMenuHost for App {
         self.tabs.retain(|t| t.is_draft() || t.server != *server || !gone.contains(&t.id));
         self.gestures.closed.remove(|id| gone.iter().any(|g| g == id));
         if open_gone {
-            *self.route = Route::Home;
+            if let Some(next) = self.pick_inbox_successor(server, gone) {
+                self.open_inbox_session(&next, &mut Tx::default());
+            } else {
+                *self.route = Route::Home;
+            }
         }
         App::save_tabs(self);
     }

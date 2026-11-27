@@ -21,7 +21,7 @@ pub enum Group {
     /// The open session when no group shows it: unheaded, first.
     Current,
     Needs,
-    /// The pinned sessions, then the settled ones: unheaded.
+    /// The pinned sessions, then the settled ones, under the Recent header (`opencode#66494`).
     Recent,
     /// The shelf below the list, or a group in it (`workingPlacement`).
     Working,
@@ -33,16 +33,17 @@ impl Group {
     pub const ALL: [Group; 5] = [Group::Current, Group::Needs, Group::Recent, Group::Working, Group::Archived];
 }
 
-/// Which of the list's folds are open (`recentExpanded`, `archivedExpanded`).
+/// Which of the list's folds are open (`recentExpanded`, `workingExpanded`, `archivedExpanded`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct Folds {
     pub recent: bool,
+    pub working: bool,
     pub archived: bool,
 }
 
 impl From<crate::restore::InboxUi> for Folds {
     fn from(ui: crate::restore::InboxUi) -> Folds {
-        Folds { recent: ui.recent_expanded, archived: ui.archived_expanded }
+        Folds { recent: ui.recent_expanded, working: ui.working_expanded, archived: ui.archived_expanded }
     }
 }
 
@@ -71,6 +72,9 @@ pub struct Order {
     /// shut shows its pins and its first [`RECENT_LIMIT`], Archived shut none) shows it as the
     /// current row.
     pub open: Option<usize>,
+    /// The selected working session's place in `rows`, if any: kept visible in the collapsed
+    /// Working section so the open session never drops out of the list (`opencode#66500`).
+    pub selected_working: Option<usize>,
     /// Which reading this is: a new one has a new number.
     pub generation: u64,
 }
@@ -85,6 +89,8 @@ impl Order {
         let range = self.groups[g as usize].clone();
         match g {
             Group::Recent if !folds.recent => range.take(self.pinned + RECENT_LIMIT).collect(),
+            // Collapsed Working still shows the selected session (`inbox.tsx:176-184`, `opencode#66500`).
+            Group::Working if !folds.working => self.selected_working.into_iter().collect(),
             Group::Archived if !folds.archived => Vec::new(),
             Group::Current => {
                 let folded = |at: &usize| !self.shows(Group::Recent, folds).contains(at) && !self.shows(Group::Archived, folds).contains(at);
@@ -111,9 +117,26 @@ impl Order {
         let open = [(Group::Recent, &sections.recent), (Group::Archived, &sections.archived)]
             .into_iter()
             .find_map(|(g, entries)| entries.iter().position(|e| app.inbox_selected(e)).map(|k| groups[g as usize].start + k));
+        let selected_working = sections
+            .working
+            .iter()
+            .position(|e| app.inbox_selected(e))
+            .map(|k| groups[Group::Working as usize].start + k);
         GENERATION.set(GENERATION.get() + 1);
-        Order { rows, groups, pinned: sections.pinned, more: sections.more, open, generation: GENERATION.get() }
+        Order { rows, groups, pinned: sections.pinned, more: sections.more, open, selected_working, generation: GENERATION.get() }
     }
+}
+
+/// The row to open after `key` leaves the inbox: the nearest available one below it in `keys`
+/// (the list as it showed before the row left), or the nearest one above when nothing below is
+/// left (`packages/app/src/shell/titlebar/inbox-successor.ts`, `opencode#66558`).
+pub fn inbox_successor(keys: &[String], key: &str, available: impl Fn(&str) -> bool) -> Option<String> {
+    let index = keys.iter().position(|k| k == key)?;
+    keys[index + 1..]
+        .iter()
+        .find(|k| available(k))
+        .or_else(|| keys[..index].iter().rev().find(|k| available(k)))
+        .cloned()
 }
 
 fn shown(e: &Entry<'_>) -> Shown {
@@ -130,6 +153,45 @@ thread_local! {
 pub struct Kept(RefCell<Option<(u64, Rc<Order>)>>);
 
 impl App {
+    /// Snapshots the inbox's visible row order while the open session is non-archived and visible,
+    /// so archiving or deleting it opens the row below it rather than falling back to tab order
+    /// (`packages/app/src/shell/titlebar/inbox.tsx:212-248`, `opencode#66558`).
+    pub(crate) fn record_inbox_shown(&mut self) {
+        if self.tab_layout() != crate::layout_state::TabLayout::Inbox {
+            return;
+        }
+        let Some(current) = self.nav_current() else { return };
+        let keys = self.nav_order();
+        if !keys.contains(&current) {
+            return;
+        }
+        let (server, sid) = self.inbox_target(&current);
+        let archived = (server == *crate::servers::runtime::active(self) && self.session(&sid).is_some_and(|s| s.archived.is_some()))
+            || self.inbox_archived().iter().any(|a| a.id == sid);
+        if archived && self.sidebar_inbox.shown.as_ref().is_some_and(|(k, _)| k == &current) {
+            return;
+        }
+        self.sidebar_inbox.shown = Some((current, keys));
+    }
+
+    /// Picks the inbox successor row after `gone` (sessions on `server`) left the list
+    /// (`inbox.tsx:226-248`, `opencode#66558`).
+    pub(crate) fn pick_inbox_successor(&self, server: &ServerKey, gone: &[String]) -> Option<String> {
+        if self.tab_layout() != crate::layout_state::TabLayout::Inbox {
+            return None;
+        }
+        let (shown_key, shown_keys) = self.sidebar_inbox.shown.as_ref()?;
+        let is_gone = |k: &str| {
+            let (s, id) = self.inbox_target(k);
+            s == *server && gone.iter().any(|g| g == &id)
+        };
+        if !is_gone(shown_key) {
+            return None;
+        }
+        let visible: std::collections::HashSet<String> = self.nav_order().into_iter().collect();
+        inbox_successor(shown_keys, shown_key, |k| visible.contains(k) && !is_gone(k))
+    }
+
     /// The inbox's rows in order (`inbox_sections`), read again only when something they're read
     /// from changed.
     pub fn inbox_order(&self) -> Rc<Order> {

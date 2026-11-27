@@ -141,9 +141,9 @@ enum Line {
 }
 
 /// The list's rows in order: `drafts` drafts under their header, the open session's card when no
-/// group shows it, Needs attention under its header, the pinned and the recent sessions with no
-/// header (and Show more), Working when it isn't the shelf and Archived, each under a header that
-/// folds, and the empty line.
+/// group shows it, Needs attention under its header, the pinned and the recent sessions under the
+/// Recent header (`opencode#66494`, with Show more), Working when it isn't the shelf (peeking the
+/// selected session when collapsed, `opencode#66500`), Archived under its toggle, and the empty line.
 fn items(order: &Order, ui: InboxUi, drafts: usize) -> Vec<Line> {
     let mut out = Vec::new();
     if drafts > 0 {
@@ -161,19 +161,22 @@ fn items(order: &Order, ui: InboxUi, drafts: usize) -> Vec<Line> {
         out.push(Line::Header(Group::Needs));
         card(&mut out, Group::Needs, &needs);
     }
-    // `unlabeled`: Recent is named for a reader only, with no header in sight.
+    // Recent shows its visible section header (`inbox.tsx:414-420`, `opencode#66494`).
     let recent = order.shows(Group::Recent, folds);
     if !recent.is_empty() {
+        out.push(Line::Header(Group::Recent));
         card(&mut out, Group::Recent, &recent);
         if order.more {
             out.push(Line::More);
         }
     }
-    // Between the active and the archived sessions when Working is not the bottom shelf.
+    // Between the active and the archived sessions when Working is not the bottom shelf; collapsed,
+    // still shows the selected working session (`inbox.tsx:440-450`, `opencode#66500`).
     if ui.working_placement == WorkingPlacement::Inline && !order.group(Group::Working).is_empty() {
         out.push(Line::Toggle(Group::Working));
-        if ui.working_expanded {
-            card(&mut out, Group::Working, &order.shows(Group::Working, folds));
+        let shown = order.shows(Group::Working, folds);
+        if !shown.is_empty() {
+            card(&mut out, Group::Working, &shown);
         }
     }
     if !order.group(Group::Archived).is_empty() {
@@ -213,8 +216,12 @@ fn end_key(s: &App, last: bool) -> Option<(String, String)> {
         Line::Header(_) | Line::Drafts | Line::Empty | Line::Toggle(_) => None,
     }
     .map(|key| (l.key(&order, &drafts, &epoch), key));
-    let shelf = if ui.working_placement == WorkingPlacement::Shelf && ui.working_expanded { order.group(Group::Working) } else { Default::default() };
-    let shelved = |r: &crate::inbox_order::Shown| (r.key.clone(), r.key.clone());
+    let shelf: Vec<&crate::inbox_order::Shown> = if ui.working_placement == WorkingPlacement::Shelf {
+        order.shows(Group::Working, Folds::from(ui)).into_iter().map(|at| &order.rows[at]).collect()
+    } else {
+        Vec::new()
+    };
+    let shelved = |r: &&crate::inbox_order::Shown| (r.key.clone(), r.key.clone());
     if last {
         shelf.last().map(shelved).or_else(|| items.iter().rev().find_map(reach))
     } else {
@@ -288,7 +295,7 @@ impl Line {
             }
             Line::Toggle(_) => working_header(s, p, s.kernel.slots.get(&crate::restore::RESTORE).inbox.working_expanded),
             Line::Card { at, pos, size, .. } => match s.inbox_entry_of(&order.rows[at]) {
-                Some(e) => card(s, p, &e).position_in_set(pos, size),
+                Some(e) => card(s, p, &e, false).position_in_set(pos, size),
                 // Gone since the rows were read: the next reading drops it.
                 None => el().key(self.element_key(order, drafts)).h(CARD_H),
             },
@@ -347,9 +354,11 @@ fn scroller(p: &Pal, key: &str, content: El) -> El {
 }
 
 /// Working sessions, in a shelf pinned below the list: at most 40% of the inbox, behind a
-/// full-bleed hairline.
+/// full-bleed hairline. Collapsed, still shows the selected working session (`opencode#66500`).
 fn working(s: &App, p: &Pal, order: &Order, inset: (f32, f32)) -> El {
-    let open = s.kernel.slots.get(&crate::restore::RESTORE).inbox.working_expanded;
+    let ui = s.kernel.slots.get(&crate::restore::RESTORE).inbox;
+    let open = ui.working_expanded;
+    let shown = order.shows(Group::Working, Folds::from(ui));
     let mut shelf = col()
         .key("inbox-working")
         .role("group")
@@ -363,8 +372,12 @@ fn working(s: &App, p: &Pal, order: &Order, inset: (f32, f32)) -> El {
     if s.sidebar_inbox.height > 0.0 {
         shelf = shelf.max_h(s.sidebar_inbox.height * 0.4);
     }
-    if open {
-        let rows = col().key("content").w_full().gap(2.0).children(order.group(Group::Working).iter().filter_map(|r| s.inbox_entry_of(r)).map(|e| card(s, p, &e)));
+    if !shown.is_empty() {
+        let rows = col()
+            .key("content")
+            .w_full()
+            .gap(2.0)
+            .children(shown.into_iter().filter_map(|at| s.inbox_entry_of(&order.rows[at])).map(|e| card(s, p, &e, true)));
         shelf = shelf.child(scroller(p, "inbox-working-rows", rows));
     }
     shelf
@@ -435,7 +448,7 @@ fn ghost_button(p: &Pal, key: &str, label: &str) -> El {
 
 /// `InboxSessionCard`: 54pt, two lines. The title, then the project, its worktree and branch
 /// marks, and at the end the status and the age.
-fn card(s: &App, p: &Pal, e: &Entry<'_>) -> El {
+fn card(s: &App, p: &Pal, e: &Entry<'_>, in_shelf: bool) -> El {
     let info = e.session;
     let selected = s.inbox_selected(e);
     let project = e.project;
@@ -482,8 +495,10 @@ fn card(s: &App, p: &Pal, e: &Entry<'_>) -> El {
     let archived = info.archived.is_some();
     // `inbox.tsx` `InboxSessionCard`: a pinned session's pin after its title, muted.
     let pin = pins::state(s).doc.is_pinned(&PinRef::new(e.server.clone(), info.id.clone())).then(|| icon(&PIN, 16.0).key("pin").color(p.icon_muted).label_static(t!("sidebar.recent.pinned")));
+    let card_key = format!("ib-{key}");
+    let follow_key = card_key.clone();
     let mut card = col()
-        .key(format!("ib-{key}"))
+        .key(card_key)
         .role("button")
         .label(title.clone())
         .w_full()
@@ -494,6 +509,27 @@ fn card(s: &App, p: &Pal, e: &Entry<'_>) -> El {
         .focus_inset(p)
         .focusable(true)
         .focus_selected(selected)
+        // When a focused session moves between the main list and the Working shelf, it remounts in
+        // the other container: follow its key without scrolling the list (`focus-rescue.tsx:155-174`,
+        // `inbox.tsx:329`, `opencode#66547`). Within the virtual list the key already stays mounted.
+        .on_focus_change(move |s: &mut App, focused: bool, tx: &mut Tx| {
+            if focused || s.tab_layout() != crate::layout_state::TabLayout::Inbox {
+                return;
+            }
+            let ui = s.kernel.slots.get(&crate::restore::RESTORE).inbox;
+            if ui.working_placement != WorkingPlacement::Shelf {
+                return;
+            }
+            let order = s.inbox_order();
+            let folds = Folds::from(ui);
+            let now_in_shelf = order.shows(Group::Working, folds).iter().any(|&at| order.rows[at].key == follow_key);
+            let now_in_list = [Group::Current, Group::Needs, Group::Recent, Group::Archived]
+                .into_iter()
+                .any(|g| order.shows(g, folds).iter().any(|&at| order.rows[at].key == follow_key));
+            if (in_shelf && !now_in_shelf && now_in_list) || (!in_shelf && now_in_shelf) {
+                tx.focus(follow_key.clone(), false);
+            }
+        })
         .on_press_tx(move |s: &mut App, tx: &mut Tx| s.open_inbox_session(&id, tx))
         .on_secondary_press(move |s: &mut App, press: rune::PointerPress, tx: &mut Tx| open_menu(s, &menu_id, archived, press, tx))
         .child(
