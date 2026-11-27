@@ -402,10 +402,6 @@ string_enum! {
         List = "list",
         /// A list item.
         Listitem = "listitem",
-        /// A list of selectable options.
-        Listbox = "listbox",
-        /// One selectable option inside a listbox.
-        Option = "option",
         /// A heading.
         Heading = "heading",
         /// An image. Give it a `label`.

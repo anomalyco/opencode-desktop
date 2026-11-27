@@ -51,6 +51,8 @@ pub fn base_nodes<S: 'static>(
 ) -> Vec<HostNode> {
     vec![
         node("frame", frame::<S>),
+        node("listbox", listbox::<S>),
+        node("option", option::<S>),
         node("divider", divider),
         node("icon", icon),
         node("metric", metric),
@@ -143,14 +145,27 @@ fn frame<S: 'static>(a: &mut NodeArgs) -> Result<El, String> {
         out = a.on_press(out, "onPress");
     }
     out = a.on_hover(out, "onHover");
-    if a.get("selected").is_some() {
-        out = out.checked(a.flag("selected"));
-    }
     if a.flag("focusGroup") {
         out = out.focus_group();
     }
     out = key_handler::<S>(a, out);
     Ok(focus(a, out))
+}
+
+/// `ui.listbox` (contract 1.12): a [`frame`] with `role("listbox")` set directly in Rust so
+/// `rune-luau`'s prop parser never rejects the role (`site-chooser.tsx:570`).
+fn listbox<S: 'static>(a: &mut NodeArgs) -> Result<El, String> {
+    Ok(frame::<S>(a)?.role("listbox"))
+}
+
+/// `ui.option` (contract 1.12): a [`frame`] with `role("option")` and optional `selected`
+/// (`aria-selected`, `site-chooser.tsx:582-591`).
+fn option<S: 'static>(a: &mut NodeArgs) -> Result<El, String> {
+    let mut out = frame::<S>(a)?.role("option");
+    if a.get("selected").is_some() {
+        out = out.checked(a.flag("selected"));
+    }
+    Ok(out)
 }
 
 /// `autofocus` (`El::autofocus`: the control a dialog focuses as it opens) and `focusReturn`

@@ -557,6 +557,8 @@ The plugin's own messages in the interface language, and numbers, dates and list
 | `ui.checkbox(props: UiCheckboxProps) -> UiNode` | control | [`UiCheckboxProps`](#uicheckboxprops) | Desktop's compact checkbox with its label. Since 1.7. |
 | `ui.radio(props: UiRadioProps) -> UiNode` | control | [`UiRadioProps`](#uiradioprops) | A radio row. |
 | `ui.field(props: UiFieldProps) -> UiNode` | control | [`UiFieldProps`](#uifieldprops) | The app's own text field. |
+| `ui.listbox(props: UiListboxProps?, children: { UiNode }?) -> UiNode` | layout | [`UiListboxProps`](#uilistboxprops) | A listbox container (`role="listbox"`) of selectable `ui.option` rows. Since 1.12. |
+| `ui.option(props: UiOptionProps?, children: { UiNode }?) -> UiNode` | layout | [`UiOptionProps`](#uioptionprops) | One selectable option row (`role="option"`) inside a `ui.listbox`. Since 1.12. |
 | `ui.select(props: UiSelectProps) -> UiNode` | control | [`UiSelectProps`](#uiselectprops) | Desktop's select dropdown control. Since 1.12. |
 | `ui.segmented(props: UiSegmentedProps) -> UiNode` | control | [`UiSegmentedProps`](#uisegmentedprops) | The app's segmented control. |
 | `ui.loader(props: UiLoaderProps?) -> UiNode` | control | [`UiLoaderProps`](#uiloaderprops) | The app's spinner. |
@@ -978,8 +980,6 @@ An element's accessibility role.
 | `"tab"` | A tab. |
 | `"list"` | A list. |
 | `"listitem"` | A list item. |
-| `"listbox"` | A list of selectable options. Since 1.12. |
-| `"option"` | One selectable option inside a listbox. Since 1.12. |
 | `"heading"` | A heading. |
 | `"img"` | An image. Give it a `label`. |
 | `"status"` | A live status message. |
@@ -1590,7 +1590,6 @@ Also takes every field of [`UiBoxProps`](#uiboxprops).
 | `focusGroup` | `boolean?` | One Tab stop for the focusable controls inside, which the arrow keys move between, as a roving `tabindex` does: Up and Down with `role` `list`, `listbox`, `menu` or `tree`, Left and Right as well otherwise. Home and End go to the ends; a `list` or `tree` stops at its ends, the others wrap. In a `list`, `listbox`, `menu`, `tree` or `tablist`, typing moves to the first control whose label starts with it. Space presses the focused control, and in a list Return does too. Since 1.7. |
 | `keys` | `{ string }?` | Keys `onKey` takes while focus is on the frame or inside it, outside a text field, pressed with no modifier: any of `Enter`, `Escape`, `ArrowUp`, `ArrowDown`, `ArrowLeft`, `ArrowRight`, `Home`, `End`, `PageUp`, `PageDown`, `Delete` and `Backspace`. A key it takes does nothing else there: Return in a `focusGroup` list then no longer presses the focused control. Since 1.7. |
 | `onKey` | `UiHandler?` | Runs as a key `keys` names is pressed, with its name in `event.keyName`. Since 1.7. |
-| `selected` | `boolean?` | Selected state for an `option` or `tab` row (`aria-selected`). Since 1.12. |
 
 ### UiTextProps
 
@@ -1811,6 +1810,22 @@ One item of `ui.segmented`.
 | `icon` | `IconName` | Its icon. |
 | `label` | `string` | Its accessible name and tooltip. |
 | `key` | `string?` | Its element's key. Defaults to `id`. |
+
+### UiListboxProps
+
+`ui.listbox` props: a listbox container (`role="listbox"`) holding `ui.option` rows.
+
+Also takes every field of [`UiFrameProps`](#uiframeprops).
+
+### UiOptionProps
+
+`ui.option` props: one selectable option row (`role="option"`) inside a `ui.listbox`.
+
+Also takes every field of [`UiFrameProps`](#uiframeprops).
+
+| Field | Type | Description |
+|---|---|---|
+| `selected` | `boolean?` | Whether this option is selected (`aria-selected`). Since 1.12. |
 
 ### UiSelectOption
 

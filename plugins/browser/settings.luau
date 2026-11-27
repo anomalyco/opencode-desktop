@@ -931,9 +931,8 @@ siteList = function(i18n: I18nService, view: View, chooser: SiteChooser, busy: b
         -- sites' boxes and stop at the ends, Home and End go to the ends, a typed name moves to its site,
         -- Space ticks or unticks the focused one, and Return imports. The list is as tall as its
         -- rows (`:576`, the virtualizer's total with 4 above and under) and gives way from there.
-        else ui.frame({
+        else ui.listbox({
             key = "settings-import-sites",
-            role = "listbox",
             label = i18n:T("sites.list"),
             focusGroup = true,
             keys = { "Enter" },
@@ -960,10 +959,9 @@ siteList = function(i18n: I18nService, view: View, chooser: SiteChooser, busy: b
             renderRow = function(index: number): ui.Node
                 local site = shown[index].site
                 local chosen = chooser.isChosen(site)
-                return ui.frame({
+                return ui.option({
                     direction = "row",
                     key = `settings-import-site-{site}`,
-                    role = "option",
                     selected = chosen,
                     label = site,
                     w = "full",
