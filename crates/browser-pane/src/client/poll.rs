@@ -419,7 +419,7 @@ impl BrowserHost {
         &self.visible_tabs
     }
 
-    /// Drops Linux dmabuf buffers held by the rx thread for a hidden or closed tab.
+    /// Drops Linux dmabuf buffers held by the rx thread while a tab hides (preserving tombstone).
     pub(crate) fn forget_dmabuf_pool(&self, tab_id: u64) {
         #[cfg(all(feature = "engine", target_os = "linux"))]
         {
@@ -431,10 +431,35 @@ impl BrowserHost {
         let _ = tab_id;
     }
 
+    /// Drops Linux dmabuf buffers and tombstone when a tab closes permanently.
+    pub(crate) fn close_dmabuf_pool(&self, tab_id: u64) {
+        #[cfg(all(feature = "engine", target_os = "linux"))]
+        {
+            if let Some(pools) = self.dmabuf_pools.lock().unwrap_or_else(PoisonError::into_inner).clone() {
+                pools.lock().unwrap_or_else(PoisonError::into_inner).close(tab_id);
+            }
+        }
+        #[cfg(not(all(feature = "engine", target_os = "linux")))]
+        let _ = tab_id;
+    }
+
+    /// Replays `SetTabUnthrottled` and `SetVisibleTabs` after a `CloseTab`+`OpenTab` context switch
+    /// (`reopen_tab_as_web` / `reopen_tab_as_preview`) so visibility and RPC holds survive reopen.
+    pub(crate) fn replay_tab_lifecycle(&self, tab_id: u64) {
+        if !self.is_connected() || !self.caps.tab_lifecycle() {
+            return;
+        }
+        if self.unthrottled_tabs.contains(&tab_id) {
+            self.send(HostMsg::SetTabUnthrottled { tab_id, active: true });
+        }
+        if self.visible_tabs.contains(&tab_id) {
+            self.send(HostMsg::SetVisibleTabs { tab_ids: self.visible_tabs.clone() });
+        }
+    }
+
     /// Updates the exact set of visible browser pane tabs (deduplicated; no-op if unchanged).
-    /// Clears desktop-side retained surfaces (and Linux dmabuf pools) for tabs transitioning out
-    /// of visibility, and forwards `SetVisibleTabs` to engines advertising `Ready.tab_lifecycle`
-    /// (falling back to `focus_tab` for the first visible tab on older engines).
+    /// Clears desktop-side retained surfaces (and Linux dmabuf pools) only when the engine
+    /// supports `Ready.tab_lifecycle` and the hiding tab is not held awake by an RPC hold.
     pub fn set_visible_tabs(&mut self, ids: &[u64]) {
         let mut next = Vec::with_capacity(ids.len());
         for &id in ids {
@@ -445,8 +470,9 @@ impl BrowserHost {
         if self.visible_tabs == next {
             return;
         }
+        let can_release = self.caps.tab_lifecycle();
         for &old_id in &self.visible_tabs {
-            if !next.contains(&old_id) {
+            if !next.contains(&old_id) && can_release && !self.unthrottled_tabs.contains(&old_id) {
                 if let Some(t) = self.tabs.iter().find(|t| t.id == old_id) {
                     t.surface.clear();
                 }
@@ -467,14 +493,24 @@ impl BrowserHost {
     }
 
     /// Sets or clears the explicit agent RPC unthrottle hold on `tab_id` (deduplicated per tab,
-    /// gated on `Ready.tab_lifecycle`).
+    /// gated on `Ready.tab_lifecycle`). When a hidden tab releases its hold, clears its retained
+    /// surface and Linux dmabuf pool as well.
     pub fn set_tab_unthrottled(&mut self, tab_id: u64, active: bool) {
         let changed = if active {
             self.unthrottled_tabs.insert(tab_id)
         } else {
             self.unthrottled_tabs.remove(&tab_id)
         };
-        if changed && self.is_connected() && self.caps.tab_lifecycle() {
+        if !changed {
+            return;
+        }
+        if !active && self.caps.tab_lifecycle() && !self.visible_tabs.contains(&tab_id) {
+            if let Some(t) = self.tabs.iter().find(|t| t.id == tab_id) {
+                t.surface.clear();
+            }
+            self.forget_dmabuf_pool(tab_id);
+        }
+        if self.is_connected() && self.caps.tab_lifecycle() {
             self.send(HostMsg::SetTabUnthrottled { tab_id, active });
         }
     }

@@ -114,6 +114,7 @@ pub fn surface(s: &App, p: &Pal, tab_id: u64, scale: f32) -> Option<El> {
         }
         EngineStatus::Unchecked | EngineStatus::Installed | EngineStatus::Connecting | EngineStatus::Ready => {
             let tab = s.workspace_panes.browser.host.tab(tab_id)?;
+            super::poll::note_surface_drawn(s, tab.id);
             let bars = super::prompts::view_bars(s, p, tab.id);
             let modal = super::prompts::view_modal(s, p, tab.id);
             let ext_popup = s

@@ -526,7 +526,7 @@ pub fn run_browser(
         }
         let now = Instant::now();
         #[cfg(target_os = "macos")]
-        let max_pump = if manager.is_empty() || !manager.has_awake_tabs() {
+        let max_pump = if !manager.has_awake_tabs() {
             IDLE_PUMP_DELAY
         } else {
             MAX_PUMP_DELAY

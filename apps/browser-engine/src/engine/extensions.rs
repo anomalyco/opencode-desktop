@@ -265,8 +265,7 @@ impl EngineManager {
                         continue;
                     }
                     if let Some(tab) = self.tabs.remove(&engine_tab_id) {
-                        self.visible_tabs.remove(&engine_tab_id);
-                        crate::input_fps::clear(engine_tab_id);
+                        self.on_tab_closed_lifecycle(engine_tab_id);
                         self.permissions.on_tab_closed(engine_tab_id);
                         tab.menu.cancel_all();
                         tab.prompts.dismiss_all();
@@ -454,6 +453,7 @@ impl EngineManager {
             self.mach_port.clone(),
             null_out.clone(),
             Arc::new(AtomicU64::new(0)),
+            Arc::new(AtomicBool::new(true)),
             #[cfg(windows)]
             None,
             #[cfg(target_os = "linux")]

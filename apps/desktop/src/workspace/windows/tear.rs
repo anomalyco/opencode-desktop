@@ -268,9 +268,10 @@ impl App {
     fn tab_moved_out(&mut self, key: &str, tx: &mut Tx) {
         let Some(i) = self.tab_at(key) else { return };
         let shown = self.current_tab() == Some(self.tabs[i].uid());
-        let id = self.tabs.remove(i).id;
-        // Tear-out `Seed` does not transfer live CEF browser tabs; close any tabs owned by the
-        // moved-out session (and its non-tabbed subagents) so renderer processes never leak.
+        // Collect and close browser tabs owned by the moved-out session (and its non-tabbed
+        // subagents) BEFORE `self.tabs.remove(i)` so `panel_root` resolves subagent strips cleanly
+        // and without polluting `ClosedSideTab` (`⇧⌘T`) history.
+        let id = self.tabs[i].id.clone();
         #[cfg(not(target_arch = "wasm32"))]
         {
             let moved_sids: Vec<String> = self
@@ -286,9 +287,10 @@ impl App {
                 .cloned()
                 .collect();
             for sid in moved_sids {
-                self.close_browser_tabs_for_session(&sid, Some(tx));
+                self.close_browser_tabs_for_session(&sid);
             }
         }
+        let id = self.tabs.remove(i).id;
         let r = self.kernel.slots.get_mut(&crate::restore::RESTORE);
         r.drafts.remove(&id);
         r.parked.remove(&id);

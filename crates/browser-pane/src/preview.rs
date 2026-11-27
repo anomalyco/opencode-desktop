@@ -416,6 +416,7 @@ impl BrowserHost {
                 None,
                 agent_driven,
             );
+            self.replay_tab_lifecycle(tab_id);
         } else {
             if connected && had_live_engine {
                 *self.reopening_tabs.entry(tab_id).or_default() += 1;
@@ -475,6 +476,7 @@ impl BrowserHost {
                     Some(spec),
                     agent_driven,
                 );
+                self.replay_tab_lifecycle(tab_id);
             } else {
                 if had_live_engine {
                     *self.reopening_tabs.entry(tab_id).or_default() += 1;

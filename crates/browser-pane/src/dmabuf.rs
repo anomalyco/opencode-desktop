@@ -145,10 +145,17 @@ impl Pools {
         }
     }
 
-    /// The tab's buffers go: it hid, closed, or its frames come as BGRA now.
+    /// The tab's buffers go while it hides (or switches to BGRA), keeping `forgotten` so an
+    /// already-in-flight `DmabufFrame` for that pool replies `FrameRead` cleanly.
     pub(crate) fn forget(&mut self, tab_id: u64) {
         if let Some((pool_id, _)) = self.tabs.remove(&tab_id) {
             self.forgotten.insert(tab_id, pool_id);
         }
+    }
+
+    /// The tab closed permanently: drop both live buffers and any `forgotten` tombstone.
+    pub(crate) fn close(&mut self, tab_id: u64) {
+        self.tabs.remove(&tab_id);
+        self.forgotten.remove(&tab_id);
     }
 }

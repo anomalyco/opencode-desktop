@@ -294,7 +294,7 @@ impl SessionMenuHost for App {
 
     fn on_sessions_removed(&mut self, server: &ServerKey, gone: &[String]) {
         for sid in gone {
-            self.close_browser_tabs_for_session(sid, None);
+            self.close_browser_tabs_for_session(sid);
         }
         self.forget_history(|_, x| gone.iter().any(|g| g == x));
         let open_gone = matches!(&*self.route, Route::Session { id: open, server: on } if on == server && gone.contains(open));

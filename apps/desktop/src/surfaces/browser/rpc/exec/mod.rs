@@ -259,7 +259,7 @@ pub(super) fn start_command(
     if let Some(wire_id) = cmd.tab_id()
         && let Ok(hid) = att.resolve_tab(app, wire_id)
     {
-        att.hold_touched.push(hid);
+        super::hold::acquire_now(att, app, hid);
     }
     if cmd.is_inspect() {
         match read::start_inspect(att, app, cmd) {

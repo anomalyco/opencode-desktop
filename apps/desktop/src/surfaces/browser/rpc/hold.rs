@@ -28,7 +28,9 @@ pub enum HoldState {
 /// Input event driving [`step`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum HoldEvent {
-    Sync { active: bool, now: Instant },
+    /// `ongoing`: active command, trace/CPU/heap recording, or active agent tab on a busy session.
+    /// `touched`: one-shot synchronous command touched the tab on this tick.
+    Sync { ongoing: bool, touched: bool, now: Instant },
 }
 
 /// Pure effects emitted by [`step`].
@@ -40,30 +42,49 @@ pub struct HoldEffects {
 
 /// Pure transition function for [`HoldState`].
 pub fn step(state: &mut HoldState, event: HoldEvent) -> HoldEffects {
-    let HoldEvent::Sync { active, now } = event;
-    match (*state, active) {
-        (HoldState::Idle, true) => {
+    let HoldEvent::Sync { ongoing, touched, now } = event;
+    match (*state, ongoing, touched) {
+        (HoldState::Idle, true, _) => {
             *state = HoldState::Active;
             HoldEffects { set_unthrottled: Some(true), wake_at: None }
         }
-        (HoldState::Idle, false) | (HoldState::Active, true) => HoldEffects::default(),
-        (HoldState::Active, false) => {
+        (HoldState::Active, true, _) => HoldEffects::default(),
+        (HoldState::Cooldown { .. }, true, _) => {
+            *state = HoldState::Active;
+            HoldEffects::default()
+        }
+        // One-shot synchronous command finished on this tick: enter cooldown immediately.
+        (HoldState::Idle, false, true) => {
+            let until = now + COOLDOWN;
+            *state = HoldState::Cooldown { until };
+            HoldEffects { set_unthrottled: Some(true), wake_at: Some(until) }
+        }
+        (HoldState::Active | HoldState::Cooldown { .. }, false, true) => {
             let until = now + COOLDOWN;
             *state = HoldState::Cooldown { until };
             HoldEffects { set_unthrottled: None, wake_at: Some(until) }
         }
-        (HoldState::Cooldown { .. }, true) => {
-            *state = HoldState::Active;
-            HoldEffects::default()
+        (HoldState::Idle, false, false) => HoldEffects::default(),
+        (HoldState::Active, false, false) => {
+            let until = now + COOLDOWN;
+            *state = HoldState::Cooldown { until };
+            HoldEffects { set_unthrottled: None, wake_at: Some(until) }
         }
-        (HoldState::Cooldown { until }, false) if now >= until => {
+        (HoldState::Cooldown { until }, false, false) if now >= until => {
             *state = HoldState::Idle;
             HoldEffects { set_unthrottled: Some(false), wake_at: None }
         }
-        (HoldState::Cooldown { until }, false) => {
+        (HoldState::Cooldown { until }, false, false) => {
             HoldEffects { set_unthrottled: None, wake_at: Some(until) }
         }
     }
+}
+
+/// Synchronously unthrottles `host_id` before dispatching an RPC command or tab open so the
+/// engine wakes the tab ahead of CDP calls, and records a one-shot touch for cooldown tracking.
+pub(super) fn acquire_now(att: &mut SessionAttachment, app: &mut App, host_id: u64) {
+    app.workspace_panes.browser.host.set_tab_unthrottled(host_id, true);
+    att.hold_touched.push(host_id);
 }
 
 /// Tracks per-tab [`HoldState`] entries across all attached RPC sessions.
@@ -82,61 +103,59 @@ impl RpcHoldManager {
         sessions: &mut BTreeMap<(ServerKey, String), SessionAttachment>,
         now: Instant,
     ) -> Option<Instant> {
-        let mut active_tabs: HashSet<u64> = HashSet::new();
+        let mut ongoing_tabs: HashSet<u64> = HashSet::new();
+        let mut touched_tabs: HashSet<u64> = HashSet::new();
         for att in sessions.values_mut() {
             for hid in att.hold_touched.drain(..) {
                 if app.workspace_panes.browser.host.tab(hid).is_some() {
-                    active_tabs.insert(hid);
+                    touched_tabs.insert(hid);
                 }
             }
             for cmd in &att.active_commands {
-                active_tabs.insert(cmd.target_host_tab());
+                ongoing_tabs.insert(cmd.target_host_tab());
             }
             if let Some(rec) = &att.trace_recording
                 && rec.auto_stopped.is_none()
             {
-                active_tabs.insert(rec.host_id);
+                ongoing_tabs.insert(rec.host_id);
             }
             for (&hid, rec) in &att.cpu_started {
                 if rec.auto_stopped.is_none() {
-                    active_tabs.insert(hid);
+                    ongoing_tabs.insert(hid);
                 }
             }
             for &hid in att.heap_chunks.keys() {
-                active_tabs.insert(hid);
+                ongoing_tabs.insert(hid);
             }
-            if app.session_busy(&att.session_id) {
-                for &hid in att.host_to_wire.keys() {
-                    if app
-                        .workspace_panes
-                        .browser
-                        .host
-                        .tab(hid)
-                        .is_some_and(|t| t.prompts.agent_driven)
-                    {
-                        active_tabs.insert(hid);
-                    }
-                }
+            // While a session turn is busy, hold only its active `agent_tab_id` awake (not
+            // every historical `agent_driven` tab opened earlier in the session).
+            if app.session_busy(&att.session_id)
+                && let Some(wire_id) = att.agent_tab_id.as_deref()
+                && let Some(&hid) = att.wire_to_host.get(wire_id)
+            {
+                ongoing_tabs.insert(hid);
             }
         }
 
         // Drop state for closed tabs; `BrowserHost::close_tab` / `TabClosed` already cleaned up.
         self.states
             .retain(|&hid, _| app.workspace_panes.browser.host.tab(hid).is_some());
-        active_tabs.retain(|&hid| app.workspace_panes.browser.host.tab(hid).is_some());
+        ongoing_tabs.retain(|&hid| app.workspace_panes.browser.host.tab(hid).is_some());
+        touched_tabs.retain(|&hid| app.workspace_panes.browser.host.tab(hid).is_some());
 
         let mut all_tabs: Vec<u64> = self.states.keys().copied().collect();
-        for &hid in &active_tabs {
-            if !self.states.contains_key(&hid) {
+        for &hid in ongoing_tabs.iter().chain(touched_tabs.iter()) {
+            if !self.states.contains_key(&hid) && !all_tabs.contains(&hid) {
                 all_tabs.push(hid);
             }
         }
 
         let mut earliest_wake: Option<Instant> = None;
         for hid in all_tabs {
-            let active = active_tabs.contains(&hid);
+            let ongoing = ongoing_tabs.contains(&hid);
+            let touched = touched_tabs.contains(&hid);
             let state = self.states.entry(hid).or_default();
-            let eff = step(state, HoldEvent::Sync { active, now });
+            let eff = step(state, HoldEvent::Sync { ongoing, touched, now });
             if let Some(unthrottled) = eff.set_unthrottled {
                 app.workspace_panes.browser.host.set_tab_unthrottled(hid, unthrottled);
             }

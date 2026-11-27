@@ -201,6 +201,7 @@ wrap_render_handler! {
         mach_port: Arc<AtomicU32>,
         out_tx: Output,
         frame_seq: Arc<AtomicU64>,
+        awake: Arc<AtomicBool>,
         frames: FrameRing,
         failures: Failures,
     }
@@ -240,7 +241,7 @@ wrap_render_handler! {
             _dirty: Option<&[Rect]>,
             info: Option<&AcceleratedPaintInfo>,
         ) {
-            if type_ != PaintElementType::default() {
+            if type_ != PaintElementType::default() || !self.awake.load(Ordering::Acquire) {
                 return;
             }
             let Some(info) = info else { return };
@@ -298,7 +299,12 @@ wrap_render_handler! {
             width: i32,
             height: i32,
         ) {
-            if type_ != PaintElementType::default() || buffer.is_null() || width <= 0 || height <= 0 {
+            if type_ != PaintElementType::default()
+                || !self.awake.load(Ordering::Acquire)
+                || buffer.is_null()
+                || width <= 0
+                || height <= 0
+            {
                 return;
             }
             let id = self.frame_seq.fetch_add(1, Ordering::Relaxed) + 1;

@@ -492,7 +492,7 @@ impl BrowserHost {
         self.tab_favicons.remove(&id);
         self.visible_tabs.retain(|&x| x != id);
         self.unthrottled_tabs.remove(&id);
-        self.forget_dmabuf_pool(id);
+        self.close_dmabuf_pool(id);
         if let Some(pos) = self.tabs.iter().position(|t| t.id == id) {
             let removed = self.tabs.remove(pos);
             removed.surface.clear();

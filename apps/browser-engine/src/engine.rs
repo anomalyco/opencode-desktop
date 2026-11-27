@@ -60,8 +60,8 @@ pub(crate) struct ManagedTab {
     deferred_initial: Arc<AtomicBool>,
     _cdp_reg: Option<Registration>,
     held_buttons: u32,
-    pub(crate) awake_state: lifecycle::TabAwakeState,
-    pub(crate) rpc_unthrottled: bool,
+    pub(crate) render_mode: lifecycle::TabRenderMode,
+    pub(crate) awake: Arc<AtomicBool>,
     /// Linux: whether it's currently visible in a desktop pane, to reopen it so on transport reset.
     #[cfg(target_os = "linux")]
     shown: bool,
@@ -72,7 +72,9 @@ pub(crate) struct ManagedTab {
 pub struct EngineManager {
     tabs: HashMap<u64, ManagedTab>,
     visible_tabs: HashSet<u64>,
-    client_uses_lifecycle: bool,
+    unthrottled_tabs: HashSet<u64>,
+    focused_tab: Option<u64>,
+    lifecycle_mode: lifecycle::LifecycleMode,
     mach_port: Arc<AtomicU32>,
     out_tx: crate::output::Output,
     events: std::sync::mpsc::Sender<crate::Event>,
@@ -144,7 +146,9 @@ impl EngineManager {
         Self {
             tabs: HashMap::new(),
             visible_tabs: HashSet::new(),
-            client_uses_lifecycle: false,
+            unthrottled_tabs: HashSet::new(),
+            focused_tab: None,
+            lifecycle_mode: lifecycle::LifecycleMode::Legacy,
             mach_port: Arc::new(AtomicU32::new(0)),
             out_tx,
             events: events.clone(),
@@ -186,6 +190,7 @@ impl EngineManager {
     pub fn on_host_disconnected(&mut self) {
         self.previews.cancel_all_proxies();
         self.downloads.cancel_all_pending_saves();
+        self.on_disconnect_lifecycle();
     }
 
     pub fn handle(&mut self, msg: HostMsg) -> bool {
@@ -204,7 +209,7 @@ impl EngineManager {
                 self.prompt_shared.enabled.store(prompts, Ordering::Relaxed);
                 self.app_handles_ext_tabs = extensions;
                 self.downloads.set_download_save_enabled(download_save);
-                self.client_uses_lifecycle = tab_lifecycle;
+                self.on_hello_lifecycle(tab_lifecycle);
                 #[cfg(not(target_os = "macos"))]
                 let _ = mach_service;
                 #[cfg(target_os = "macos")]
@@ -268,7 +273,7 @@ impl EngineManager {
                         if let Some(ring) = &t.frames {
                             let _ = ring.lock().unwrap().step(crate::dmabuf_frames::Event::Released);
                         }
-                        if t.awake_state == lifecycle::TabAwakeState::Awake {
+                        if !tab_lifecycle && t.render_mode.is_awake() {
                             t.host.invalidate(PaintElementType::default());
                         }
                     }
@@ -520,6 +525,7 @@ impl EngineManager {
                 // The person's press takes the tab back before the click reaches the page, so a
                 // file picker this click opens is theirs (official `policy.ts:121-125`).
                 if !up {
+                    self.focused_tab = Some(tab_id);
                     self.set_user_reclaimed(tab_id, true);
                 }
                 if let Some(t) = self.tabs.get_mut(&tab_id) {
@@ -1122,12 +1128,14 @@ impl EngineManager {
         let shared_texture = frames.is_some();
         #[cfg(target_os = "macos")]
         let shared_texture = true;
+        let awake = Arc::new(AtomicBool::new(true));
         let render = TabRenderHandler::new(
             tab_id,
             view_state.clone(),
             self.mach_port.clone(),
             self.out_tx.clone(),
             Arc::new(AtomicU64::new(0)),
+            awake.clone(),
             frames.clone(),
             #[cfg(target_os = "linux")]
             self.events.clone(),
@@ -1395,8 +1403,8 @@ impl EngineManager {
                 deferred_initial,
                 _cdp_reg: cdp_reg,
                 held_buttons: 0,
-                awake_state: lifecycle::TabAwakeState::Awake,
-                rpc_unthrottled: false,
+                render_mode: lifecycle::TabRenderMode::AwakeBackground,
+                awake,
                 #[cfg(target_os = "linux")]
                 shown: focused,
                 #[cfg(any(windows, target_os = "linux"))]
@@ -1419,8 +1427,7 @@ impl EngineManager {
     }
 
     fn close_managed_tab(&mut self, tab_id: u64) {
-        self.visible_tabs.remove(&tab_id);
-        crate::input_fps::clear(tab_id);
+        self.on_tab_closed_lifecycle(tab_id);
         self.permissions.on_tab_closed(tab_id);
         if let Some(tab) = self.tabs.remove(&tab_id) {
             if self.prompt_shared.release_trace(tab_id) {

@@ -971,7 +971,7 @@ pub(crate) fn wire_stream(stream: UnixStream, mach_service: Option<String>, link
                         pools.lock().unwrap_or_else(PoisonError::into_inner).show(surface.as_ref(), tab_id, frame_id, pool, slot);
                         continue;
                     }
-                    EngineMsg::TabClosed { tab_id } => pools.lock().unwrap_or_else(PoisonError::into_inner).forget(tab_id),
+                    EngineMsg::TabClosed { tab_id } => pools.lock().unwrap_or_else(PoisonError::into_inner).close(tab_id),
                     _ => {}
                 }
                 if let EngineMsg::CpuFrame { tab_id, frame_id, width, height, bgra_b64 } = msg {
