@@ -98,9 +98,7 @@ impl NotificationsHost for App {
     }
 
     fn has_running_child(&self, session_id: &str) -> bool {
-        self.running
-            .iter()
-            .any(|c| c != session_id && self.session(c).and_then(|s| s.parent.as_deref()) == Some(session_id))
+        App::has_running_child(self, session_id)
     }
 
     fn is_session_silenced(&self, session_id: &str) -> bool {

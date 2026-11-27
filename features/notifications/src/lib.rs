@@ -430,6 +430,13 @@ pub fn notify_event(host: &mut dyn NotificationsHost, ty: &str, data: &Value, si
     if !host.notifier().shows() {
         return false;
     }
+    let decided = decide(host, ty, data, sid);
+    if !claim(decided.is_some()) {
+        return false;
+    }
+    let Some((kind, title, session, body)) = decided else {
+        return false;
+    };
     if matches!(ty, "permission.asked" | "form.created") {
         let id = if data["form"].is_object() { &data["form"]["id"] } else { &data["id"] };
         let id = id.as_str().unwrap_or("");
@@ -438,13 +445,6 @@ pub fn notify_event(host: &mut dyn NotificationsHost, ty: &str, data: &Value, si
             return false;
         }
     }
-    let decided = decide(host, ty, data, sid);
-    if !claim(decided.is_some()) {
-        return false;
-    }
-    let Some((kind, title, session, body)) = decided else {
-        return false;
-    };
     // A request's toast says what it asks and carries its answers; a run's is per session.
     let (id, body, ask) = match actions::ask(ty, data) {
         Some(ask) => (format!("req-{}", ask.request()), actions::body(&body, &ask), Some(ask)),

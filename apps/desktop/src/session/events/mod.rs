@@ -300,7 +300,7 @@ impl App {
             done.revert = self.apply_revert(ty, data, &sid);
         }
         done.selected = self.apply_selected(ty, data, &sid);
-        done.info = done.selected.is_some() | self.apply_archive(ty, data, &sid);
+        done.info = done.selected.is_some() | self.apply_created(ty, data, &sid, now) | self.apply_archive(ty, data, &sid);
         if ty == "session.usage.updated" {
             done.info |= self.usage_updated(&sid, data["cost"].as_f64());
         }
@@ -627,6 +627,41 @@ impl App {
 }
 
 impl App {
+    /// Records newly created child sessions synchronously on the SSE stream so `has_running_child`,
+    /// `root_of`, and family status know `parent` before `GET /api/session/:id` returns
+    /// (`packages/client/src/solid/data.ts:901-913`).
+    fn apply_created(&mut self, ty: &str, data: &Value, sid: &str, now: i64) -> bool {
+        if ty != "session.created" || sid.is_empty() {
+            return false;
+        }
+        let Some(parent) = data["parentID"].as_str().filter(|p| !p.is_empty()) else {
+            return false;
+        };
+        if let Some(existing) = self.sessions.iter_mut().find(|s| s.id == sid) {
+            if existing.parent.is_none() {
+                existing.parent = Some(parent.to_owned());
+                return true;
+            }
+            return false;
+        }
+        let created = data["eventCreated"].as_i64().unwrap_or(now);
+        self.sessions.push(opencode_kit::model::SessionInfo {
+            id: sid.to_owned(),
+            parent: Some(parent.to_owned()),
+            project: data["projectID"].as_str().unwrap_or("").to_owned(),
+            title: data["title"].as_str().unwrap_or("").to_owned(),
+            directory: data["location"]["directory"].as_str().unwrap_or("").to_owned(),
+            updated: created,
+            model: opencode_kit::model::ModelRef::parse(&data["model"]),
+            agent: data["agent"].as_str().unwrap_or("").to_owned(),
+            created,
+            metadata: data["metadata"].clone(),
+            browser: opencode_kit::model::BrowserGrant::of(&data["permissions"]),
+            ..Default::default()
+        });
+        true
+    }
+
     /// Archives and metadata changed from other clients.
     fn apply_archive(&mut self, ty: &str, data: &Value, sid: &str) -> bool {
         if !matches!(ty, "session.archived" | "session.unarchived" | "session.metadata.updated") {
