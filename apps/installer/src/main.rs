@@ -33,6 +33,8 @@
 mod install;
 #[cfg(target_os = "windows")]
 mod pages;
+#[cfg(target_os = "windows")]
+mod progress;
 
 fn main() {
     #[cfg(target_os = "windows")]

@@ -1,13 +1,16 @@
 //! The installing itself, shared by the pages and `--silent`.
 
-use std::fs::OpenOptions;
-use std::io::Write as _;
+use std::fs::{File, OpenOptions};
+use std::io::{Read as _, Write as _};
+use std::os::windows::io::AsRawHandle as _;
 use std::os::windows::process::CommandExt;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
-use std::time::Duration;
+use std::process::{Child, Command, Stdio};
+use std::time::{Duration, Instant};
 
 use win_install::{EXE, Product};
+
+use crate::progress::{self, PROGRESS_MAX, Progress};
 
 /// The app: a zip of its install folder (see `build.rs`).
 static PAYLOAD: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/payload.zip"));
@@ -18,6 +21,12 @@ const CREATE_SUSPENDED: u32 = 0x0000_0004;
 const DETACHED_PROCESS: u32 = 0x0000_0008;
 /// How long a running copy has to close on its own before setup ends it.
 const CLOSE_GRACE: Duration = Duration::from_secs(10);
+/// Chunk size when writing the embedded payload zip to staging before extraction.
+const STAGE_CHUNK: usize = 1024 * 1024;
+/// Cadence for sampling `tar.exe` I/O counters while extracting.
+const EXTRACT_POLL: Duration = Duration::from_millis(50);
+/// Minimum interval between status text refreshes during fast byte transfers.
+const TEXT_THROTTLE: Duration = Duration::from_millis(50);
 
 pub fn product() -> Product {
     Product::from_build(
@@ -74,7 +83,8 @@ pub fn run() -> i32 {
     if !args.silent {
         return crate::pages::run(&p, &root, &args);
     }
-    match install(&p, &root, args.desktop_shortcut, &|line| args.log(line)) {
+    let progress = Progress::noop();
+    match install(&p, &root, args.desktop_shortcut, &progress, &|line| args.log(line)) {
         Ok(()) if args.launch => launch(&root, &args),
         Ok(()) => {
             // Nobody waits on a silent install's last moment: Windows' check of the new exe is paid here.
@@ -93,20 +103,27 @@ pub fn running(root: &Path) -> bool {
     !win_install::running_under(root).is_empty()
 }
 
-/// Installs the payload at `root` and registers it.
-pub fn install(p: &Product, root: &Path, desktop_shortcut: bool, log: &dyn Fn(&str)) -> Result<(), String> {
+/// Installs the payload at `root` and registers it, reporting monotonic stage progress.
+pub fn install(p: &Product, root: &Path, desktop_shortcut: bool, progress: &Progress, log: &dyn Fn(&str)) -> Result<(), String> {
     if PAYLOAD.is_empty() {
         return Err("This setup was built without the app, so there's nothing to install.".into());
     }
-    let started = std::time::Instant::now();
+    let started = Instant::now();
     log(&format!("installing {} {} into {}", p.name(), p.version(), root.display()));
-    if !win_install::close_running(root, CLOSE_GRACE) {
-        return Err(format!("{} is still running. Close it and try again.", p.name()));
+    if running(root) {
+        progress.set_waiting(200, 950, 50, format!("Closing running {}...", p.name()));
+        if !win_install::close_running(root, CLOSE_GRACE) {
+            return Err(format!("{} is still running. Close it and try again.", p.name()));
+        }
     }
     let parent = root.parent().ok_or("The install folder has no parent folder.")?;
     std::fs::create_dir_all(parent).map_err(|e| format!("{}: {e}", parent.display()))?;
     let staging = beside(root, &format!("setup-{}", std::process::id()));
-    let result = unpack(&staging).and_then(|app| swap(root, &app, log));
+    let result = unpack(&staging, progress).and_then(|app| {
+        let swap_status = if root.exists() { "Replacing previous version..." } else { "Applying files..." };
+        progress.set_waiting(7800, 8350, 40, swap_status);
+        swap(root, &app, log)
+    });
     win_install::remove_dir(&staging);
     result?;
     // A version the updater staged for the install it replaced would go back in on the next restart.
@@ -117,39 +134,96 @@ pub fn install(p: &Product, root: &Path, desktop_shortcut: bool, log: &dyn Fn(&s
         log(&e);
     }
     let unpacked = started.elapsed();
+    progress.set_waiting(8400, 9650, 75, "Registering shortcuts and finalizing files...");
     let (changed, flushed) = std::thread::scope(|scope| {
-        let writing = scope.spawn(|| flush(root));
-        (win_install::register(p, root, desktop_shortcut), writing.join().unwrap_or_default())
+        let writing = scope.spawn(|| flush(root, progress));
+        let reg = win_install::register(p, root, desktop_shortcut);
+        if reg.is_ok() {
+            progress.set_status("Finalizing installation files...");
+        }
+        (reg, writing.join().unwrap_or_default())
     });
     let changed = changed?;
+    progress.set(PROGRESS_MAX, "Finishing installation...");
     log(&format!("Windows wrote {} programs to the disk in {} µs", flushed.0, flushed.1.as_micros()));
-    log(&format!("registered {} (Start menu{}, Apps & features, {}://, notification identity)", p.name(), if desktop_shortcut { ", desktop" } else { "" }, p.scheme()));
+    log(&format!(
+        "registered {} (Start menu{}, Apps & features, {}://, notification identity)",
+        p.name(),
+        if desktop_shortcut { ", desktop" } else { "" },
+        p.scheme()
+    ));
     changed.iter().for_each(|line| log(line));
-    log(&format!("installed in {} µs ({} µs to put the files in place, {} µs to register)", started.elapsed().as_micros(), unpacked.as_micros(), (started.elapsed() - unpacked).as_micros()));
+    log(&format!(
+        "installed in {} µs ({} µs to put the files in place, {} µs to register)",
+        started.elapsed().as_micros(),
+        unpacked.as_micros(),
+        (started.elapsed() - unpacked).as_micros()
+    ));
     Ok(())
 }
 
 /// Unpacks the payload into `staging` with Windows' own bsdtar (as the updater does); returns
 /// the app's folder in it. bsdtar reads its arguments in the ANSI code page, where a user folder
-/// named `测试` arrives as `??`: so the zip goes in on standard input and `staging` is the
-/// working directory, and no path is an argument.
-fn unpack(staging: &Path) -> Result<PathBuf, String> {
+/// named `测试` arrives as `??`: so the zip goes in on standard input (as a seekable file so
+/// bsdtar reads its Central Directory) and `staging` is the working directory.
+fn unpack(staging: &Path, progress: &Progress) -> Result<PathBuf, String> {
     std::fs::create_dir_all(staging).map_err(|e| format!("{}: {e}", staging.display()))?;
     let zip = staging.join("payload.zip");
-    std::fs::write(&zip, PAYLOAD).map_err(|e| format!("couldn't write the app: {e}"))?;
-    let archive = std::fs::File::open(&zip).map_err(|e| format!("couldn't read the app: {e}"))?;
+    stage_payload(&zip, progress)?;
+
+    let archive = File::open(&zip).map_err(|e| format!("couldn't read the app: {e}"))?;
     let system = std::env::var_os("SystemRoot").map_or_else(|| PathBuf::from(r"C:\Windows"), PathBuf::from);
-    let out = Command::new(system.join("System32").join("tar.exe"))
+    let mut child = Command::new(system.join("System32").join("tar.exe"))
         .args(["-xf", "-"])
         .current_dir(staging)
         .stdin(archive)
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
         .creation_flags(CREATE_NO_WINDOW)
-        .output()
+        .spawn()
         .map_err(|e| format!("couldn't run tar: {e}"))?;
+
+    let expected_uncompressed = progress::zip_uncompressed_bytes(PAYLOAD);
+    let total = expected_uncompressed.unwrap_or(PAYLOAD.len() as u64);
+    let extract_started = Instant::now();
+    progress.update_range(2200, 7800, 0, total, progress::format_bytes_status("Extracting...", 0, total, Duration::ZERO));
+
+    let stderr_pipe = child.stderr.take();
+    let (status, stderr) = std::thread::scope(|scope| {
+        let stderr_reader = scope.spawn(move || {
+            let mut buf = Vec::new();
+            if let Some(mut pipe) = stderr_pipe {
+                pipe.read_to_end(&mut buf).ok();
+            }
+            buf
+        });
+
+        let exit = loop {
+            match child.try_wait() {
+                Ok(Some(status)) => break Ok(status),
+                Ok(None) => {
+                    if let Some((read_bytes, write_bytes)) = process_io_counters(&child) {
+                        let done = if expected_uncompressed.is_some() { write_bytes } else { read_bytes }.min(total);
+                        let text = progress::format_bytes_status("Extracting...", done, total, extract_started.elapsed());
+                        progress.update_range(2200, 7800, done, total, text);
+                    }
+                    std::thread::sleep(EXTRACT_POLL);
+                }
+                Err(e) => break Err(format!("couldn't wait for tar: {e}")),
+            }
+        };
+
+        (exit, stderr_reader.join().unwrap_or_default())
+    });
+
     std::fs::remove_file(&zip).ok();
-    if !out.status.success() {
-        return Err(format!("couldn't unpack the app: {}", String::from_utf8_lossy(&out.stderr).trim()));
+    let status = status?;
+    if !status.success() {
+        return Err(format!("couldn't unpack the app: {}", String::from_utf8_lossy(&stderr).trim()));
     }
+    let final_text = progress::format_bytes_status("Extracting...", total, total, extract_started.elapsed());
+    progress.update_range(2200, 7800, total, total, final_text);
+
     if staging.join(EXE).is_file() {
         return Ok(staging.to_path_buf());
     }
@@ -157,6 +231,40 @@ fn unpack(staging: &Path) -> Result<PathBuf, String> {
     match dirs.as_slice() {
         [one] if one.join(EXE).is_file() => Ok(one.clone()),
         _ => Err(format!("The app in this setup has no {EXE}.")),
+    }
+}
+
+/// Writes the embedded release zip to `zip` in chunks, reporting live staging progress and throughput.
+fn stage_payload(zip: &Path, progress: &Progress) -> Result<(), String> {
+    let total = PAYLOAD.len() as u64;
+    let started = Instant::now();
+    progress.update_range(1000, 2200, 0, total, progress::format_bytes_status("Preparing files...", 0, total, Duration::ZERO));
+    let mut file = File::create(zip).map_err(|e| format!("couldn't write the app: {e}"))?;
+    let mut written: u64 = 0;
+    let mut last_update = Instant::now();
+    for chunk in PAYLOAD.chunks(STAGE_CHUNK) {
+        file.write_all(chunk).map_err(|e| format!("couldn't write the app: {e}"))?;
+        written = written.saturating_add(chunk.len() as u64);
+        if written == total || last_update.elapsed() >= TEXT_THROTTLE {
+            last_update = Instant::now();
+            let text = progress::format_bytes_status("Preparing files...", written, total, started.elapsed());
+            progress.update_range(1000, 2200, written, total, text);
+        }
+    }
+    Ok(())
+}
+
+/// Reads live `(ReadTransferCount, WriteTransferCount)` bytes for a running child process.
+#[allow(unsafe_code)]
+fn process_io_counters(child: &Child) -> Option<(u64, u64)> {
+    use windows_sys::Win32::Foundation::HANDLE;
+    use windows_sys::Win32::System::Threading::{GetProcessIoCounters, IO_COUNTERS};
+    // SAFETY: `child.as_raw_handle()` is a valid live process handle owned by `child`,
+    // and `counters` is a zero-initialized out-struct owned by this call.
+    unsafe {
+        let mut counters: IO_COUNTERS = std::mem::zeroed();
+        let ok = GetProcessIoCounters(child.as_raw_handle() as HANDLE, &mut counters);
+        (ok != 0).then_some((counters.ReadTransferCount, counters.WriteTransferCount))
     }
 }
 
@@ -170,16 +278,29 @@ fn unpack(staging: &Path) -> Result<PathBuf, String> {
 /// The setup's own first start (`first_start`) begins when the last page shows, so a Launch
 /// within a second of that page waited with it: 1,030 to 1,454 ms, against 15 to 80 ms after
 /// a flush. The flush takes 1 to 2 s of the Installing page instead.
-fn flush(root: &Path) -> (usize, Duration) {
-    let started = std::time::Instant::now();
-    let programs = std::fs::read_dir(root)
+fn flush(root: &Path, progress: &Progress) -> (usize, Duration) {
+    let started = Instant::now();
+    let targets: Vec<(PathBuf, u64)> = std::fs::read_dir(root)
         .into_iter()
         .flatten()
         .flatten()
         .map(|entry| entry.path())
         .filter(|path| path.extension().is_some_and(|x| x.eq_ignore_ascii_case("exe") || x.eq_ignore_ascii_case("dll")))
-        .filter(|path| OpenOptions::new().write(true).open(path).and_then(|file| file.sync_all()).is_ok())
-        .count();
+        .map(|path| {
+            let size = std::fs::metadata(&path).map_or(1, |m| m.len().max(1));
+            (path, size)
+        })
+        .collect();
+    let total_bytes: u64 = targets.iter().map(|(_, size)| *size).sum();
+    let mut done_bytes: u64 = 0;
+    let mut programs: usize = 0;
+    for (path, size) in targets {
+        if OpenOptions::new().write(true).open(&path).and_then(|file| file.sync_all()).is_ok() {
+            programs += 1;
+        }
+        done_bytes = done_bytes.saturating_add(size);
+        progress.update_waiting_range(8400, 9800, 9800, 75, done_bytes, total_bytes);
+    }
     (programs, started.elapsed())
 }
 
@@ -231,7 +352,7 @@ fn beside(root: &Path, what: &str) -> PathBuf {
 pub fn first_start(root: &Path, log: &Option<PathBuf>) -> std::thread::JoinHandle<()> {
     let (exe, args) = (root.join(EXE), Args { log: log.clone(), ..Args::default() });
     std::thread::spawn(move || {
-        let started = std::time::Instant::now();
+        let started = Instant::now();
         let child = Command::new(&exe).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).creation_flags(CREATE_SUSPENDED | CREATE_NO_WINDOW).spawn();
         match child {
             Ok(mut child) => {
@@ -254,8 +375,10 @@ pub fn first_start(root: &Path, log: &Option<PathBuf>) -> std::thread::JoinHandl
             .spawn();
         if let Err(e) = warm {
             args.log(&format!("couldn't warm the GPU's cache for {}: {e}", exe.display()));
-        }    })
+        }
+    })
 }
+
 /// Starts the installed app, in the user's home folder, as its Start menu shortcut does.
 ///
 /// Without `__COMPAT_LAYER`: Windows starts a setup program with its Program Compatibility

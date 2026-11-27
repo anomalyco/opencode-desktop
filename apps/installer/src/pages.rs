@@ -1,30 +1,40 @@
 //! The setup's window: one task dialog whose pages follow each other, as Windows' own setups
 //! look. Install (with "Create a desktop shortcut"), "is running" when a copy runs from the
-//! install, Installing with a marquee while a thread installs, then Installed (with "Launch")
-//! or what went wrong.
+//! install, Installing with a smooth determinate progress bar, live stage status and throughput
+//! while a thread installs, then Installed (with "Launch") or what went wrong.
 // Task dialogs are Win32; each block says what it relies on.
 #![allow(unsafe_code)]
 
 use std::path::Path;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 use windows_sys::Win32::Foundation::{HWND, LPARAM, S_FALSE, S_OK, WPARAM};
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows_sys::Win32::UI::Controls::{
-    TASKDIALOG_BUTTON, TASKDIALOGCONFIG, TDCBF_CANCEL_BUTTON, TDCBF_CLOSE_BUTTON, TDF_ALLOW_DIALOG_CANCELLATION, TDF_CALLBACK_TIMER,
-    TDF_SHOW_MARQUEE_PROGRESS_BAR, TDF_VERIFICATION_FLAG_CHECKED, TDM_ENABLE_BUTTON, TDM_NAVIGATE_PAGE, TDM_SET_PROGRESS_BAR_MARQUEE,
-    TDN_BUTTON_CLICKED, TDN_CREATED, TDN_NAVIGATED, TDN_TIMER, TDN_VERIFICATION_CLICKED, TD_ERROR_ICON, TaskDialogIndirect,
+    TASKDIALOG_BUTTON, TASKDIALOGCONFIG, TDCBF_CANCEL_BUTTON, TDCBF_CLOSE_BUTTON, TDE_CONTENT, TDF_ALLOW_DIALOG_CANCELLATION, TDF_CALLBACK_TIMER,
+    TDF_SHOW_PROGRESS_BAR, TDF_VERIFICATION_FLAG_CHECKED, TDM_ENABLE_BUTTON, TDM_NAVIGATE_PAGE, TDM_SET_PROGRESS_BAR_POS,
+    TDM_SET_PROGRESS_BAR_RANGE, TDM_UPDATE_ELEMENT_TEXT, TDN_BUTTON_CLICKED, TDN_CREATED, TDN_DESTROYED, TDN_NAVIGATED, TDN_TIMER,
+    TDN_VERIFICATION_CLICKED, TD_ERROR_ICON, TaskDialogIndirect,
 };
-use windows_sys::Win32::UI::WindowsAndMessaging::{IDCANCEL, SendMessageW};
+use windows_sys::Win32::UI::WindowsAndMessaging::{IDCANCEL, SMTO_ABORTIFHUNG, SendMessageTimeoutW, SendMessageW};
 use windows_sys::core::{BOOL, HRESULT, PCWSTR};
 
 use win_install::Product;
 
 use crate::install::{self, Args};
+use crate::progress::{self, PROGRESS_MAX, Progress, Snapshot};
 
 const INSTALL: i32 = 100;
 const CLOSE_AND_INSTALL: i32 = 101;
 const FINISH: i32 = 102;
+/// Fixed dialog width (in DLUs) on the Installing page so live status + MB/s never wraps or clips.
+const INSTALLING_WIDTH_DLU: u32 = 240;
+/// Brief hold at 100% so Windows' smooth progress bar animation visibly completes before switching pages.
+const COMPLETE_SETTLE: Duration = Duration::from_millis(120);
+/// Timeout when marshaling progress updates to the TaskDialog UI thread.
+const UI_SEND_TIMEOUT_MS: u32 = 100;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Stage {
@@ -84,6 +94,12 @@ fn page(p: &Product, text: Text, buttons: &[(i32, &str)], common: i32, flags: i3
     Page { config, _strings: strings, _buttons: buttons }
 }
 
+#[derive(Default)]
+struct UiSent {
+    pos: u16,
+    text: String,
+}
+
 struct Wizard<'a> {
     p: &'a Product,
     root: &'a Path,
@@ -92,6 +108,10 @@ struct Wizard<'a> {
     desktop: bool,
     launch: bool,
     result: Arc<Mutex<Option<Result<(), String>>>>,
+    progress: Progress,
+    installing_active: Arc<AtomicBool>,
+    ui_sent: Arc<Mutex<UiSent>>,
+    done_at: Option<Instant>,
     pages: Vec<(Stage, Page)>,
 }
 
@@ -106,13 +126,27 @@ impl Wizard<'_> {
         unsafe { SendMessageW(hwnd, TDM_NAVIGATE_PAGE as u32, 0, &page.config as *const TASKDIALOGCONFIG as LPARAM) };
     }
 
-    /// Installs on a thread of its own; the page's timer picks up the result.
-    fn start(&self) {
+    /// Installs on a thread of its own; progress updates push live to the dialog while the page's
+    /// timer drives wait-stage creep and picks up the final result.
+    fn start(&mut self, hwnd: HWND) {
+        self.done_at = None;
+        *self.ui_sent.lock().unwrap_or_else(|e| e.into_inner()) = UiSent::default();
+        self.installing_active.store(true, Ordering::Release);
+
+        let hwnd_raw = hwnd as usize;
+        let active = self.installing_active.clone();
+        let ui_sent = self.ui_sent.clone();
+        let notify = Arc::new(move |snap: &Snapshot| {
+            apply_progress(hwnd_raw as HWND, &active, &ui_sent, snap);
+        });
+        let progress = Progress::with_notify(Some(notify));
+        self.progress = progress.clone();
+
         let (p, root, desktop, result) = (self.p.clone(), self.root.to_path_buf(), self.desktop, self.result.clone());
         let log = self.args.log.clone();
         std::thread::spawn(move || {
             let args = Args { log, ..Args::default() };
-            let done = install::install(&p, &root, desktop, &|line| args.log(line));
+            let done = install::install(&p, &root, desktop, &progress, &|line| args.log(line));
             if let Err(e) = &done {
                 args.log(&format!("couldn't install: {e}"));
             }
@@ -128,6 +162,62 @@ impl Wizard<'_> {
     }
 }
 
+/// Pushes monotonic progress position and formatted content text to the Installing TaskDialog.
+/// Never holds any lock across Win32 message calls.
+fn apply_progress(hwnd: HWND, active: &AtomicBool, ui_sent: &Mutex<UiSent>, snap: &Snapshot) {
+    if !active.load(Ordering::Acquire) {
+        return;
+    }
+    let formatted = progress::format_content(snap.percent, &snap.status);
+    let (pos_update, text_update) = {
+        let mut sent = ui_sent.lock().unwrap_or_else(|e| e.into_inner());
+        let pos_update = (snap.pos > sent.pos).then(|| {
+            sent.pos = snap.pos;
+            snap.pos
+        });
+        let text_update = (formatted != sent.text).then(|| {
+            sent.text = formatted.clone();
+            formatted
+        });
+        (pos_update, text_update)
+    };
+    if !active.load(Ordering::Acquire) {
+        return;
+    }
+    if let Some(pos) = pos_update {
+        // SAFETY: `hwnd` stays valid while `active` is true (the modal dialog cannot navigate
+        // away from Installing or close until the worker finishes and clears `active`);
+        // `SendMessageTimeoutW` with `SMTO_ABORTIFHUNG` also prevents blocking on shutdown.
+        unsafe {
+            SendMessageTimeoutW(
+                hwnd,
+                TDM_SET_PROGRESS_BAR_POS as u32,
+                pos as WPARAM,
+                0,
+                SMTO_ABORTIFHUNG,
+                UI_SEND_TIMEOUT_MS,
+                std::ptr::null_mut(),
+            );
+        }
+    }
+    if let Some(text) = text_update {
+        let wide: Vec<u16> = text.encode_utf16().chain(Some(0)).collect();
+        // SAFETY: `wide` is NUL-terminated and outlives the synchronous `SendMessageTimeoutW`
+        // call; `hwnd` is guarded by `active`.
+        unsafe {
+            SendMessageTimeoutW(
+                hwnd,
+                TDM_UPDATE_ELEMENT_TEXT as u32,
+                TDE_CONTENT as WPARAM,
+                wide.as_ptr() as LPARAM,
+                SMTO_ABORTIFHUNG,
+                UI_SEND_TIMEOUT_MS,
+                std::ptr::null_mut(),
+            );
+        }
+    }
+}
+
 unsafe extern "system" fn callback(hwnd: HWND, msg: u32, wparam: WPARAM, _: LPARAM, data: isize) -> HRESULT {
     if data == 0 {
         return S_OK;
@@ -136,6 +226,7 @@ unsafe extern "system" fn callback(hwnd: HWND, msg: u32, wparam: WPARAM, _: LPAR
     let w = unsafe { &mut *(data as *mut Wizard) };
     match msg as i32 {
         TDN_CREATED => w.args.log(&format!("window created {} µs after the process started", since_start_us())),
+        TDN_DESTROYED => w.installing_active.store(false, Ordering::Release),
         TDN_VERIFICATION_CLICKED => match w.stage {
             Stage::Welcome => w.desktop = wparam != 0,
             Stage::Done => w.launch = wparam != 0,
@@ -157,26 +248,47 @@ unsafe extern "system" fn callback(hwnd: HWND, msg: u32, wparam: WPARAM, _: LPAR
         },
         TDN_NAVIGATED if w.stage == Stage::Installing => {
             // SAFETY: messages to the dialog that sent this notification.
+            // `MAKELPARAM(0, PROGRESS_MAX)` puts min=0 in LOWORD and max=PROGRESS_MAX in HIWORD.
             unsafe {
-                SendMessageW(hwnd, TDM_SET_PROGRESS_BAR_MARQUEE as u32, 1, 0);
+                SendMessageW(hwnd, TDM_SET_PROGRESS_BAR_RANGE as u32, 0, (PROGRESS_MAX as LPARAM) << 16);
+                SendMessageW(hwnd, TDM_SET_PROGRESS_BAR_POS as u32, 0, 0);
                 SendMessageW(hwnd, TDM_ENABLE_BUTTON as u32, IDCANCEL as WPARAM, 0);
             }
-            w.start();
+            w.start(hwnd);
         }
         TDN_TIMER if w.stage == Stage::Installing => {
-            let done = w.result.lock().unwrap_or_else(|e| e.into_inner()).take();
-            match done {
-                Some(Ok(())) => {
+            if let Some(at) = w.done_at {
+                if at.elapsed() >= COMPLETE_SETTLE {
+                    w.done_at = None;
                     w.launch = true;
                     // Windows' check of the new exe, while the person reads the last page.
                     install::first_start(w.root, &w.args.log);
                     w.go(hwnd, Stage::Done);
                 }
+                return S_OK;
+            }
+            let done = w.result.lock().unwrap_or_else(|e| e.into_inner()).take();
+            match done {
+                Some(Ok(())) => {
+                    let final_snap = Snapshot {
+                        pos: PROGRESS_MAX,
+                        percent: 100,
+                        status: String::from("Finishing installation..."),
+                    };
+                    apply_progress(hwnd, &w.installing_active, &w.ui_sent, &final_snap);
+                    w.installing_active.store(false, Ordering::Release);
+                    w.done_at = Some(Instant::now());
+                }
                 Some(Err(e)) => {
+                    w.installing_active.store(false, Ordering::Release);
                     w.failed(&e);
                     w.go(hwnd, Stage::Failed);
                 }
-                None => {}
+                None => {
+                    if let Some(snap) = w.progress.tick() {
+                        apply_progress(hwnd, &w.installing_active, &w.ui_sent, &snap);
+                    }
+                }
             }
         }
         _ => {}
@@ -214,14 +326,20 @@ pub fn run(p: &Product, root: &Path, args: &Args) -> i32 {
         TDF_ALLOW_DIALOG_CANCELLATION,
         false,
     );
-    let installing = page(
+    let mut installing = page(
         p,
-        Text { instruction: &format!("Installing {name}…"), content: "This takes a few seconds.", footer: "", verification: "" },
+        Text {
+            instruction: &format!("Installing {name}…"),
+            content: "0% - Preparing installation...",
+            footer: &footer,
+            verification: "",
+        },
         &[],
         TDCBF_CANCEL_BUTTON,
-        TDF_SHOW_MARQUEE_PROGRESS_BAR | TDF_CALLBACK_TIMER,
+        TDF_SHOW_PROGRESS_BAR | TDF_CALLBACK_TIMER,
         false,
     );
+    installing.config.cxWidth = INSTALLING_WIDTH_DLU;
     let done = page(
         p,
         Text {
@@ -243,6 +361,10 @@ pub fn run(p: &Product, root: &Path, args: &Args) -> i32 {
         desktop: true,
         launch: false,
         result: Arc::default(),
+        progress: Progress::noop(),
+        installing_active: Arc::new(AtomicBool::new(false)),
+        ui_sent: Arc::default(),
+        done_at: None,
         pages: vec![(Stage::Welcome, welcome), (Stage::Running, running), (Stage::Installing, installing), (Stage::Done, done)],
     };
     let me = &mut wizard as *mut Wizard as isize;
@@ -259,14 +381,14 @@ pub fn run(p: &Product, root: &Path, args: &Args) -> i32 {
     }
 }
 
-
 /// Microseconds since this process was created (`GetProcessTimes`), for the log.
 fn since_start_us() -> u64 {
     use windows_sys::Win32::Foundation::FILETIME;
     use windows_sys::Win32::System::SystemInformation::GetSystemTimePreciseAsFileTime;
     use windows_sys::Win32::System::Threading::{GetCurrentProcess, GetProcessTimes};
     let ticks = |f: FILETIME| (u64::from(f.dwHighDateTime) << 32) | u64::from(f.dwLowDateTime);
-    let (mut created, mut exited, mut kernel, mut user, mut now) = (FILETIME::default(), FILETIME::default(), FILETIME::default(), FILETIME::default(), FILETIME::default());
+    let (mut created, mut exited, mut kernel, mut user, mut now) =
+        (FILETIME::default(), FILETIME::default(), FILETIME::default(), FILETIME::default(), FILETIME::default());
     // SAFETY: the pseudo handle needs no closing; every out-pointer is ours.
     unsafe {
         GetProcessTimes(GetCurrentProcess(), &mut created, &mut exited, &mut kernel, &mut user);
