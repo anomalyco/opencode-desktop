@@ -311,7 +311,6 @@ mod scenes {
     //! simulated network, and Poe's browser sign-in waiting. The `-long` ones fill a step past the
     //! dialog's height: 25 models, and an error many lines long.
 
-    use std::collections::HashSet;
     use std::rc::Rc;
 
     use opencode_kit::integration::{Authorization, Method, MethodKind};
@@ -349,11 +348,30 @@ mod scenes {
             tools: true,
             speed: None,
         }));
-        super::preview_step(s, "drive", Step::Models { selected: "drive:model-1".into(), collapsed: HashSet::new() });
+        super::preview_step(s, "drive", Step::Models);
+    }
+
+    /// Multi-provider Console workspace models (tests sticky provider headers + prefix strip).
+    fn multi_models(s: &mut App) {
+        use opencode_feature_connect::{ProviderInfo, seed_catalogs};
+        seed_catalogs(
+            s,
+            vec![],
+            vec![
+                ProviderInfo { id: "ws-openai".into(), name: "Acme / OpenAI".into(), integration: Some("opencode".into()) },
+                ProviderInfo { id: "ws-anthropic".into(), name: "Acme / Anthropic".into(), integration: Some("opencode".into()) },
+            ],
+        );
+        s.composer_ext.pickers.models.extend([
+            crate::pickers::Model { key: "ws-openai:gpt-5".into(), id: "gpt-5".into(), provider: "ws-openai".into(), group: "Acme / OpenAI".into(), name: "GPT-5".into(), variants: vec![], hidden: false, free: false, latest: false, inputs: vec![], tools: true, speed: None },
+            crate::pickers::Model { key: "ws-anthropic:claude-sonnet".into(), id: "claude-sonnet".into(), provider: "ws-anthropic".into(), group: "Acme / Anthropic".into(), name: "Claude Sonnet".into(), variants: vec![], hidden: false, free: false, latest: false, inputs: vec![], tools: true, speed: None },
+        ]);
+        super::preview_step(s, "opencode", Step::Models);
     }
 
     rune_register::register!(crate::scenes::SCENE_LIST: crate::scenes::Scene = [
-        ("connect-models", |s| super::preview_step(s, "drive", Step::Models { selected: "drive:simulated".into(), collapsed: HashSet::new() })),
+        ("connect-models", |s| super::preview_step(s, "drive", Step::Models)),
+        ("connect-models-multi", multi_models),
         ("connect-models-long", long_models),
         ("connect-failed-long", |s| {
             let error = (1..=30).map(|i| format!("at frame {i}: ECONNREFUSED 127.0.0.1:{}", 4000 + i)).collect::<Vec<_>>().join("\n");
