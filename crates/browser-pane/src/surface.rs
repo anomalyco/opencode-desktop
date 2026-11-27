@@ -233,12 +233,22 @@ impl BrowserHost {
                         }
                         true
                     }
+                    crate::client::KeyForward::PasteHost => {
+                        if let Some(t) = host.tabs.iter_mut().find(|t| t.id == tab_id) {
+                            t.prompts.record_document_input();
+                        }
+                        tx.read_clipboard(move |s: &mut S, content, _| {
+                            access(s).paste_host_clipboard(tab_id, content.text());
+                        });
+                        tx.live_only();
+                        true
+                    }
                 }
             })
             .on_key_up(move |s: &mut S, ev: &KeyEvent, tx| {
                 match access(s).forward_key(tab_id, ev, false) {
                     crate::client::KeyForward::Ignored => false,
-                    crate::client::KeyForward::Forwarded => {
+                    crate::client::KeyForward::Forwarded | crate::client::KeyForward::PasteHost => {
                         tx.live_only();
                         true
                     }

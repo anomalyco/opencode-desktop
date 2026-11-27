@@ -2,15 +2,15 @@
   "generated_at": "2026-11-28",
   "upstream_repo": "anomalyco/opencode",
   "upstream_reference_base": "f6e0c2d0833ffe772035f221fed923e1cd5fb408",
-  "upstream_head": "9dff0b82550eae0f0e933db5b39c02fecedb2a1a",
+  "upstream_head": "f2a9ebb46244b7ae6286bffc729c1c8530dc2f63",
   "upstream_pre_window_base": "3751be8138ebcf33343eb3f3d011b32fc814103c",
   "rune_desktop_repo": "anomalyco/opencode-rune",
-  "rune_desktop_head": "e9ea53d0ad",
-  "post_1114_commit_count": 807,
+  "rune_desktop_head": "d2824173d7",
+  "post_1114_commit_count": 808,
   "post_1114_in_ledger": 272,
-  "post_1114_skipped": 535,
+  "post_1114_skipped": 536,
   "post_1114_skipped_breakdown": {
-    "test-only": 35,
+    "test-only": 36,
     "ci-bench-deps": 27,
     "docs-site-data": 84,
     "tui-only": 35,
@@ -20,11 +20,11 @@
   "pre_1114_carryover_rows": 15,
   "total_ledger_rows": 293,
   "status_counts": {
-    "have it": 249,
+    "have it": 250,
     "not applicable": 39,
     "differs on purpose": 1,
     "partly": 1,
-    "missing": 3
+    "missing": 2
   },
   "rows": [
     {
@@ -7327,10 +7327,13 @@
       "summary": "Adds the browser address bar and recent pages list directly inside the side panel New tab view so users can type/pick a URL or reopen recent pages without opening a blank browser tab first.",
       "size": "M",
       "status": "missing",
-      "status_evidence": "In progress. Official: packages/app/src/runtime/plugin/{new-tab-machine,panels,side-region}.*, packages/gui-plugins/src/browser/{address-field,address-machine,model,new-tab,panel,renderer}.*, packages/plugin/src/gui/builtin.ts.",
+      "status_evidence": "Open PR #1416 (head 8603620ea2, CI running, contract 1.13): adds browser address bar and recent pages slots to the side panel New tab view.",
       "depends_on": "none",
       "risks": "none",
-      "workstream": "UPSTREAM"
+      "workstream": "UPSTREAM",
+      "pr_refs": [
+        1416
+      ]
     },
     {
       "id": "UP-271",
@@ -7350,7 +7353,7 @@
       "summary": "Removes the local/dev build-channel gate so inline quotes render inside user message bubbles in every build channel.",
       "size": "XS",
       "status": "have it",
-      "status_evidence": "Merged in #1413 (dev e9ea53d0ad, CI run 46018492315 green): enables TimelineHost::inline_quotes by default in session-view and removes the build_channel() gate in desktop host so inline quotes render in every build. Post-merge bulk headless verification queued.",
+      "status_evidence": "Merged in #1413 (dev e9ea53d0ad, CI run 46018492315 green): enables TimelineHost::inline_quotes by default in session-view and removes the build_channel() gate in desktop host so inline quotes render in every build. Post-merge verified headless on Windows x64 PR build (run 46018492315, 2/2 passes exit 0, peak <= 0.36 GiB): user message renders inline quote inside user bubble with zero raw '>' text; build_channel gate removal verified by code inspection. Not run: real window, release channel build, macOS, Linux.",
       "pr_refs": [
         1413
       ],
@@ -7383,14 +7386,20 @@
       ],
       "summary": "Adds shell/subagent permission tool labels across all locales and fixes mistranslations and misplaced labels in hr, hu, is, lt, uk, vi, fa, ru, tr, and built-in plugin catalogs.",
       "size": "S",
-      "status": "missing",
-      "status_evidence": "Open PR #1415 (head f729de2f9e, CI running): syncs 65 official and built-in plugin locale JSON catalogs matching opencode#66805.",
+      "status": "have it",
+      "status_evidence": "Merged in #1415 (dev d2824173d7, CI run 46022706386 green): synced 65 official and built-in plugin locale JSON catalogs matching opencode#66805 (shell/subagent permission tool labels + hr/hu/is/lt/uk/vi/fa/ru/tr fixes). Post-merge bulk headless verification queued.",
       "pr_refs": [
         1415
       ],
       "depends_on": "none",
       "risks": "none",
-      "workstream": "UPSTREAM"
+      "workstream": "UPSTREAM",
+      "rune_files": [
+        "crates/opencode-i18n/locales/official/en.json",
+        "crates/opencode-i18n/locales/official/uk.json",
+        "plugins/details/locales/uk.json",
+        "plugins/ssh/locales/uk.json"
+      ]
     }
   ],
   "browser_security_review": {

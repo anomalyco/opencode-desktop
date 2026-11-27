@@ -87,6 +87,11 @@ fn ozone() -> Ozone {
     OZONE.get().copied().unwrap_or(Ozone::Headless)
 }
 
+/// Whether CEF was configured with X11 Ozone (`ozone-platform=x11`).
+pub fn is_x11() -> bool {
+    matches!(ozone(), Ozone::X11)
+}
+
 /// The transport the engine starts with, from its EGL context's start.
 pub fn transport(gpu: Option<Result<Arc<Gpu>, String>>) -> Transport {
     let ozone = ozone();
