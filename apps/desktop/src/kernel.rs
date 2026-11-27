@@ -259,6 +259,7 @@ pub fn build() -> Kernel<App> {
         .register_slot(&crate::app::MATH)
         .register_slot(&crate::session_catalog::CATALOG)
         .register_slot(&crate::session::meta::flags::FLAGS)
+        .register_slot(&crate::shell::view::sidebar::recent::HOVERED_HEADER)
         .register_slot(&crate::events::TAIL_CHANGE)
         .register_slot(&crate::events::STREAM_GAPS)
         .register_slot(&crate::speech::SPEECH)
