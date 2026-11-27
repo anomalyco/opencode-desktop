@@ -2,18 +2,18 @@
   "generated_at": "2026-11-28",
   "upstream_repo": "anomalyco/opencode",
   "upstream_reference_base": "f6e0c2d0833ffe772035f221fed923e1cd5fb408",
-  "upstream_head": "35a7b08cd1a8215f4335aa01cac653e41bcd0892",
+  "upstream_head": "df6ccc7202eb1366b242e86478291b7f6b944ae0",
   "upstream_pre_window_base": "3751be8138ebcf33343eb3f3d011b32fc814103c",
   "rune_desktop_repo": "anomalyco/opencode-rune",
-  "rune_desktop_head": "974168ae9b",
-  "post_1114_commit_count": 810,
+  "rune_desktop_head": "1634991f7e",
+  "post_1114_commit_count": 811,
   "post_1114_in_ledger": 272,
-  "post_1114_skipped": 538,
+  "post_1114_skipped": 539,
   "post_1114_skipped_breakdown": {
     "test-only": 37,
     "ci-bench-deps": 28,
     "docs-site-data": 84,
-    "tui-only": 35,
+    "tui-only": 36,
     "cli-acp-only": 15,
     "server-core-ai-codemode-internal": 339
   },
@@ -7387,7 +7387,7 @@
       "summary": "Adds shell/subagent permission tool labels across all locales and fixes mistranslations and misplaced labels in hr, hu, is, lt, uk, vi, fa, ru, tr, and built-in plugin catalogs.",
       "size": "S",
       "status": "have it",
-      "status_evidence": "Merged in #1415 (dev d2824173d7, CI run 46022706386 green): synced 65 official and built-in plugin locale JSON catalogs matching opencode#66805 (shell/subagent permission tool labels + hr/hu/is/lt/uk/vi/fa/ru/tr fixes). Post-merge bulk headless verification queued.",
+      "status_evidence": "Merged in #1415 (dev d2824173d7, CI run 46022706386 green): synced 65 official and built-in plugin locale JSON catalogs matching opencode#66805 (shell/subagent permission tool labels + hr/hu/is/lt/uk/vi/fa/ru/tr fixes). Post-merge verified headless on Windows x64 PR build (run 46022706386, 2/2 passes exit 0, peak <= 0.52 GiB): --scene settings-about --language uk renders the updated Ukrainian Settings sidebar and About catalog cleanly vs baseline. Not run: real window, macOS, Linux.",
       "pr_refs": [
         1415
       ],
