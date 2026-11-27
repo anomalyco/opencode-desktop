@@ -6659,7 +6659,7 @@
       "summary": "Patches Electron's app-builder-lib NSIS Windows installer to smooth the 7-Zip extraction progress bar with live status and throughput readouts.",
       "size": "S",
       "status": "not applicable",
-      "status_evidence": "Electron NSIS / app-builder-lib patch only (installer.nsh + patches/app-builder-lib@26.15.7.patch). OpenCode (Rune) ships its own custom Rust Win32 TaskDialog setup bootstrapper in apps/installer/src/{install,pages}.rs that unpacks an embedded payload.zip in a few seconds with a Win32 marquee bar.",
+      "status_evidence": "Electron NSIS / app-builder-lib patch only (installer.nsh + patches/app-builder-lib@26.15.7.patch). OpenCode (Rune) ships its own custom Rust Win32 TaskDialog setup bootstrapper in apps/installer/src/{install,pages}.rs that unpacks an embedded payload.zip in a few seconds with a Win32 marquee bar. apps/installer is intentionally kept as-is (no NSIS installer changes). [verified-hunks]",
       "depends_on": "none",
       "risks": "none",
       "workstream": "UPDATER"
