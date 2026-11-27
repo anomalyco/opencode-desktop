@@ -5,7 +5,7 @@
   "upstream_head": "df6ccc7202eb1366b242e86478291b7f6b944ae0",
   "upstream_pre_window_base": "3751be8138ebcf33343eb3f3d011b32fc814103c",
   "rune_desktop_repo": "anomalyco/opencode-rune",
-  "rune_desktop_head": "1634991f7e",
+  "rune_desktop_head": "8b2d35fa58",
   "post_1114_commit_count": 811,
   "post_1114_in_ledger": 272,
   "post_1114_skipped": 539,
@@ -20,11 +20,11 @@
   "pre_1114_carryover_rows": 15,
   "total_ledger_rows": 293,
   "status_counts": {
-    "have it": 250,
+    "have it": 251,
     "not applicable": 39,
     "differs on purpose": 1,
     "partly": 1,
-    "missing": 2
+    "missing": 1
   },
   "rows": [
     {
@@ -7296,13 +7296,18 @@
       ],
       "summary": "Replaces the post-connect provider models grid with a searchable model list allowing direct model selection after connecting a provider.",
       "size": "M",
-      "status": "missing",
-      "status_evidence": "Open PR #1400 (head cba2de894b, CI run 46009596535 green): replaces post-connect models grid with searchable model list.",
+      "status": "have it",
+      "status_evidence": "Merged in #1400 (dev 8b2d35fa58, CI run 46026815605 green): replaces post-connect models grid with a searchable model list allowing direct model selection after connecting a provider. Verified headless on Windows x64 PR build (3/3 cases PASS: single-provider search/highlight/empty state, multi-provider OpenAI/Anthropic section headers with workspace prefix stripped, and keyboard confirm). Not run: real window, macOS, Linux.",
       "depends_on": "none",
       "risks": "none",
       "workstream": "UPSTREAM",
       "pr_refs": [
         1400
+      ],
+      "rune_files": [
+        "features/connect/src/view.rs",
+        "features/connect/src/models.rs",
+        "features/connect/src/machine.rs"
       ]
     },
     {
