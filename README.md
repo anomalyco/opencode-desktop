@@ -19,8 +19,6 @@
   <a href="https://opencode.ai"><picture><source srcset="https://opencode.ai/brand/badges/opencode-built-with-a-dark-20.svg" media="(prefers-color-scheme: dark)"><source srcset="https://opencode.ai/brand/badges/opencode-built-with-a-light-20.svg" media="(prefers-color-scheme: light)"><img src="https://opencode.ai/brand/badges/opencode-built-with-a-light-20.svg" alt="Built with OpenCode" height="20"></picture></a>
   <img src="https://img.shields.io/badge/engine-Rune-242424?style=flat-square&labelColor=161616" alt="Engine: Rune" height="20">
   <img src="https://img.shields.io/badge/backends-Metal%20%C2%B7%20DX12%20%C2%B7%20Vulkan%20%C2%B7%20WebGPU-242424?style=flat-square&labelColor=161616" alt="Backends: Metal, DX12, Vulkan, WebGPU" height="20">
-  <img src="https://img.shields.io/badge/electron-0%20MB-242424?style=flat-square&labelColor=161616" alt="Electron: 0 MB" height="20">
-  <img src="https://img.shields.io/badge/tests-0-242424?style=flat-square&labelColor=161616" alt="Tests: 0" height="20">
 </p>
 
 <p align="center">
