@@ -112,6 +112,7 @@ pub fn build() -> Kernel<App> {
     b.with_feature(&crate::files::FilesFeature);
     b.with_feature(&crate::find::FindFeature);
     b.with_feature(&crate::free_limit::FreeLimitFeature);
+    b.with_feature(&crate::location_missing::LocationMissingFeature);
     b.with_feature(&crate::message_nav::HistoryFeature);
     b.with_feature(&crate::queue::InboxFeature);
     b.with_feature(&crate::mcp::McpFeature);
@@ -134,6 +135,7 @@ pub fn build() -> Kernel<App> {
     b.with_feature(&crate::tips::TipsFeature);
     b.with_feature(&crate::new_worktree::WorkspaceToolsFeature);
     b.with_feature(&crate::tabs::groups::TabGroupsFeature);
+    b.with_feature(&crate::tabs::sections::SidebarSectionsFeature);
     b.with_feature(&crate::plugin_host::PluginHostFeature);
     b.register_overlay(
         OverlayRegistration::<App>::new("overlay.pickers")
@@ -256,12 +258,14 @@ pub fn build() -> Kernel<App> {
         .register_slot(&crate::app::CODE_WRAP)
         .register_slot(&crate::app::MATH)
         .register_slot(&crate::session_catalog::CATALOG)
+        .register_slot(&crate::session::meta::flags::FLAGS)
         .register_slot(&crate::events::TAIL_CHANGE)
         .register_slot(&crate::events::STREAM_GAPS)
         .register_slot(&crate::speech::SPEECH)
         .register_slot(&crate::crash_notice::CRASH_NOTICE)
         .register_slot(&crate::key_sequence::SEQUENCE)
-        .register_slot(&crate::servers::dialog::DIALOG);
+        .register_slot(&crate::servers::dialog::DIALOG)
+        .register_slot(&crate::shell::memory_reclaim::SWEEP);
     let kernel = b.build();
     crate::shortcuts::validate(&kernel.commands);
     kernel
@@ -368,6 +372,16 @@ fn register_core_systems(b: &mut KernelBuilder<App>) {
     let _ = speech_poll;
     // Known: requires `launch.poll` (`INGEST_SERVERS`) for `Source::Live { writes: Some(_) }`;
     // precaution: mutates `settings_open`, `route`, `tabs`, `projects`, and `composer.focused`.
+    b.register_overlay(
+        OverlayRegistration::<App>::new(crate::deep_links::DEEP_LINK_OVERLAY_ID)
+            .with_render(crate::overlays::layer::ACTION_DIALOG, |s, cx| {
+                let p = crate::palette::pal(s.dark(cx));
+                crate::deep_links::dialog(s, p, cx)
+            })
+            .above(crate::session_menu::RENAME_OVERLAY_ID)
+            .with_key(|s, ev, tx| crate::deep_links::key(s, ev, tx))
+            .with_dismiss(|s, tx| crate::deep_links::decline_current(s, tx)),
+    );
     b.schedule(stage::INGEST_DISPATCH, "deep_links.drain", |s, _, tx| {
         crate::deep_links::drain(s, tx)
     })
@@ -375,6 +389,9 @@ fn register_core_systems(b: &mut KernelBuilder<App>) {
 
     b.schedule(stage::INGEST_SESSION_PRE, "turn_errors.poll", |s, _, tx| {
         crate::turn_errors::poll(s, tx)
+    });
+    b.schedule(stage::INGEST_SESSION_PRE, "flags.poll", |s, _, _| {
+        crate::session::meta::flags::poll(s)
     });
 
     b.schedule(stage::INGEST_PAGES, "session_pages.poll", |s, _, tx| {

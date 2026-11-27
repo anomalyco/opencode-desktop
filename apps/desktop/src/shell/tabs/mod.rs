@@ -15,6 +15,7 @@ pub mod hints;
 pub mod navigation_switch;
 pub mod pins;
 pub mod recently_closed;
+pub mod sections;
 
 use opencode_servers::tabs as doc;
 use opencode_kit::servers::{ServerKey, TabKey};

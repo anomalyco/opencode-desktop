@@ -349,17 +349,30 @@ fn flyout_view(app: &App, p: &Pal, i: usize, flyout: &Flyout) -> Option<El> {
 /// The open plugin dialog's card sized for `win`, without its modal scrim or focus trap (for
 /// standalone story stages as well as [`dialog_view`]).
 pub fn dialog_card(app: &App, p: &Pal, win: [f32; 2]) -> Option<(&'static str, El)> {
+    dialog_card_at(app, p, win).map(|(key, card, _)| (key, card))
+}
+
+/// [`dialog_card`], and the top edge the card keeps when it's one that only grows downward (a
+/// tall one: `dialog.css:163-170`).
+fn dialog_card_at(app: &App, p: &Pal, win: [f32; 2]) -> Option<(&'static str, El, Option<f32>)> {
     use crate::widgets::{DialogSize, Fit};
     let open = app.plugins.dialog.as_ref()?;
     let (i, _) = app.plugins.running().find(|(_, pl)| pl.half.id == open.plugin)?;
     let found = app.plugins.list[i].half.contribs.borrow().dialogs.iter().find(|c| c.spec.id == open.id).map(|c| (c.key, c.spec.clone(), c.f("render").cloned()));
     let (key, spec, Some(f)) = found? else { return None };
     let size = match spec.size {
+        Some(opencode_plugin_spec::DialogSize::Tall) => DialogSize::Tall,
         Some(opencode_plugin_spec::DialogSize::Large) => DialogSize::Large,
         Some(opencode_plugin_spec::DialogSize::XLarge) => DialogSize::XLarge,
         _ => DialogSize::Normal,
     };
-    let (fit, default_radius, fill) = if size == DialogSize::Normal { (Fit::Content, 6.0, p.layer1) } else { (Fit::Fixed, 12.0, p.bg_base) };
+    // A tall one is `<Dialog size="tall" fit>` (`site-chooser.tsx:356`): as tall as its content up
+    // to its size's height, on bg-base like the larger ones (`dialog.css:172-176`).
+    let (fit, default_radius, fill) = match size {
+        DialogSize::Normal => (Fit::Content, 6.0, p.layer1),
+        DialogSize::Tall => (Fit::Content, 12.0, p.bg_base),
+        DialogSize::Large | DialogSize::XLarge => (Fit::Fixed, 12.0, p.bg_base),
+    };
     let radius = spec.radius.map_or(default_radius, |r| r as f32);
     let content = render(app, p, i, &format!("dialog:{}", open.id), &f, map([("data", open.data.clone())]));
     // The clip goes on a child: on the card it would clip the card's own shadow too.
@@ -368,6 +381,10 @@ pub fn dialog_card(app: &App, p: &Pal, win: [f32; 2]) -> Option<(&'static str, E
     let inner = col().w_full().clip_rounded(radius);
     let inner = if fit == Fit::Fixed {
         inner.h_full().child(content)
+    } else if size == DialogSize::Tall {
+        // Its body doesn't scroll as a whole: at the size's height, what in it may shrink (its
+        // list) gives way and scrolls by itself (`site-chooser.tsx:375-378`, `min-h-0`).
+        inner.shrink().min_h(0.0).child(content)
     } else if spec.hide_scrollbar == Some(true) {
         inner.shrink().min_h(0.0).child(session_view::scroller::scroller(format!("plugin-dialog-scroll-{key}")).hidden(col().w_full().shrink().min_h(0.0), content))
     } else {
@@ -383,7 +400,7 @@ pub fn dialog_card(app: &App, p: &Pal, win: [f32; 2]) -> Option<(&'static str, E
         .transition(rune::Transition::none())
         .child(inner);
     let card = crate::widgets::sized(card, size, fit, win);
-    Some((key, card))
+    Some((key, card, (size == DialogSize::Tall).then(|| size.top(win[1]))))
 }
 
 /// Which modal overlay layer the currently open plugin dialog belongs to (defaulting to
@@ -406,12 +423,13 @@ pub fn dialog_layer(app: &App) -> Option<opencode_plugin_spec::DialogLayer> {
 
 /// The open plugin dialog over a scrim, as the app's own dialogs sit: in Desktop's dialog frame
 /// at the plugin's size preset (`runtime/plugin/ui.tsx` `Dialog`): a normal one as tall as its
-/// content (`<Dialog fit>`), a large or x-large one its size's height on bg-base with 12 pt corners.
+/// content (`<Dialog fit>`), a tall one as tall as its content up to its size's height with its top
+/// edge kept, a large or x-large one its size's height, each of those on bg-base with 12 pt corners.
 /// Esc or a press outside closes it and runs its `onDismiss`.
 pub fn dialog_view(app: &App, p: &Pal, cx: &rune::Cx<App>) -> Vec<El> {
-    let Some((key, card)) = dialog_card(app, p, crate::widgets::dialog_window(cx, *app.zoom)) else { return Vec::new() };
+    let Some((key, card, top)) = dialog_card_at(app, p, crate::widgets::dialog_window(cx, *app.zoom)) else { return Vec::new() };
     let card = card.modal_tx(true, requests::dismiss_dialog);
-    crate::widgets::modal(&format!("plugin-dialog-modal-{key}"), p, card, None)
+    crate::widgets::modal(&format!("plugin-dialog-modal-{key}"), p, card, top)
 }
 
 /// Renders the open plugin dialog only when its declared [`opencode_plugin_spec::DialogLayer`]

@@ -115,6 +115,43 @@ fn view(s: &App, p: &Pal) -> El {
     frame(p, "story-session").w(w).max_w(w).h_full().max_h(760.0).child(crate::view::story_session(s, p))
 }
 
+/// Headless verification scene: a grouped tool call returning both a loaded PNG and a failed
+/// `media:` ref so the folded group, expanded group (no duplicate strip), and retryable failed
+/// tile can all be inspected directly.
+fn setup_tool_result_images(s: &mut App) {
+    crate::stories::scenes::open_scene(s);
+    s.finish_stream();
+    let files = vec![
+        pictures()[0].clone(),
+        Attachment {
+            mime: "image/png".into(),
+            name: "missing.png".into(),
+            bytes: Arc::from(Vec::new()),
+            media: Some("0000000000000000000000000000000000000000000000000000000000000001".into()),
+        },
+    ];
+    let reply = Assistant {
+        id: "msg_zzzztoolimages".into(),
+        completed: Some(1),
+        parts: vec![Part::Tool {
+            id: "call_zzzztoolimages".into(),
+            name: "screenshot".into(),
+            status: ToolStatus::Completed,
+            title: "Launcher".into(),
+            input: json!({ "app": "Launcher" }),
+            files,
+            metadata: json!({}),
+        }],
+        ..Default::default()
+    };
+    let session = sid(s);
+    if let Some(t) = s.transcripts.get_mut(&session)
+        && !t.messages.iter().any(|m| m.id() == reply.id)
+    {
+        t.messages.push(Message::Assistant(reply));
+    }
+}
+
 rune_register::register!(crate::stories::STORY_LIST: Story = [
     Story {
         path: "Timeline/Image gallery",
@@ -126,4 +163,8 @@ rune_register::register!(crate::stories::STORY_LIST: Story = [
         keys: KEYS,
         variants: &[("Comfortable", 0), ("Narrow", 1), ("Wide", 2)],
     },
+]);
+
+rune_register::register!(crate::scenes::SCENE_LIST: crate::scenes::Scene = [
+    ("tool-result-images", setup_tool_result_images),
 ]);

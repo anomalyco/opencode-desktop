@@ -407,6 +407,11 @@ pub trait TimelineHost: Sized + 'static {
         None
     }
     fn on_timeline_selection_change(_s: &mut Self, _change: &SelectionChange, _tx: &mut Tx) {}
+    /// Key handler checked on the timeline viewport ahead of Rune's `caret_browsing` keys when
+    /// the chat timeline holds focus (`tx.focused() == Some("timeline")`).
+    fn on_timeline_key(&mut self, _ev: &rune::KeyEvent, _tx: &mut Tx) -> bool {
+        false
+    }
 
     fn find_row_version(&self, _row_key: &str) -> u64 {
         0
@@ -465,6 +470,11 @@ pub trait TimelineHost: Sized + 'static {
     }
     /// Settings › Preferences › Changed files: a finished turn lists the files it changed.
     fn turn_diffs(&self) -> bool {
+        false
+    }
+    /// The server's `full_codemode` flag (`GET /api/experimental/flag`, `opencode#66509`):
+    /// gates script file diffs/counts and enables the flat execute layout.
+    fn full_codemode(&self, _session: &str) -> bool {
         false
     }
     /// Settings › Preferences › Wrap code blocks (`general.wrapCodeBlocks`, anomalyco/opencode#64545).

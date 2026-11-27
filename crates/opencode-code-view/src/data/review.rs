@@ -9,6 +9,9 @@ use rune_kit::diff::{DiffMode, FileDiff, FileStatus, parse};
 use rune_kit::{FileNode, FileTree, TreeModel};
 use serde_json::Value;
 
+/// A diff's file path as the folder's: the one `normalize_path`, owned by `opencode-search`.
+pub use opencode_search::file_rank::normalize_path;
+
 use crate::{DiffDocState, ExpandMode, PreparedDiffDoc};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
@@ -147,24 +150,6 @@ impl ChangeList {
     }
 }
 
-pub fn normalize_path(value: &str) -> String {
-    let replaced = value.replace('\\', "/");
-    let trimmed = replaced.trim_matches('/');
-    let mut out = String::with_capacity(trimmed.len());
-    let mut prev_slash = false;
-    for ch in trimmed.chars() {
-        if ch == '/' {
-            if !prev_slash {
-                out.push('/');
-            }
-            prev_slash = true;
-        } else {
-            out.push(ch);
-            prev_slash = false;
-        }
-    }
-    out
-}
 
 /// Depth-first file order with directories before sibling files (`review/kinds.ts::sortReviewPaths`).
 pub fn sort_review_paths(paths: &[String]) -> Vec<String> {

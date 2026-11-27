@@ -60,6 +60,7 @@ mod web {
 
     impl BrowserHost {
         pub fn set_color_scheme(&self, _: bool) {}
+        pub fn set_display_hz(&self, _: f64) {}
     }
 
     #[derive(Default)]
@@ -579,6 +580,9 @@ mod native {
                 }
                 id
             } else {
+                if !agent_driven && matches!(context, browser_pane::ContextKind::RemoteServer { .. }) {
+                    super::rpc::grant_remote_navigation(self, sid, &candidate);
+                }
                 self.workspace_panes
                     .browser
                     .host
@@ -645,8 +649,21 @@ mod native {
                 }
                 self.revoke_preview_binding(id);
                 let ctx = self.browser_context_for_session(sid.as_deref());
+                if !agent && matches!(ctx, browser_pane::ContextKind::RemoteServer { .. }) {
+                    super::rpc::grant_remote_navigation(self, sid.as_deref(), &resolved);
+                }
                 self.workspace_panes.browser.host.reopen_tab_as_web(id, &resolved, ctx);
                 return;
+            }
+            if !agent
+                && self
+                    .workspace_panes
+                    .browser
+                    .host
+                    .tab(id)
+                    .is_some_and(|t| matches!(t.context, browser_pane::ContextKind::RemoteServer { .. }))
+            {
+                super::rpc::grant_remote_navigation(self, sid.as_deref(), &resolved);
             }
             self.workspace_panes.browser.host.navigate_with_policy(id, &resolved, false);
         }

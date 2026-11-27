@@ -16,6 +16,7 @@ pub mod image_pages;
 pub mod io_trace;
 pub mod last_exit;
 mod network;
+mod onboarding;
 pub mod saved;
 mod shifts;
 pub mod trace;
@@ -200,8 +201,8 @@ impl Phase {
     }
 }
 
-/// The browser engine's background fetch (`engine_fetch`): owed from `on_ready` until the launch
-/// is over, then asked for once.
+/// The browser's work that waits for the launch to be over (`engine_fetch`: the sweep of left
+/// working copies and the engine's background fetch): owed from `on_ready`, then asked for once.
 #[cfg(not(target_arch = "wasm32"))]
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 enum EngineFetch {
@@ -381,6 +382,7 @@ pub fn setup(s: &mut App) {
             beta_tabs,
             fallback_fixture,
             grace,
+            false,
             Some(std::sync::Arc::new(move || {
                 if let Some(wake) = late.get() {
                     wake();
@@ -479,7 +481,14 @@ pub fn browser_waker(handle: rune::AppHandle<App>) -> rune::Waker {
             pending.store(false, Ordering::Release);
             crate::surfaces::browser::rpc::express::poll(s);
             let changed = s.poll_browser();
-            crate::surfaces::browser::rpc::poll(s, tx) | changed
+            let rpc_changed = crate::surfaces::browser::rpc::poll(s, tx);
+            if !changed
+                && !rpc_changed
+                && let Some(at) = s.workspace_panes.browser.host.scroll_cursor_wake_at()
+            {
+                tx.wake_after(at.saturating_duration_since(rune::time::Instant::now()));
+            }
+            changed | rpc_changed
         });
     })
 }
@@ -488,16 +497,21 @@ pub fn browser_waker(handle: rune::AppHandle<App>) -> rune::Waker {
 pub fn ready(s: &mut App, tx: &mut Tx) -> bool {
     if s.live() {
         s.launch.network_change = (*s.waker).clone().and_then(network::subscribe);
+        #[cfg(not(target_arch = "wasm32"))]
+        if let Some(wake) = s.launch.inbox_wake.clone().or_else(|| (*s.waker).clone()) {
+            crate::servers::sidecar::register_wake(wake);
+        }
     }
     // The dormant built-ins' app menu rows and keys, before the menu bar lists them.
     crate::plugin_host::doze_owed(s);
     // The menu bar was built before the saved shortcuts loaded.
     crate::menubar::refresh();
     crate::updater::start_if_packaged(s);
-    // The browser engine, when this build's isn't installed, downloads in the background: not
-    // from here, but once the launch is over (`engine_fetch`).
+    // The browser engine, when this build's isn't installed, downloads in the background, and
+    // the working copies an import's read left behind are swept: not from here, but once the
+    // launch is over (`engine_fetch`).
     #[cfg(not(target_arch = "wasm32"))]
-    if !s.use_mock_browser() {
+    {
         s.launch.engine_fetch = EngineFetch::Owed { since: *s.clock };
         tx.wake_after(ENGINE_FETCH_LATEST);
     }
@@ -563,7 +577,7 @@ fn step(s: &mut App, event: LaunchEvent, tx: &mut Tx) -> bool {
                 let early = if again.is_none() { take_early(s, beta_tabs, fallback_fixture, grace, tx) } else { None };
                 #[cfg(target_arch = "wasm32")]
                 let early = None;
-                let (rx, accepted) = early.unwrap_or_else(|| boot::spawn_probe(s, beta_tabs, fallback_fixture, grace));
+                let (rx, accepted) = early.unwrap_or_else(|| boot::spawn_probe(s, beta_tabs, fallback_fixture, grace, again.is_some()));
                 s.launch.set_phase(&server, Phase::Probing { rx, again, accepted, defer_plugins: false });
             }
             LaunchEffect::Connect => boot::connect(s, tx),
@@ -627,12 +641,18 @@ fn first_reads_slow(s: &mut App, tx: &mut Tx) -> bool {
     crate::reconnect::step_link(s, &server, Event::FirstReadsSlow { now }, tx)
 }
 
-/// Starts the browser engine's background fetch, once, when the launch is over: the loop has
-/// waited for input (`input.ready`) and the window shows its content, or `ENGINE_FETCH_LATEST`
-/// has passed since `on_ready` with no server answering. Before that nothing of the engine is
-/// touched: no file, no request, no thread. The fetch itself is the browser's (`browser-pane`): it
-/// looks for the installed engine on its own background-priority thread and downloads only when
-/// this build's isn't there. A browser turned off (its plugin disabled) fetches nothing.
+/// Starts the browser's work that waits for the launch to be over, once: the loop has waited for
+/// input (`input.ready`) and the window shows its content, or `ENGINE_FETCH_LATEST` has passed
+/// since `on_ready` with no server answering. Before that nothing of the engine or of an import
+/// is touched: no file, no request, no thread.
+///
+/// - The sweep of the working copies an import's read left behind when the app ended during it
+///   (`cookie_import::sweep_left_copies`), on its own thread, whether or not the browser is on:
+///   a copy may be older than the choice to turn it off.
+/// - The engine's background fetch, the browser's (`browser-pane`): it looks for the installed
+///   engine on its own background-priority thread and downloads only when this build's isn't
+///   there. A browser turned off (its plugin disabled) fetches nothing, and a run on the mock
+///   browser has no engine to fetch.
 #[cfg(not(target_arch = "wasm32"))]
 fn engine_fetch(s: &mut App) {
     let EngineFetch::Owed { since } = s.launch.engine_fetch else { return };
@@ -644,7 +664,8 @@ fn engine_fetch(s: &mut App) {
         return;
     }
     s.launch.engine_fetch = EngineFetch::Asked;
-    if s.plugins.plugin_available(crate::surfaces::browser::PLUGIN) {
+    crate::surfaces::browser::cookie_import::sweep_left_copies();
+    if !s.use_mock_browser() && s.plugins.plugin_available(crate::surfaces::browser::PLUGIN) {
         s.workspace_panes.browser.host.fetch_in_background();
     }
 }

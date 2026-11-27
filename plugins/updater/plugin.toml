@@ -10,6 +10,10 @@ app = "app.luau"
 [[stores]]
 name = "releaseNotes"
 
+# Opt-in: install downloaded updates automatically when OpenCode quits (opencode#66501).
+[[stores]]
+name = "installOnQuit"
+
 # The version whose What's New was last shown or skipped, and its commit.
 [[stores]]
 name = "seen"
@@ -19,6 +23,12 @@ id = "settings-release-notes"
 page = "general"
 title = "Release notes"
 description = "Show What's New popups after updates"
+
+[[settings_search]]
+id = "settings-install-on-quit"
+page = "general"
+title = "Install updates on quit"
+description = "Automatically install downloaded updates when you quit OpenCode"
 
 [[settings_search]]
 id = "settings-check-updates"

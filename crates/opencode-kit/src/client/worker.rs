@@ -311,7 +311,6 @@ pub(super) fn spawn_workers(server: &Server, inbox_tx: &Sender<Incoming>, wake: 
                     let mut forked = None;
                     let prompt_id = match &w {
                         Write::Send { session, prompt }
-                        | Write::SendMovingHome { session, prompt }
                         | Write::SendFromRevert { session, prompt }
                         | Write::StartAs { session, prompt, .. }
                         | Write::StartInNewWorktree { session, prompt, .. } => {
@@ -358,7 +357,6 @@ pub(super) fn spawn_workers(server: &Server, inbox_tx: &Sender<Incoming>, wake: 
                             }
                             server.send_prepared(&session, &prompt, request).map(|_| ())
                         }
-                        Write::SendMovingHome { session, prompt } => server.send_moving_home(&session, &prompt).map(|_| ()),
                         Write::Start { directory, prompt } => server.create_session(&directory).and_then(|mut info| {
                             wait_after_create(&inbox_tx, &wake, &info);
                             server.send(&info.id, &prompt)?;
@@ -506,6 +504,10 @@ pub(super) fn spawn_workers(server: &Server, inbox_tx: &Sender<Incoming>, wake: 
                             Some(location) => send(Incoming::DefaultDirectory(location.directory)),
                             None => true,
                         },
+                        Request::Flags { directory } => {
+                            let flags = server.flags(directory.as_deref()).unwrap_or_default();
+                            send(Incoming::Flags { directory, flags })
+                        }
                         Request::Info(id) => match server.get(&format!("/api/session/{id}")) {
                             Ok(v) => send(Incoming::Info(model::parse_session(v.get("data").unwrap_or(&v)))),
                             Err(e) => send(Incoming::Failed(e)),

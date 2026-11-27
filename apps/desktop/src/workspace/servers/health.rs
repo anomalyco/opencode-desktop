@@ -326,6 +326,25 @@ fn probe(s: &App, key: &ServerKey, attempt: Attempt) -> Option<ProbeResult> {
             }
             rune::task::sleep(std::time::Duration::from_millis(250));
         };
+        #[cfg(not(target_arch = "wasm32"))]
+        let (server, result) = if result == ProbeResult::Unreachable && discover_sidecar && super::sidecar::managed() {
+            match super::sidecar::reconnect() {
+                Ok(restarted) => {
+                    let res = match restarted.get("/api/info") {
+                        Ok(v) => {
+                            let text = |k: &str| v[k].as_str().filter(|t| !t.is_empty()).map(str::to_owned);
+                            ProbeResult::Healthy { version: text("version"), hostname: text("hostname") }
+                        }
+                        Err(e) if e.status() == Some(401) => ProbeResult::Unauthorized,
+                        Err(_) => ProbeResult::Unreachable,
+                    };
+                    (restarted, res)
+                }
+                Err(_) => (server, result),
+            }
+        } else {
+            (server, result)
+        };
         if result == ProbeResult::Unreachable && !discover_sidecar {
             server.watch_reach(wake.clone());
         }

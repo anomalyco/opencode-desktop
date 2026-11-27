@@ -18,6 +18,17 @@ use opencode_ui::palette::Pal;
 
 use crate::Menus;
 
+/// What became of a write offered quietly (`SessionMenuHost::write_server_quiet`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Offered {
+    /// Handed to the server's writer.
+    Sent,
+    /// The window has no writer for it: no server, or one whose writer isn't attached yet.
+    NoWriter,
+    /// The build may not send.
+    ReadOnly,
+}
+
 /// A session's activity and unread status across its family (`useSessionTabAvatarState`).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct SessionMarks {
@@ -131,12 +142,25 @@ pub trait SessionMenuHost: opencode_kernel::AppEnv + opencode_kernel::AppOverlay
         let _ = (server, id);
         None
     }
+    /// Returns `(title, project_id)` for session `id` on `server` when known, for the Copy submenu
+    /// (`packages/app/src/session/session-copy-menu.tsx`, `opencode#66576`).
+    fn session_copy_info(&self, server: &ServerKey, id: &str) -> Option<(String, String)> {
+        if *server == self.active_server() {
+            return self.session(id).map(|i| (i.title.clone(), i.project.clone()));
+        }
+        None
+    }
     /// Runs `f` checked out on a parked `server`, restoring the previous checkout afterwards.
     /// Returns `false` if this window has no half of `server`. (Active-server calls run directly
     /// via `on_server` without needing this hook.)
     fn with_server(&mut self, server: &ServerKey, f: &mut dyn FnMut(&mut dyn SessionMenuHost)) -> bool {
         let _ = (server, f);
         false
+    }
+    /// [`Self::write_server`] without the host's own word when the write can't go: the caller's
+    /// machine says so itself, from what this hands back.
+    fn write_server_quiet(&mut self, write: Write) -> Offered {
+        if self.write_server(write) { Offered::Sent } else { Offered::NoWriter }
     }
     /// Sends a session write (`Rename`, `Delete`, `View`, ...) to the currently checked-out server.
     fn write_server(&mut self, write: Write) -> bool {

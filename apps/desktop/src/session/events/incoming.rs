@@ -59,6 +59,7 @@ fn message(s: &mut App, m: Incoming, tx: &mut Tx) -> bool {
             crate::connect::picker_reads::refresh(s);
             s.windows_forgotten();
             crate::session_state::reconnected(s, tx);
+            crate::location_missing::reconnected(s, tx);
             let active_server = crate::servers::runtime::active(s).clone();
             s.sidebar_inbox.branches.reconnected(&active_server);
             reconnect::back(s);
@@ -294,6 +295,7 @@ fn reply(s: &mut App, m: Incoming, tx: &mut Tx) -> bool {
         // Only the stream sends this in the app (`windows::peer::heard`); a test's or the fuzz
         // link's inbox gets the same resync.
         Incoming::Reconnected => {
+            crate::session::meta::flags::reset_server(s);
             s.resync_shared();
             return message(s, Incoming::Reconnected, tx);
         }
@@ -328,6 +330,7 @@ fn reply(s: &mut App, m: Incoming, tx: &mut Tx) -> bool {
             s.list_unlisted_worktrees();
         }
         Incoming::DefaultDirectory(directory) => crate::start_location::answered(s, directory),
+        Incoming::Flags { directory, flags } => crate::session::meta::flags::answered(s, directory, flags),
         Incoming::ProjectOpened { location, projects, session } => {
             s.apply_project_opened(location, projects, session, tx);
         }

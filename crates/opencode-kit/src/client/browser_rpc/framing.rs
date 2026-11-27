@@ -37,6 +37,11 @@ pub(super) struct ProxyUrl {
     pub path_and_query: String,
 }
 
+pub(super) enum HeadReadErr {
+    CleanEof,
+    Status(&'static str),
+}
+
 /// Reads an HTTP/1.x request head strictly bounded to `MAX_HEADER_BYTES` and `deadline` (total
 /// wall-clock budget, preventing slowloris 1-byte/9s slot exhaustion), enforcing exact CRLF
 /// (`\r\n`) endings, RFC 9110 token syntax, and rejecting bare `\r`/`\n`, control bytes, and
@@ -44,68 +49,91 @@ pub(super) struct ProxyUrl {
 pub(super) fn read_http_head(
     reader: &mut BufReader<TcpStream>,
     deadline: Instant,
-) -> Result<ParsedHead, &'static str> {
+) -> Result<ParsedHead, HeadReadErr> {
     let mut raw = Vec::with_capacity(1024);
     let mut byte = [0u8; 1];
     loop {
         if raw.len() >= MAX_HEADER_BYTES {
-            return Err("431 Request Header Fields Too Large");
+            return Err(HeadReadErr::Status("431 Request Header Fields Too Large"));
         }
         let now = Instant::now();
         if now >= deadline {
-            return Err("408 Request Timeout");
+            return Err(if raw.is_empty() {
+                HeadReadErr::CleanEof
+            } else {
+                HeadReadErr::Status("408 Request Timeout")
+            });
         }
         if reader.buffer().is_empty() {
             let rem = deadline.saturating_duration_since(now);
             reader.get_ref().set_read_timeout(Some(rem)).ok();
         }
         match reader.read(&mut byte) {
-            Ok(0) => return Err("400 Bad Request"),
+            Ok(0) => {
+                return Err(if raw.is_empty() {
+                    HeadReadErr::CleanEof
+                } else {
+                    HeadReadErr::Status("400 Bad Request")
+                });
+            }
             Ok(_) => raw.push(byte[0]),
             Err(e)
                 if matches!(e.kind(), ErrorKind::TimedOut | ErrorKind::WouldBlock)
                     || Instant::now() >= deadline =>
             {
-                return Err("408 Request Timeout");
+                return Err(if raw.is_empty() {
+                    HeadReadErr::CleanEof
+                } else {
+                    HeadReadErr::Status("408 Request Timeout")
+                });
             }
-            Err(_) => return Err("400 Bad Request"),
+            Err(_) => return Err(HeadReadErr::Status("400 Bad Request")),
         }
         if raw.ends_with(b"\r\n\r\n") {
             break;
         }
         if byte[0] == b'\n' && (raw.len() < 2 || raw[raw.len() - 2] != b'\r') {
-            return Err("400 Bad Request");
+            return Err(HeadReadErr::Status("400 Bad Request"));
         }
     }
-    let head = std::str::from_utf8(&raw[..raw.len() - 4]).map_err(|_| "400 Bad Request")?;
+    let head = std::str::from_utf8(&raw[..raw.len() - 4])
+        .map_err(|_| HeadReadErr::Status("400 Bad Request"))?;
     let mut lines = head.split("\r\n");
-    let first = lines.next().ok_or("400 Bad Request")?;
+    let first = lines.next().ok_or(HeadReadErr::Status("400 Bad Request"))?;
     if first.contains('\r') || first.contains('\n') || has_ctl(first, false) {
-        return Err("400 Bad Request");
+        return Err(HeadReadErr::Status("400 Bad Request"));
     }
     let mut parts = first.split(' ');
-    let method = parts.next().filter(|m| is_http_token(m)).ok_or("400 Bad Request")?.to_owned();
-    let target = parts.next().filter(|t| !t.is_empty()).ok_or("400 Bad Request")?.to_owned();
-    let version = parts.next().ok_or("400 Bad Request")?;
+    let method = parts
+        .next()
+        .filter(|m| is_http_token(m))
+        .ok_or(HeadReadErr::Status("400 Bad Request"))?
+        .to_owned();
+    let target = parts
+        .next()
+        .filter(|t| !t.is_empty())
+        .ok_or(HeadReadErr::Status("400 Bad Request"))?
+        .to_owned();
+    let version = parts.next().ok_or(HeadReadErr::Status("400 Bad Request"))?;
     if parts.next().is_some() || !matches!(version, "HTTP/1.1" | "HTTP/1.0") {
-        return Err("400 Bad Request");
+        return Err(HeadReadErr::Status("400 Bad Request"));
     }
 
     let mut headers = Vec::new();
     for line in lines {
         if headers.len() >= MAX_HEADERS {
-            return Err("431 Request Header Fields Too Large");
+            return Err(HeadReadErr::Status("431 Request Header Fields Too Large"));
         }
         if line.is_empty()
             || line.starts_with([' ', '\t'])
             || line.contains('\r')
             || line.contains('\n')
         {
-            return Err("400 Bad Request");
+            return Err(HeadReadErr::Status("400 Bad Request"));
         }
-        let (k, v) = line.split_once(':').ok_or("400 Bad Request")?;
+        let (k, v) = line.split_once(':').ok_or(HeadReadErr::Status("400 Bad Request"))?;
         if !is_http_token(k) || has_ctl(v, true) {
-            return Err("400 Bad Request");
+            return Err(HeadReadErr::Status("400 Bad Request"));
         }
         headers.push((k.to_owned(), v.trim().to_owned()));
     }
@@ -222,11 +250,26 @@ pub(super) fn parse_proxy_url(raw: &str) -> Option<ProxyUrl> {
     })
 }
 
+pub(super) fn client_wants_close(req: &ParsedHead) -> bool {
+    if req.version == "HTTP/1.0" {
+        return true;
+    }
+    let has_close = |v: &str| {
+        v.split(',')
+            .any(|tok| tok.trim().eq_ignore_ascii_case("close"))
+    };
+    req.headers.iter().any(|(k, v)| {
+        (k.eq_ignore_ascii_case("connection") || k.eq_ignore_ascii_case("proxy-connection"))
+            && has_close(v)
+    })
+}
+
 pub(super) fn build_forwarded_head(
     req: &ParsedHead,
     url: &ProxyUrl,
     is_ws: bool,
     content_length: u64,
+    keep_alive: bool,
 ) -> String {
     let mut hop_names: Vec<String> = req
         .headers
@@ -257,7 +300,7 @@ pub(super) fn build_forwarded_head(
     if is_ws {
         out.push_str("Connection: Upgrade\r\nUpgrade: websocket\r\n");
     } else {
-        out.push_str("Connection: close\r\n");
+        out.push_str(if keep_alive { "Connection: keep-alive\r\n" } else { "Connection: close\r\n" });
         if content_length > 0 {
             out.push_str(&format!("Content-Length: {content_length}\r\n"));
         }
@@ -305,6 +348,18 @@ fn has_ctl(s: &str, allow_htab: bool) -> bool {
 
 pub(super) fn write_status(stream: &mut TcpStream, status: &str) -> std::io::Result<()> {
     let resp = format!("HTTP/1.1 {status}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
+    stream.write_all(resp.as_bytes())
+}
+
+pub(super) fn write_502_body(stream: &mut TcpStream, message: &str) -> std::io::Result<()> {
+    let mut body: String = message.chars().take(256).collect();
+    if body.is_empty() {
+        body = "Bad Gateway".to_owned();
+    }
+    let resp = format!(
+        "HTTP/1.1 502 Bad Gateway\r\nConnection: close\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Length: {}\r\n\r\n{body}",
+        body.len()
+    );
     stream.write_all(resp.as_bytes())
 }
 

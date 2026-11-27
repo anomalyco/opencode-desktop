@@ -416,6 +416,26 @@ fn prompt_dir(field: El, shell: bool) -> El {
     if shell { field.dir(rune::Direction::Ltr) } else { field.dir(rune::Direction::Auto).dir_by_paragraph() }
 }
 
+/// Renders only an active request dock (question or permission) without the prompt composer,
+/// used on child/subagent sessions where no composer is shown
+/// (`packages/app/src/session/composer/session-composer-region.tsx:66-98`).
+pub fn request_dock<S: ComposerHost>(s: &S, p: &Pal) -> Option<El> {
+    let face = s.composer_face(p)?;
+    let box_el = col()
+        .key("composer")
+        .role("form")
+        .w_full()
+        .max_w(crate::style::dock_w())
+        .corners([RADIUS; 4]);
+    let box_el = if s.composer_face_bare() {
+        box_el
+    } else {
+        let underlay = if s.composer_border_underlay() { box_el.box_shadow(Pal::ring_out(p.bg_base)) } else { box_el };
+        underlay.fill(composer_fill(p)).elevate(p.raised).clip_soft(0.0)
+    };
+    Some(box_el.children(face))
+}
+
 pub fn composer<S: ComposerHost>(s: &S, p: &Pal) -> El {
     composer_in(s, p, "")
 }

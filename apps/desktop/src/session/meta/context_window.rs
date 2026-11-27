@@ -166,6 +166,16 @@ pub struct Windows {
     reader: Reader,
 }
 
+impl Windows {
+    pub fn retain(&mut self, server: &str, keep: &dyn Fn(&str) -> bool) {
+        self.map.retain(|(s, id), _| s != server || keep(id));
+    }
+
+    pub fn forget(&mut self, server: &str, id: &str) {
+        self.map.remove(&(server.to_owned(), id.to_owned()));
+    }
+}
+
 /// Where the open timeline's reader stands, so each approach of its top counts once.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 enum Reader {

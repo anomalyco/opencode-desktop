@@ -38,10 +38,30 @@ fn payload(file: &Value) -> Value {
 /// `--timeline-gap-s` (`timeline-next.css`).
 pub const CARD_GAP: f32 = 16.0;
 
+/// Where each script's Output row goes under `full_codemode` (`scriptOutputLayout`,
+/// `packages/session-ui/src/timeline/script-output.ts`): after its last change when its changes
+/// draw right after it, else under its steps.
+#[derive(Default)]
+pub struct OutputPlacement<'a> {
+    /// Script part IDs whose Output row moves after their changes.
+    pub after_changes: std::collections::HashSet<&'a str>,
+    /// Keyed by `change_id(msg, script, index)`: the script ID and trimmed output text to draw
+    /// right after that change.
+    pub output_after: std::collections::HashMap<String, (&'a str, String)>,
+}
+
 /// A script's changes, `(msg, script, index, file)` in order. Rows of counts sit flush with each other;
 /// a card stands [`CARD_GAP`] from whatever is beside it, card or row, as any two items do (`timeline-next.css`'s
-/// `[data-script-change="patch"] + [data-script-change="patch"]`).
-pub fn changes<S: TimelineHost>(s: &S, p: &Pal, cx: Ctx, list: &[(&str, &str, usize, &Value)]) -> El {
+/// `[data-script-change="patch"] + [data-script-change="patch"]`). When `output_after` names a
+/// script whose last change this is, its flat `Output` row follows `CARD_GAP` below it
+/// (`timeline-next.css:53`, `tool-renderer.tsx:1250-1256`).
+pub fn changes<S: TimelineHost>(
+    s: &S,
+    p: &Pal,
+    cx: Ctx,
+    list: &[(&str, &str, usize, &Value)],
+    output_after: &std::collections::HashMap<String, (&str, String)>,
+) -> El {
     let mut out = col().key("script-changes").w_full();
     // Whether the change above drew a card; `None` above the first.
     let mut above: Option<bool> = None;
@@ -65,6 +85,10 @@ pub fn changes<S: TimelineHost>(s: &S, p: &Pal, cx: Ctx, list: &[(&str, &str, us
         let gap = above.is_some_and(|a| a || card);
         out = out.child(if gap { item.mt(CARD_GAP) } else { item });
         above = Some(card);
+        if let Some((script_id, text)) = output_after.get(&id).filter(|(_, t)| !t.is_empty()) {
+            out = out.child(super::execute::output_row(s, p, cx.session, script_id, text, true).mt(CARD_GAP));
+            above = Some(true);
+        }
     }
     out
 }

@@ -439,12 +439,12 @@ fn probe(server: &Server, discover: bool, grace: Duration, mut registered_up: Op
 }
 
 /// The probe, Desktop Beta's tabs and the first reads, on a thread; the window wakes for them.
-pub(super) fn spawn_probe(s: &App, beta_tabs: bool, fallback_fixture: bool, grace: Duration) -> (Receiver<Ready>, Accepted) {
-    spawn_probe_waking(s, beta_tabs, fallback_fixture, grace, s.launch.inbox_wake.clone().or_else(|| (*s.waker).clone()))
+pub(super) fn spawn_probe(s: &App, beta_tabs: bool, fallback_fixture: bool, grace: Duration, retry: bool) -> (Receiver<Ready>, Accepted) {
+    spawn_probe_waking(s, beta_tabs, fallback_fixture, grace, retry, s.launch.inbox_wake.clone().or_else(|| (*s.waker).clone()))
 }
 
 /// [`spawn_probe`], waking through `wake`.
-pub(super) fn spawn_probe_waking(s: &App, beta_tabs: bool, fallback_fixture: bool, grace: Duration, wake: Option<rune::Waker>) -> (Receiver<Ready>, Accepted) {
+pub(super) fn spawn_probe_waking(s: &App, beta_tabs: bool, fallback_fixture: bool, grace: Duration, retry: bool, wake: Option<rune::Waker>) -> (Receiver<Ready>, Accepted) {
     let (out, rx) = std::sync::mpsc::channel();
     let accepted = Accepted::default();
     let Source::Live { server, .. } = &*s.source else { return (rx, accepted) };
@@ -508,12 +508,35 @@ pub(super) fn spawn_probe_waking(s: &App, beta_tabs: bool, fallback_fixture: boo
                 }
             }
         }
-        let (actual, reached) = probe(&server, discover_local, grace, registered_up);
+        // When managing the local background service (windowed run with no explicit --server /
+        // OPENCODE_SERVER_URL), ensure `opencode serve --service` is running just like official
+        // Desktop (`packages/desktop/src/main/service/background-service.ts`).
+        #[cfg(not(target_arch = "wasm32"))]
+        let sidecar_result = if discover_local && crate::servers::sidecar::managed() {
+            Some(if retry { crate::servers::sidecar::reconnect() } else { crate::servers::sidecar::connection() })
+        } else {
+            None
+        };
+        #[cfg(target_arch = "wasm32")]
+        let sidecar_result: Option<Result<Server, String>> = { let _ = retry; None };
+
+        let (actual, reached, start_err) = match sidecar_result {
+            Some(Ok(actual)) => (actual, true, None),
+            Some(Err(err)) => {
+                // Fall back to a single non-waiting check of `:4096` in case a plain server is up.
+                let (actual, reached) = probe(&server, discover_local, Duration::ZERO, registered_up);
+                (actual, reached, Some(err))
+            }
+            None => {
+                let (actual, reached) = probe(&server, discover_local, grace, registered_up);
+                (actual, reached, None)
+            }
+        };
         let ready = if !reached {
             if fallback {
                 Ready { server: None, beta_tabs: None, first: None, refused: false, page: None }
             } else {
-                let msg = format!("No OpenCode server responded at {}", actual.base);
+                let msg = start_err.unwrap_or_else(|| format!("No OpenCode server responded at {}", actual.base));
                 // `service.json` may name another port next time, so a discovered server keeps
                 // its timer.
                 let refused = !discover_local;
@@ -649,7 +672,7 @@ pub(super) fn connect(s: &mut App, tx: &mut Tx) {
     missing.dedup();
     s.set_media_fetch();
     if let (Source::Live { server, requests, writes, .. }, Some(waker)) = (&mut *s.source, (*s.waker).clone()) {
-        s.pages.set(session_pages::Pages::live(server.clone(), waker.clone(), s.launch.early_page.take()));
+        s.pages.set(session_pages::Pages::live(server.clone(), waker.clone(), s.launch.early_page.take(), s.composer_ext.attach.store.image_cache()));
         let inbox_wake = s.launch.inbox_wake.clone().unwrap_or(waker);
         let (r, w, inbox) = crate::windows::connect(server, inbox_wake.clone());
         *writes = Some(w);
@@ -670,7 +693,7 @@ pub(super) fn connect(s: &mut App, tx: &mut Tx) {
         if !s.composer_ext.pickers.models.iter().any(|m| m.provider != "opencode") {
             s.sync_catalogs(None);
         }
-        first_launch(s, tx);
+        super::onboarding::first_launch(s, tx);
         // The session open at last quit (see `restore`) subscribes like a click on its tab.
         if let Route::Session { id, server } = (*s.route).clone()
             && server == *crate::servers::runtime::active(s)
@@ -743,58 +766,3 @@ pub(super) fn connect(s: &mut App, tx: &mut Tx) {
     }
 }
 
-/// Set once a window took the first launch's draft, so a reconnect doesn't again.
-static FIRST_LAUNCH: AtomicBool = AtomicBool::new(false);
-
-/// A new profile's first window, on Home with no tabs and no server added: Desktop's first launch
-/// (`lifecycle/onboarding.ts`, `renderer/onboarding`) makes `Documents/Default Project`, adds it as
-/// a project and opens a new session there with its composer ready, rather than an empty Home.
-fn first_launch(s: &mut App, tx: &mut Tx) {
-    if !s.window.fresh || !s.persists() || *s.route != Route::Home || !s.tabs.is_empty() || !crate::servers::list().is_empty() {
-        return;
-    }
-    if FIRST_LAUNCH.swap(true, Ordering::Relaxed) {
-        return;
-    }
-    let Some(dir) = documents_dir().map(|d| d.join(opencode_i18n::t!("desktop.onboarding.defaultProject"))) else { return };
-    if std::fs::create_dir_all(&dir).is_err() {
-        return;
-    }
-    let dir = dir.to_string_lossy().into_owned();
-    let server = crate::servers::runtime::active(s).clone();
-    crate::projects::home::add(s, &server, vec![dir.clone()], tx);
-    s.new_session_in(&dir, tx);
-    s.composer.focused = true;
-}
-
-/// The user's Documents folder, as Electron's `app.getPath("documents")` finds it; under the run's
-/// own root when `RUNE_DIRS_ROOT` moves every folder the app writes.
-fn documents_dir() -> Option<std::path::PathBuf> {
-    if let Some(root) = std::env::var_os("RUNE_DIRS_ROOT") {
-        return Some(std::path::PathBuf::from(root).join("Documents"));
-    }
-    #[cfg(target_os = "windows")]
-    return win_install::documents();
-    #[cfg(not(target_os = "windows"))]
-    {
-        let home = std::path::PathBuf::from(std::env::var_os("HOME")?);
-        #[cfg(target_os = "linux")]
-        if let Some(dir) = xdg_documents(&home) {
-            return Some(dir);
-        }
-        Some(home.join("Documents"))
-    }
-}
-
-/// `XDG_DOCUMENTS_DIR` from `user-dirs.dirs`, as GLib reads it (`"$HOME/…"` or an absolute path).
-#[cfg(target_os = "linux")]
-fn xdg_documents(home: &std::path::Path) -> Option<std::path::PathBuf> {
-    let config = std::env::var_os("XDG_CONFIG_HOME").map(std::path::PathBuf::from).unwrap_or_else(|| home.join(".config"));
-    let text = std::fs::read_to_string(config.join("user-dirs.dirs")).ok()?;
-    let value = text.lines().find_map(|l| l.trim().strip_prefix("XDG_DOCUMENTS_DIR="))?.trim().trim_matches('"');
-    let path = match value.strip_prefix("$HOME") {
-        Some(rest) => home.join(rest.trim_start_matches('/')),
-        None => std::path::PathBuf::from(value),
-    };
-    (path != home).then_some(path)
-}

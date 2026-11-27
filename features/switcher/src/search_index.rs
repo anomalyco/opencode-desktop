@@ -50,6 +50,9 @@ pub enum Scope {
     CommandTitles,
     /// The palette's sessions, or its archived ones.
     Palette { archived: bool },
+    /// A typed session search: its sessions, the archived ones among them
+    /// (`session-search.tsx:30` `includeArchived`).
+    Sessions,
     /// Home: unarchived roots, in the project picked (none: all).
     Home { project: Option<String> },
 }
@@ -119,12 +122,24 @@ impl Built {
     /// Up to `limit` session ids for `q` in `scope`, best first (newest first for an empty query).
     fn query(&self, scope: &Scope, q: &str, limit: usize) -> Vec<(i32, i64, Box<str>)> {
         if q.trim().is_empty() {
+            // Recent rows never list an archived session (`palette.ts:435-441`).
             let archived = match scope {
-                Scope::CommandTitles => false,
+                Scope::CommandTitles | Scope::Sessions => false,
                 Scope::Palette { archived } => *archived,
                 Scope::Home { .. } => return Vec::new(),
             };
             return self.recent[usize::from(archived)].iter().take(limit).map(|&i| (0, self.rows[i as usize].active_ms, self.ids[i as usize].clone())).collect();
+        }
+        // One letter of a session search: the prepared rows, and the archived ones ranked here
+        // (a row that isn't archived is passed over before it is scored), best first.
+        if let (Scope::Sessions, Some(_), [b]) = (scope, &self.first, q.trim().as_bytes())
+            && b.is_ascii_alphabetic()
+            && limit <= FIRST
+        {
+            let mut hits = self.query(&Scope::Palette { archived: false }, q, limit);
+            hits.extend(self.query(&Scope::Palette { archived: true }, q, limit));
+            hits.sort_by(|a, b| b.0.cmp(&a.0).then(b.1.cmp(&a.1)));
+            return hits;
         }
         if let (Scope::Palette { archived: false } | Scope::CommandTitles, Some(first), [b]) = (scope, &self.first, q.trim().as_bytes())
             && b.is_ascii_alphabetic()
@@ -147,13 +162,14 @@ impl Built {
         let within = |r: &Row| match scope {
             Scope::CommandTitles => !r.archived,
             Scope::Palette { archived } => r.archived == *archived,
+            Scope::Sessions => true,
             Scope::Home { .. } => !r.archived && project.is_none_or(|p| r.project == p),
         };
         // The palette matches titles; Home titles and projects.
         let context = |i: usize| within(&self.rows[i]).then(|| (0, self.rows[i].active_ms));
         match scope {
             Scope::CommandTitles => self.arena.ranked_titles(q, limit, context),
-            Scope::Palette { .. } => self.arena.ranked_scored_in(q, limit, 1, context),
+            Scope::Palette { .. } | Scope::Sessions => self.arena.ranked_scored_in(q, limit, 1, context),
             Scope::Home { .. } => self.arena.ranked_scored_in(q, limit, 2, context),
         }
     }
@@ -401,7 +417,7 @@ pub fn find_sessions(host: &dyn SwitcherHost, scope: Scope, q: &str, limit: usiz
     let hits = match (ss.state.borrow().built(), &scope) {
         (Some(b), _) => b.query(&scope, q, limit),
         (None, Scope::Palette { archived }) if q.trim().is_empty() => recent_sessions(host, *archived, limit),
-        (None, Scope::CommandTitles) if q.trim().is_empty() => recent_sessions(host, false, limit),
+        (None, Scope::CommandTitles | Scope::Sessions) if q.trim().is_empty() => recent_sessions(host, false, limit),
         (None, _) => Vec::new(),
     };
     let mut last = ss.last.borrow_mut();

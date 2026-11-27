@@ -10,11 +10,24 @@ use opencode_kit::servers::ServerKey;
 use rune::machine::{Attempt, Effects, Seq};
 use rune::{TextEdit, Tx};
 
-use crate::host::{SessionMenuHost, on_server};
+use crate::host::{Offered, SessionMenuHost, on_server};
 use crate::{Spot, Target};
 
 /// `TAB_RENAME_SAVE_TIMEOUT_MS`.
 pub const SAVE_TIMEOUT: f64 = 15.0;
+
+/// What a failed save has to say, which decides who shows its one toast.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Why {
+    /// Nothing: no answer in time, or a failure that came without words.
+    Unsaid,
+    /// The write never left this machine.
+    NotSent,
+    /// The build may not send: ours only, so it says so in our words.
+    ReadOnly,
+    /// The server refused, in its words: `session_write_replied` shows them.
+    Refused,
+}
 
 #[derive(Clone, Debug, Default, PartialEq)]
 pub enum Edit {
@@ -163,7 +176,7 @@ pub fn begin_rename(host: &mut dyn SessionMenuHost, t: &Target) {
         return;
     };
     finish_rename(host, true);
-    dispatch(host, Event::Start { target: t.clone(), title }, "");
+    dispatch(host, Event::Start { target: t.clone(), title }, Why::Unsaid);
 }
 
 /// Ends the edit: with `save`, a changed, non-empty title is sent. Nothing when none is open.
@@ -174,11 +187,12 @@ pub fn finish_rename(host: &mut dyn SessionMenuHost, save: bool) {
     let draft = host.menus().edit.text.clone();
     let now = host.clock();
     let event = if save { Event::Submit { draft: &draft, now } } else { Event::Cancel };
-    dispatch(host, event, "");
+    dispatch(host, event, Why::Unsaid);
 }
 
-/// Runs `event` through the rename machine and carries out what it asks.
-pub(crate) fn dispatch(host: &mut dyn SessionMenuHost, event: Event<'_>, why: &str) {
+/// Runs `event` through the rename machine and carries out what it asks. `why` is what a
+/// failure in `event` has to say.
+pub(crate) fn dispatch(host: &mut dyn SessionMenuHost, event: Event<'_>, why: Why) {
     let waiting = match &host.menus().save {
         Save::Saving { session, optimistic, .. } => Some((session.clone(), optimistic.clone())),
         _ => None,
@@ -214,13 +228,19 @@ pub(crate) fn dispatch(host: &mut dyn SessionMenuHost, event: Event<'_>, why: &s
             Effect::Save { session, server, title } => {
                 // A story's write goes nowhere and a build that can't write sends none: each
                 // answers at once.
-                let (sent, current) = on_server(host, &server, |h| {
-                    let sent = h.write_server(Write::Rename { session: session.clone(), title: title.clone() });
-                    (sent, h.session(&session).map(|i| i.title.clone()))
+                // The write says nothing itself when it can't go: this machine's one toast does.
+                let (offered, current) = on_server(host, &server, |h| {
+                    let offered = h.write_server_quiet(Write::Rename { session: session.clone(), title: title.clone() });
+                    (offered, h.session(&session).map(|i| i.title.clone()))
                 })
-                .unwrap_or((false, None));
+                .unwrap_or((Offered::NoWriter, None));
+                let sent = offered == Offered::Sent;
                 if host.stage_active() || !sent {
-                    let why = if sent { why } else { opencode_i18n::t!("rune.send.disconnected") };
+                    let why = match offered {
+                        Offered::Sent => why,
+                        Offered::NoWriter => Why::NotSent,
+                        Offered::ReadOnly => Why::ReadOnly,
+                    };
                     return dispatch(
                         host,
                         Event::Replied { session: &session, server: &server, title: &title, ok: sent, current: current.as_deref() },
@@ -230,16 +250,21 @@ pub(crate) fn dispatch(host: &mut dyn SessionMenuHost, event: Event<'_>, why: &s
             }
             // `poll_rename` keeps the save's deadline.
             Effect::WakeAt(_) => {}
-            // A refusal in the server's words has its own toast (`from_server`, in
-            // `session_write_replied`); this says the rest: not sent, or no answer in time.
-            Effect::Failed if why.is_empty() => {
-                host.menus_mut().gave_up = waiting.clone();
-                host.toast_fail(opencode_i18n::t!("rune.toast.renameFailed"), opencode_i18n::t!("rune.toast.renameNoAnswer"));
-            }
-            Effect::Failed if why == opencode_i18n::t!("rune.send.disconnected") => {
-                host.toast_fail(opencode_i18n::t!("rune.toast.renameFailed"), why);
-            }
-            Effect::Failed => {}
+            // One toast for a failed save, Desktop's (`tab-rename-machine.ts:274-283`,
+            // `tab-nav.tsx:354-357`: `common.requestFailed`, the error's words under it).
+            Effect::Failed => match why {
+                // No answer in time: no words under it (`tab-rename-machine.ts:282`).
+                Why::Unsaid => {
+                    host.menus_mut().gave_up = waiting.clone();
+                    host.toast_fail(opencode_i18n::t!("common.requestFailed"), "");
+                }
+                // Not sent: Desktop takes the description from `error.message`
+                // (`tab-nav.tsx:354-357`); ours has a real cause, no connection to a server.
+                Why::NotSent => host.toast_fail(opencode_i18n::t!("common.requestFailed"), opencode_i18n::t!("rune.send.disconnected")),
+                // A read-only build is ours alone: it says what any write says there.
+                Why::ReadOnly => host.toast_fail(opencode_i18n::t!("rune.send.nothingSent"), opencode_i18n::t!("rune.jobs.readOnly")),
+                Why::Refused => {}
+            },
         }
     }
 }
@@ -274,17 +299,17 @@ pub fn poll_rename(host: &mut dyn SessionMenuHost, now: f64, tx: &mut Tx) -> boo
     let arming = matches!(host.menus().rename, Edit::Arming { .. });
     let editing = matches!(host.menus().rename, Edit::Editing { .. });
     if arming && focused {
-        dispatch(host, Event::Armed, "");
+        dispatch(host, Event::Armed, Why::Unsaid);
     } else if editing && !focused {
         let draft = host.menus().edit.text.clone();
-        dispatch(host, Event::Blurred { draft: &draft, now }, "");
+        dispatch(host, Event::Blurred { draft: &draft, now }, Why::Unsaid);
     }
     if let Save::Saving { session, server, due, .. } = &host.menus().save {
         let (session, server, due) = (session.clone(), server.clone(), *due);
         // Only the deadline needs the title: another server is checked out just for it.
         if now + 1e-9 >= due {
             let title = on_server(host, &server, |h| h.session(&session).map(|i| i.title.clone())).flatten();
-            dispatch(host, Event::Tick { now, current: title.as_deref() }, "");
+            dispatch(host, Event::Tick { now, current: title.as_deref() }, Why::Unsaid);
         }
         if matches!(host.menus().save, Save::Saving { .. }) {
             tx.wake_at(due);
