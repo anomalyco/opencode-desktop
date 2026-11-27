@@ -260,6 +260,62 @@ fn codemode_bun_scene(s: &mut App) {
     }
 }
 
+/// Headless verification scene for collapsed activity summary truncation: a short baseline row,
+/// a row with a short main headline plus a long secondary list, and a row with two long edited
+/// filenames plus secondary commands.
+fn long_summary_scene(s: &mut App) {
+    crate::stories::scenes::open_scene(s);
+    s.finish_stream();
+    let session = crate::stories::sid(s);
+    let Some(t) = s.transcripts.get_mut(&session) else { return };
+    let edit_part = |id: &str, path: &str| Part::Tool {
+        id: id.into(),
+        name: "edit".into(),
+        status: ToolStatus::Completed,
+        title: String::new(),
+        input: serde_json::json!({ "filePath": path }),
+        files: vec![],
+        metadata: serde_json::Value::Null,
+    };
+    let tool_part = |id: &str, name: &str| Part::Tool {
+        id: id.into(),
+        name: name.into(),
+        status: ToolStatus::Completed,
+        title: String::new(),
+        input: serde_json::Value::Null,
+        files: vec![],
+        metadata: serde_json::Value::Null,
+    };
+    let mut short_parts: Vec<Part> = (0..3).map(|i| edit_part(&format!("call_ls_a_{i}"), &format!("src/a_{i}.rs"))).collect();
+    short_parts.extend((0..2).map(|i| tool_part(&format!("call_ls_ac_{i}"), "shell")));
+
+    let mut overflow_parts: Vec<Part> = (0..5).map(|i| edit_part(&format!("call_ls_b_{i}"), &format!("src/b_{i}.rs"))).collect();
+    overflow_parts.extend((0..55).map(|i| tool_part(&format!("call_ls_bc_{i}"), "shell")));
+    for (i, name) in ["browser.tabs.open", "browser.wait", "browser.console", "browser.evaluate", "browser.preview", "browser.click"].iter().enumerate() {
+        overflow_parts.push(tool_part(&format!("call_ls_bt_{i}"), name));
+    }
+
+    let mut long_main_parts = vec![
+        edit_part("call_ls_c_0", "crates/session-view/src/very_long_session_timeline_renderer.rs"),
+        edit_part("call_ls_c_1", "crates/session-view/src/very_long_activity_summary_header.rs"),
+        tool_part("call_ls_cc_0", "shell"),
+        tool_part("call_ls_cc_1", "shell"),
+    ];
+    long_main_parts.push(tool_part("call_ls_cc_2", "browser.tabs.open"));
+
+    t.messages = vec![
+        Message::User { id: "msg_ls_u1".into(), text: "Check collapsed summary headers.".into() },
+        Message::Assistant(Assistant { id: "msg_ls_a1".into(), completed: Some(1), parts: short_parts, ..Default::default() }),
+        Message::Assistant(Assistant { id: "msg_ls_a2".into(), completed: Some(2), parts: vec![Part::Text { text: "Short header baseline above.".into() }], ..Default::default() }),
+        Message::User { id: "msg_ls_u2".into(), text: "Run the full browser verification pass.".into() },
+        Message::Assistant(Assistant { id: "msg_ls_a3".into(), completed: Some(3), parts: overflow_parts, ..Default::default() }),
+        Message::Assistant(Assistant { id: "msg_ls_a4".into(), completed: Some(4), parts: vec![Part::Text { text: "Overflowing secondary tool list above.".into() }], ..Default::default() }),
+        Message::User { id: "msg_ls_u3".into(), text: "Update the long filenames too.".into() },
+        Message::Assistant(Assistant { id: "msg_ls_a5".into(), completed: Some(5), parts: long_main_parts, ..Default::default() }),
+        Message::Assistant(Assistant { id: "msg_ls_a6".into(), completed: Some(6), parts: vec![Part::Text { text: "Long main filenames plus secondary tools above.".into() }], ..Default::default() }),
+    ];
+}
+
 rune_register::register!(crate::stories::scenes::SCENE_LIST: crate::stories::scenes::Scene = [
     ("tools", |s| tour(s, None, &[])),
     ("tools-list", |s| tour(s, Some("c-call_list_tour"), &["tool:call_list_tour"])),
@@ -286,4 +342,5 @@ rune_register::register!(crate::stories::scenes::SCENE_LIST: crate::stories::sce
     ("tools-execute-codemode-bun", |s| codemode_bun_scene(s)),
     ("tools-running", tour_running),
     ("tools-shell-link", shell_link),
+    ("tools-long-summary", long_summary_scene),
 ]);
