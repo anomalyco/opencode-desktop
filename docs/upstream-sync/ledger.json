@@ -5,7 +5,7 @@
   "upstream_head": "5d1f78844492ed36c771f2ec3d2d5e459ed90670",
   "upstream_pre_window_base": "3751be8138ebcf33343eb3f3d011b32fc814103c",
   "rune_desktop_repo": "anomalyco/opencode-rune",
-  "rune_desktop_head": "04d7c9c854",
+  "rune_desktop_head": "32623b8bbe",
   "post_1114_commit_count": 824,
   "post_1114_in_ledger": 276,
   "post_1114_skipped": 548,
@@ -20,11 +20,11 @@
   "pre_1114_carryover_rows": 15,
   "total_ledger_rows": 297,
   "status_counts": {
-    "have it": 254,
+    "have it": 255,
     "not applicable": 39,
     "differs on purpose": 1,
     "partly": 1,
-    "missing": 2
+    "missing": 1
   },
   "rows": [
     {
@@ -7489,13 +7489,20 @@
       ],
       "summary": "Replaces the old experimental keyboard-first question dock with the composer-integrated New question UI experiment (settings.general.questionComposer, preset answers card above custom answer composer + actions, removing session-question-dock-experimental and newQuestionUI).",
       "size": "L",
-      "status": "missing",
-      "status_evidence": "Open PR #1444 (head ccc00503d3, CI running): replaces retired experimental question dock (face.rs) with composer-integrated dock (composer.rs), adds general.questionComposer setting (local/dev/pr), and adds --scene question-composer.",
+      "status": "have it",
+      "status_evidence": "Merged in #1444 (dev 32623b8bbe, CI run 46049645624 green): replaces retired experimental question dock (face.rs) with composer-integrated dock (composer.rs), adds general.questionComposer setting (local/dev/pr), and adds --scene question-composer. Post-merge bulk headless verification queued.",
       "depends_on": "none",
       "risks": "none",
       "workstream": "UPSTREAM",
       "pr_refs": [
         1444
+      ],
+      "rune_files": [
+        "crates/session-view/src/dock/question/composer.rs",
+        "crates/session-view/src/dock/question/mod.rs",
+        "crates/session-view/src/dock/mod.rs",
+        "features/settings/src/lib.rs",
+        "features/settings/src/pages/experimental.rs"
       ]
     },
     {
@@ -7517,7 +7524,7 @@
       "summary": "Renames Component Lab to Lab in the debug bar (LAB button and tooltip) and updates lab.* strings across all 63 locale catalogs.",
       "size": "XS",
       "status": "missing",
-      "status_evidence": "Open PR #1446 (head ab732b3075, CI running): updates plugins/debug/init.luau to lab.label/lab.tip and syncs 126 debug/official locale JSON files.",
+      "status_evidence": "Open PR #1446 (head 44167d5494, CI running): updates plugins/debug/init.luau to lab.label/lab.tip and syncs 126 debug/official locale JSON files.",
       "pr_refs": [
         1446
       ],
