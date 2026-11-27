@@ -189,7 +189,7 @@ impl EngineManager {
     }
 
     pub fn is_empty(&self) -> bool {
-        self.tabs.is_empty()
+        self.tabs.is_empty() && self.hibernated_downloads.is_empty()
     }
 
     pub fn on_host_disconnected(&mut self) {
@@ -393,6 +393,7 @@ impl EngineManager {
                     } else {
                         match self.contexts.gate_navigation(tab_id, &url) {
                             Ok(true) => {
+                                self.ensure_tab_unfrozen(tab_id);
                                 if let Some(t) = self.tabs.get(&tab_id) {
                                     t.deferred_initial.store(false, Ordering::Release);
                                     if !t.clipboard_gate.replace_held_first_load(&url) && let Some(frame) = t.browser.main_frame() {
@@ -423,6 +424,7 @@ impl EngineManager {
                 }
             }
             HostMsg::Back { tab_id } => {
+                self.ensure_tab_unfrozen(tab_id);
                 if let Some(t) = self.tabs.get(&tab_id) {
                     if self.contexts.is_tab_ready(tab_id) {
                         if !self.refuse_history_nav_if_inherited(tab_id, t, -1) {
@@ -437,6 +439,7 @@ impl EngineManager {
                 }
             }
             HostMsg::Forward { tab_id } => {
+                self.ensure_tab_unfrozen(tab_id);
                 if let Some(t) = self.tabs.get(&tab_id) {
                     if self.contexts.is_tab_ready(tab_id) {
                         if !self.refuse_history_nav_if_inherited(tab_id, t, 1) {
@@ -451,6 +454,7 @@ impl EngineManager {
                 }
             }
             HostMsg::Reload { tab_id, ignore_cache } => {
+                self.ensure_tab_unfrozen(tab_id);
                 if let Some(t) = self.tabs.get(&tab_id) {
                     if self.contexts.is_tab_ready(tab_id) {
                         if ignore_cache {
@@ -626,6 +630,7 @@ impl EngineManager {
             HostMsg::SetInspect { tab_id, enabled } => self.handle_set_inspect(tab_id, enabled),
             HostMsg::HighlightNode { tab_id, backend_node_id } => self.handle_highlight_node(tab_id, backend_node_id),
             HostMsg::CdpCall { tab_id, request_id, method, params, session_id } => {
+                self.ensure_tab_unfrozen(tab_id);
                 self.set_user_reclaimed(tab_id, false);
                 if let Some(t) = self.tabs.get(&tab_id) {
                     t.prompts.agent_command(method.starts_with("Input."));
@@ -633,12 +638,16 @@ impl EngineManager {
                 self.handle_cdp_call(tab_id, request_id, method, params, session_id);
             }
             HostMsg::SiteCookies { tab_id, request_id } => {
+                self.ensure_tab_unfrozen(tab_id);
                 if let Some(t) = self.tabs.get(&tab_id) {
                     let not_ready = (!self.contexts.is_tab_ready(tab_id)).then(|| self.contexts.not_ready_reason(tab_id));
                     crate::cdp_ledger::handle_site_cookies(tab_id, request_id, not_ready, t, &self.next_cdp_id, &self.out_tx);
                 }
             }
-            HostMsg::ClearSite { tab_id, request_id } => self.handle_clear_site(tab_id, request_id),
+            HostMsg::ClearSite { tab_id, request_id } => {
+                self.ensure_tab_unfrozen(tab_id);
+                self.handle_clear_site(tab_id, request_id);
+            }
             #[cfg(target_os = "linux")]
             HostMsg::FrameRead { tab_id, pool, frame_id } => {
                 if let Some(ring) = self.tabs.get(&tab_id).and_then(|t| t.frames.as_ref()) {
@@ -716,6 +725,7 @@ impl EngineManager {
                 self.handle_set_agent_driven(tab_id, agent_driven);
             }
             HostMsg::TypedCdpCall { tab_id, request_id, method, params, session_id, frame_id } => {
+                self.ensure_tab_unfrozen(tab_id);
                 self.set_user_reclaimed(tab_id, false);
                 if let Some(t) = self.tabs.get(&tab_id) {
                     t.prompts.agent_command(method.starts_with("Input."));
@@ -743,6 +753,7 @@ impl EngineManager {
                 }
             }
             HostMsg::ClearSiteCache { tab_id, request_id } => {
+                self.ensure_tab_unfrozen(tab_id);
                 if let Some(t) = self.tabs.get(&tab_id) {
                     if !self.contexts.is_tab_ready(tab_id) {
                         let reason = self.contexts.not_ready_reason(tab_id);
@@ -948,8 +959,6 @@ impl EngineManager {
         is_popup: bool,
         ext_open_request_id: Option<u64>,
     ) {
-        // Preserve prior completed downloads when waking a hibernated `tab_id`.
-        let prior_download_gens = self.hibernated_downloads.remove(&tab_id).unwrap_or_default();
         // Cleanly release any prior browser/grant/context on duplicate `tab_id` before opening.
         if let Some(prev) = self.tabs.remove(&tab_id) {
             self.permissions.on_tab_closed(tab_id);
@@ -1167,11 +1176,13 @@ impl EngineManager {
         {
             crate::permissions::block_device_permission_guards_for_origin(ctx, &initial_url);
         }
+        let media_gate = Arc::new(crate::media_gate::TabMediaGate::new());
         let display = TabDisplayHandler::new(
             tab_id,
             preview_grant.clone(),
             snap.clone(),
             prompts.clone(),
+            media_gate.clone(),
             self.permissions.clone(),
             scope_id.clone(),
             favicon,
@@ -1184,6 +1195,7 @@ impl EngineManager {
             preview_grant.clone(),
             snap.clone(),
             prompts.clone(),
+            media_gate.clone(),
             diagnostics.clone(),
             deferred_initial.clone(),
             self.out_tx.clone(),
@@ -1204,6 +1216,7 @@ impl EngineManager {
             snap.clone(),
             self.prompt_shared.clone(),
             prompts.clone(),
+            media_gate.clone(),
             input_guard.clone(),
             emulation_scale.clone(),
             self.next_cdp_id.clone(),
@@ -1347,7 +1360,6 @@ impl EngineManager {
         let cdp_id_map = Arc::new(Mutex::new(HashMap::new()));
         let cdp_ledger = Arc::new(Mutex::new(crate::cdp_ledger::EngineCdpLedger::with_registered_exts(self.registered_ext_ids.clone())));
         let passkeys = Arc::new(crate::passkeys::TabPasskeyGate::new(tab_id, agent_driven));
-        let media_gate = Arc::new(crate::media_gate::TabMediaGate::new());
         let notification_gate = Arc::new(crate::notification_gate::TabNotificationGate::new());
         let ext_cw = is_allowed_ext_url.as_deref().is_some_and(|id| self.ext_clipboard_write_ids.lock().unwrap().contains(id));
         let clipboard_gate = Arc::new(crate::clipboard_gate::TabClipboardGate::new(is_popup, is_preview, agent_driven, ext_cw, self.ext_clipboard_write_ids.clone(), first_load_url));
@@ -1381,6 +1393,8 @@ impl EngineManager {
         }
 
         self.seed_remote_partition(&effective_context);
+        // Only consume preserved hibernated download generations after browser creation succeeds.
+        let prior_download_gens = self.hibernated_downloads.remove(&tab_id).unwrap_or_default();
         self.tabs.insert(
             tab_id,
             ManagedTab {
@@ -1453,10 +1467,14 @@ impl EngineManager {
         self.send_internal_cdp(host, "Emulation.setEmulatedMedia", json!({ "features": [{ "name": "prefers-color-scheme", "value": value }] }));
     }
 
-    pub(super) fn send_internal_cdp(&self, host: &BrowserHost, method: &str, params: Value) {
-        let id = self.next_cdp_id.fetch_add(1, Ordering::Relaxed);
+    pub(super) fn send_internal_cdp_with(next_cdp_id: &AtomicI32, host: &BrowserHost, method: &str, params: Value) {
+        let id = next_cdp_id.fetch_add(1, Ordering::Relaxed);
         let raw = json!({ "id": id, "method": method, "params": params }).to_string();
         let _ = host.send_dev_tools_message(Some(raw.as_bytes()));
+    }
+
+    pub(super) fn send_internal_cdp(&self, host: &BrowserHost, method: &str, params: Value) {
+        Self::send_internal_cdp_with(&self.next_cdp_id, host, method, params);
     }
 }
 

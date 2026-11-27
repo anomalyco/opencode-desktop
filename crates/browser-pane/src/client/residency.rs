@@ -4,7 +4,8 @@ use rune::time::Instant;
 
 use crate::extensions::PopupState;
 use crate::installer::EngineStatus;
-use crate::protocol::{ContextKind, HostMsg};
+use crate::prompts::{PermissionScope, SiteSetting};
+use crate::protocol::{ContextKind, HostMsg, PermissionKind};
 use crate::residency::{ExtensionWakeRequest, ResidencyEvent, step};
 
 use super::BrowserHost;
@@ -18,6 +19,26 @@ impl BrowserHost {
     /// Whether `tab_id` currently holds an active RPC unthrottle hold.
     pub fn is_tab_unthrottled(&self, tab_id: u64) -> bool {
         self.unthrottled_tabs.contains(&tab_id)
+    }
+
+    /// Whether `tab_id` holds an allowed `Notifications` grant (visit-scoped or persisted/session).
+    pub fn tab_has_notification_grant(&self, tab_id: u64) -> bool {
+        let Some(t) = self.tab(tab_id) else {
+            return false;
+        };
+        let visit_allowed = t.prompts.visit_permissions.iter().any(|((_, kind), setting)| {
+            *setting == SiteSetting::Allow && *kind == PermissionKind::Notifications
+        });
+        if visit_allowed {
+            return true;
+        }
+        let Some(origin) = crate::policy::destination_origin(&t.url) else {
+            return false;
+        };
+        let scope = PermissionScope::from_context(&t.context);
+        self.site_permissions
+            .get_scoped(&scope, &origin, PermissionKind::Notifications)
+            == Some(SiteSetting::Allow)
     }
 
     /// Whether an extension popup is currently open or opening anchored to `tab_id`.
@@ -108,11 +129,14 @@ impl BrowserHost {
         if !self.is_connected() || !self.caps.tab_hibernation() {
             return false;
         }
+        if self.visible_tabs.contains(&tab_id) || self.unthrottled_tabs.contains(&tab_id) {
+            return false;
+        }
         let now = Instant::now();
         let Some(t) = self.tabs.iter_mut().find(|t| t.id == tab_id) else {
             return false;
         };
-        if !t.has_engine_tab {
+        if !t.has_engine_tab || t.loading {
             return false;
         }
         let effects = step(&mut t.residency, ResidencyEvent::Hibernate { now });
@@ -148,15 +172,27 @@ impl BrowserHost {
     }
 
     /// Wakes a hibernated `tab_id` directly to `raw_url` in `context`.
+    /// Rejects preview tabs and enforces `policy::refusal` before waking.
     pub fn wake_tab_to_url(&mut self, tab_id: u64, raw_url: &str, context: ContextKind, focused: bool) -> bool {
-        if !self
-            .tabs
-            .iter()
-            .any(|t| t.id == tab_id && t.residency.is_hibernated() && !t.has_engine_tab)
-        {
+        let url = crate::policy::with_scheme(raw_url);
+        let connected = self.is_connected();
+        let loaded_ext = self.is_loaded_extension_url(&url) && (self.engine_extensions() || !connected);
+        let Some(t) = self.tabs.iter_mut().find(|t| t.id == tab_id) else {
+            return false;
+        };
+        if !t.residency.is_hibernated() || t.has_engine_tab || t.preview_spec.is_some() {
             return false;
         }
-        let url = crate::policy::with_scheme(raw_url);
+        let allow_ext =
+            t.allow_extension_pages && !context.is_isolated() && !t.prompts.agent_driven && loaded_ext;
+        if !allow_ext
+            && let Some(why) = crate::policy::refusal(&url, &[])
+        {
+            t.loading = false;
+            t.refusal = Some(why.code().to_owned());
+            t.rejected = t.rejected.saturating_add(1);
+            return false;
+        }
         self.wake_tab_inner(tab_id, url, context, focused, true)
     }
 

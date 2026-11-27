@@ -66,8 +66,8 @@ pub struct TabSnapshot {
     /// `replaceState` and hash changes. `0` from engines before it existed.
     #[serde(default)]
     pub document: u64,
-    /// Whether this tab has active media capture (camera/microphone via CEF 156 `on_media_access_change`;
-    /// CEF 156 has no passive speaker-playback callback because `CefAudioHandler` captures PCM output).
+    /// Whether this tab has active audio playback (`HTMLMediaElement` / `AudioContext` via
+    /// `TabMediaGate`) or active camera/microphone capture (`DisplayHandler::on_media_access_change`).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub audible: bool,
 }

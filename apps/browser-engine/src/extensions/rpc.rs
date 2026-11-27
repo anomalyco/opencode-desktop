@@ -1044,7 +1044,9 @@ impl ExtensionHost {
             if status_q.is_some_and(|s| s != status) {
                 continue;
             }
-            if discarded_q.is_some_and(|d| d != tab.discarded) || frozen_q.is_some_and(|f| f != tab.frozen) {
+            if discarded_q.is_some_and(|d| d != tab.lifecycle.is_discarded())
+                || frozen_q.is_some_and(|f| f != tab.lifecycle.is_frozen())
+            {
                 continue;
             }
             out.push(self.tab_json(ext_id, tab, manifest, false));
@@ -1076,9 +1078,9 @@ impl ExtensionHost {
             "selected": tab.active,
             "pinned": false,
             "incognito": false,
-            "discarded": tab.discarded,
+            "discarded": tab.lifecycle.is_discarded(),
             "autoDiscardable": true,
-            "frozen": tab.frozen,
+            "frozen": tab.lifecycle.is_frozen(),
             "groupId": -1,
             "status": status,
             "audible": tab.audible,

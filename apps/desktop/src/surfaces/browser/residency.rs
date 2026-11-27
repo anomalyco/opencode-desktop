@@ -13,6 +13,9 @@ pub const FREEZE_AFTER: Duration = Duration::from_secs(120);
 pub fn can_freeze_tab(app: &App, tab_id: u64) -> bool {
     let browser = &app.workspace_panes.browser;
     let host = &browser.host;
+    if !host.has_live_sidecar() {
+        return false;
+    }
     let Some(t) = host.tab(tab_id) else {
         return false;
     };
@@ -28,7 +31,7 @@ pub fn can_freeze_tab(app: &App, tab_id: u64) -> bool {
     if t.files.iter().any(|f| f.state == browser_pane::DownloadState::Pending) {
         return false;
     }
-    if browser.save_dialog_open {
+    if browser.save_dialog_open || host.has_download_save_requests() {
         return false;
     }
     if browser.devtools.values().any(|p| p.tab_id == tab_id) {
@@ -43,6 +46,9 @@ pub fn can_freeze_tab(app: &App, tab_id: u64) -> bool {
     if host.has_extension_popup_for(tab_id) {
         return false;
     }
+    if host.tab_has_notification_grant(tab_id) {
+        return false;
+    }
     let has_media_grant = t.prompts.visit_permissions.iter().any(|((_, kind), setting)| {
         *setting == browser_pane::SiteSetting::Allow
             && matches!(kind, browser_pane::PermissionKind::Camera | browser_pane::PermissionKind::Microphone)
@@ -52,20 +58,19 @@ pub fn can_freeze_tab(app: &App, tab_id: u64) -> bool {
 
 impl App {
     /// Freezes eligible `Hidden` tabs whose hidden duration has reached [`FREEZE_AFTER`].
-    /// Read-only fast exit when no tab is due so `Tracked<BrowserPane>` is never dirtied needlessly.
+    /// Read-only fast exit when disconnected or when no tab is due so `Tracked<BrowserPane>` is
+    /// never dirtied needlessly and a disconnected sidecar never spins.
     pub fn tick_browser_residency(&mut self) {
-        if !self.workspace_panes.browser.host.engine_tab_hibernation() {
+        let host = &self.workspace_panes.browser.host;
+        if !host.has_live_sidecar() || !host.engine_tab_hibernation() {
             return;
         }
         let now = Instant::now();
-        let to_freeze: Vec<u64> = self
-            .workspace_panes
-            .browser
-            .host
+        let to_freeze: Vec<u64> = host
             .tabs()
             .iter()
             .filter_map(|t| {
-                let since = t.residency.hidden_since()?;
+                let since = t.residency().hidden_since()?;
                 (now.saturating_duration_since(since) >= FREEZE_AFTER && can_freeze_tab(self, t.id))
                     .then_some(t.id)
             })
@@ -80,16 +85,14 @@ impl App {
 
     /// Earliest deadline at which an eligible hidden browser tab reaches [`FREEZE_AFTER`].
     pub fn browser_residency_wake(&self) -> Option<Instant> {
-        if !self.workspace_panes.browser.host.engine_tab_hibernation() {
+        let host = &self.workspace_panes.browser.host;
+        if !host.has_live_sidecar() || !host.engine_tab_hibernation() {
             return None;
         }
-        self.workspace_panes
-            .browser
-            .host
-            .tabs()
+        host.tabs()
             .iter()
             .filter_map(|t| {
-                let since = t.residency.hidden_since()?;
+                let since = t.residency().hidden_since()?;
                 can_freeze_tab(self, t.id).then_some(since + FREEZE_AFTER)
             })
             .min()
@@ -109,12 +112,13 @@ impl App {
             .collect();
         let mut changed = false;
         for req in wakes {
-            let state = self
-                .workspace_panes
-                .browser
-                .host
-                .tab(req.tab_id)
-                .map(|t| (t.residency.is_hibernated(), t.context.clone()));
+            let state = self.workspace_panes.browser.host.tab(req.tab_id).and_then(|t| {
+                // Re-verify desktop-side that the tab is still extension-visible before acting.
+                if t.prompts.agent_driven || t.context.is_isolated() || t.preview.is_some() {
+                    return None;
+                }
+                Some((t.residency().is_hibernated(), t.context.clone()))
+            });
             let Some((hibernated, ctx)) = state else {
                 continue;
             };
@@ -130,16 +134,18 @@ impl App {
                         .host
                         .wake_tab(req.tab_id, req.focus);
                 }
-            } else if let Some(url) = req.url {
-                self.workspace_panes
-                    .browser
-                    .host
-                    .navigate_with_policy(req.tab_id, &url, false);
-            } else if req.reload {
-                self.workspace_panes.browser.host.reload(req.tab_id);
-            }
-            if req.focus {
-                self.workspace_panes.browser.host.focus_tab(req.tab_id);
+            } else {
+                if let Some(url) = req.url {
+                    self.workspace_panes
+                        .browser
+                        .host
+                        .navigate_with_policy(req.tab_id, &url, false);
+                } else if req.reload {
+                    self.workspace_panes.browser.host.reload(req.tab_id);
+                }
+                if req.focus {
+                    self.workspace_panes.browser.host.focus_tab(req.tab_id);
+                }
             }
             changed = true;
         }

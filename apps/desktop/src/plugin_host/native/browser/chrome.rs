@@ -340,6 +340,7 @@ fn clear_cache(lua: &Lua, a: MultiValue, done: Completer) -> mlua::Result<()> {
                 return done.complete(failed(not_running(&s.workspace_panes.browser.host.status())));
             }
             scope.mark_tab_driven(s, id);
+            s.workspace_panes.browser.host.freeze_tab(id, false);
             match s.workspace_panes.browser.host.clear_site_cache(id) {
                 Ok(request) => {
                     s.workspace_panes.browser.devtools.insert(

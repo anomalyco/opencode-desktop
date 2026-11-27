@@ -114,14 +114,17 @@ impl BrowserHost {
                     let tabs_to_sync: Vec<_> = self
                         .tabs
                         .iter_mut()
-                        .filter(|t| !self.pending_opens.iter().any(|(id, _)| *id == t.id))
+                        .filter(|t| t.has_engine_tab && !self.pending_opens.iter().any(|(id, _)| *id == t.id))
                         .map(|t| {
                             t.sent_resize = None;
                             let emu = t.device.as_ref().map(|d| (d.clone(), d.fit([t.viewport_pt.0, t.viewport_pt.1])));
-                            (t.id, emu)
+                            (t.id, t.zoom, emu)
                         })
                         .collect();
-                    for (tab_id, emulate) in tabs_to_sync {
+                    for (tab_id, zoom, emulate) in tabs_to_sync {
+                        if (zoom - 1.0).abs() > 0.001 {
+                            self.send(HostMsg::SetZoom { tab_id, factor: zoom });
+                        }
                         if let Some((device, scale)) = emulate {
                             self.send(HostMsg::Emulate { tab_id, device: Some(device), scale });
                         }
@@ -170,6 +173,12 @@ impl BrowserHost {
                             )
                         {
                             t.has_engine_tab = false;
+                            crate::residency::step(
+                                &mut t.residency,
+                                crate::residency::ResidencyEvent::WakeFailed {
+                                    now: rune::time::Instant::now(),
+                                },
+                            );
                         }
                         t.refusal = Some(reason);
                         t.rejected += 1;

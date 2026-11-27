@@ -384,6 +384,15 @@ impl BrowserHost {
                 t.refusal = None;
                 t.has_engine_tab = true;
             }
+            let awake = self.visible_tabs.contains(&tab_id) || self.unthrottled_tabs.contains(&tab_id);
+            crate::residency::step(
+                &mut t.residency,
+                crate::residency::ResidencyEvent::ContextReopened {
+                    has_engine_tab: t.has_engine_tab,
+                    awake,
+                    now: rune::time::Instant::now(),
+                },
+            );
             (t.viewport_pt, t.scale, had, t.prompts.agent_driven)
         };
         if refused.is_none() && !had_engine_tab && self.tabs.iter().filter(|t| t.has_engine_tab).count() == 1 {
@@ -455,6 +464,15 @@ impl BrowserHost {
             t.engine_confirmed = false;
             t.prompts.reset_for_context_switch();
             t.has_engine_tab = !(connected && ready && !engine_preview);
+            let awake = self.visible_tabs.contains(&tab_id) || self.unthrottled_tabs.contains(&tab_id);
+            crate::residency::step(
+                &mut t.residency,
+                crate::residency::ResidencyEvent::ContextReopened {
+                    has_engine_tab: t.has_engine_tab,
+                    awake,
+                    now: rune::time::Instant::now(),
+                },
+            );
             (t.viewport_pt, t.scale, had, t.prompts.agent_driven)
         };
         self.sync_has_tabs();

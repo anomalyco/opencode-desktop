@@ -95,6 +95,7 @@ impl EngineManager {
         url: Option<String>,
         title: Option<String>,
         loading: Option<bool>,
+        audible: Option<bool>,
     ) {
         let is_eligible = self.tabs.get(&tab_id).is_some_and(|t| !t.isolated && !t.is_popup);
         if !is_eligible {
@@ -109,6 +110,9 @@ impl EngineManager {
         }
         if let Some(l) = loading {
             ext.on_tab_loading_changed(tab_id, l);
+        }
+        if let Some(a) = audible {
+            ext.on_tab_audible_changed(tab_id, a);
         }
     }
 
@@ -239,11 +243,14 @@ impl EngineManager {
                     }
                 }
                 ExtEffect::NavigateTab { engine_tab_id, url } => {
-                    if let Some(t) = self.tabs.get(&engine_tab_id) {
-                        if t.prompts.agent_driven.load(Ordering::Relaxed) {
+                    if self.tabs.contains_key(&engine_tab_id) {
+                        if self.tabs.get(&engine_tab_id).is_some_and(|t| t.prompts.agent_driven.load(Ordering::Relaxed)) {
                             continue;
                         }
-                        if let Some(frame) = t.browser.main_frame() {
+                        self.ensure_tab_unfrozen(engine_tab_id);
+                        if let Some(t) = self.tabs.get(&engine_tab_id)
+                            && let Some(frame) = t.browser.main_frame()
+                        {
                             t.prompts.set_pending_top_url(Some(url.clone()));
                             frame.load_url(Some(&CefString::from(url.as_str())));
                         }
@@ -313,14 +320,17 @@ impl EngineManager {
                     }
                 }
                 ExtEffect::ReloadTab { engine_tab_id, ignore_cache } => {
-                    if let Some(t) = self.tabs.get(&engine_tab_id) {
-                        if t.prompts.agent_driven.load(Ordering::Relaxed) {
+                    if self.tabs.contains_key(&engine_tab_id) {
+                        if self.tabs.get(&engine_tab_id).is_some_and(|t| t.prompts.agent_driven.load(Ordering::Relaxed)) {
                             continue;
                         }
-                        if ignore_cache {
-                            t.browser.reload_ignore_cache();
-                        } else {
-                            t.browser.reload();
+                        self.ensure_tab_unfrozen(engine_tab_id);
+                        if let Some(t) = self.tabs.get(&engine_tab_id) {
+                            if ignore_cache {
+                                t.browser.reload_ignore_cache();
+                            } else {
+                                t.browser.reload();
+                            }
                         }
                     } else if self.extensions.as_ref().is_some_and(|e| e.is_discarded_tab(engine_tab_id)) {
                         let _ = self.out_tx.send(EngineMsg::ExtensionWakeTab {
@@ -499,11 +509,13 @@ impl EngineManager {
             #[cfg(not(target_os = "linux"))]
             (),
         );
+        let media_gate = Arc::new(crate::media_gate::TabMediaGate::new());
         let display = TabDisplayHandler::new(
             u64::MAX,
             None,
             snap.clone(),
             prompts.clone(),
+            media_gate.clone(),
             self.permissions.clone(),
             None,
             favicon,
@@ -516,6 +528,7 @@ impl EngineManager {
             None,
             snap.clone(),
             prompts.clone(),
+            media_gate.clone(),
             diagnostics.clone(),
             Arc::new(AtomicBool::new(false)),
             null_out.clone(),
@@ -534,6 +547,7 @@ impl EngineManager {
             snap.clone(),
             prompt_shared.clone(),
             prompts.clone(),
+            media_gate,
             Arc::new(Mutex::new(crate::input_guard::InputGuard::default())),
             Arc::new(std::sync::atomic::AtomicU32::new(1.0f32.to_bits())),
             self.next_cdp_id.clone(),

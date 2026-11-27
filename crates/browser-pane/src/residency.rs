@@ -52,10 +52,14 @@ pub enum ResidencyEvent {
     Hibernate { now: Instant },
     /// Caller started waking a hibernated tab (`HostMsg::OpenTab`).
     BeginWake,
+    /// Waking open failed or was refused before engine confirmation.
+    WakeFailed { now: Instant },
     /// Engine confirmed the tab via a `TabUpdate`/`TabList` snapshot.
     EngineConfirmed { awake: bool, now: Instant },
     /// Engine reconnected or restarted (`EngineMsg::Ready`).
     EngineReset { has_engine_tab: bool, awake: bool, now: Instant },
+    /// Tab was reopened in a new isolation context (`reopen_tab_as_web` / `reopen_tab_as_preview`).
+    ContextReopened { has_engine_tab: bool, awake: bool, now: Instant },
 }
 
 /// Side effects the caller executes after [`step`].
@@ -86,11 +90,9 @@ pub fn step(state: &mut TabResidency, event: ResidencyEvent) -> ResidencyEffects
             *state = TabResidency::Hidden { since: now };
             ResidencyEffects { send_freeze: Some(false), send_hibernate: false }
         }
+        // Never allow `Active -> Hibernated`; callers must hide/unhold before hibernating.
         (
-            TabResidency::Active
-            | TabResidency::Hidden { .. }
-            | TabResidency::Frozen { .. }
-            | TabResidency::Waking,
+            TabResidency::Hidden { .. } | TabResidency::Frozen { .. } | TabResidency::Waking,
             ResidencyEvent::Hibernate { now },
         ) => {
             *state = TabResidency::Hibernated { since: now };
@@ -98,6 +100,10 @@ pub fn step(state: &mut TabResidency, event: ResidencyEvent) -> ResidencyEffects
         }
         (TabResidency::Hibernated { .. }, ResidencyEvent::BeginWake) => {
             *state = TabResidency::Waking;
+            ResidencyEffects::default()
+        }
+        (TabResidency::Waking, ResidencyEvent::WakeFailed { now }) => {
+            *state = TabResidency::Hibernated { since: now };
             ResidencyEffects::default()
         }
         (TabResidency::Waking, ResidencyEvent::EngineConfirmed { awake, now }) => {
@@ -113,6 +119,14 @@ pub fn step(state: &mut TabResidency, event: ResidencyEvent) -> ResidencyEffects
             ResidencyEvent::EngineReset { has_engine_tab: true, awake, now },
         ) => {
             *state = if awake {
+                TabResidency::Active
+            } else {
+                TabResidency::Hidden { since: now }
+            };
+            ResidencyEffects::default()
+        }
+        (_, ResidencyEvent::ContextReopened { has_engine_tab, awake, now }) => {
+            *state = if has_engine_tab && awake {
                 TabResidency::Active
             } else {
                 TabResidency::Hidden { since: now }

@@ -75,7 +75,7 @@ pub struct BrowserTab {
     /// True once the engine has emitted at least one `TabUpdate`/`TabList` snapshot for this tab.
     pub(crate) engine_confirmed: bool,
     /// Explicit residency phase (`Active`, `Hidden`, `Frozen`, `Hibernated`, `Waking`).
-    pub residency: crate::residency::TabResidency,
+    pub(crate) residency: crate::residency::TabResidency,
 }
 
 impl BrowserTab {
@@ -87,6 +87,11 @@ impl BrowserTab {
     /// Whether the engine has emitted at least one `TabUpdate`/`TabList` snapshot for this tab.
     pub fn engine_confirmed(&self) -> bool {
         self.engine_confirmed
+    }
+
+    /// Current explicit residency phase (mutated exclusively via `residency::step`).
+    pub fn residency(&self) -> crate::residency::TabResidency {
+        self.residency
     }
 
     /// The pixel size the engine renders this tab's frames at: its viewport in whole points (the
@@ -645,6 +650,7 @@ impl BrowserHost {
                 return;
             }
             t.has_engine_tab = true;
+            crate::residency::step(&mut t.residency, crate::residency::ResidencyEvent::BeginWake);
             promote_open = Some((
                 t.viewport_pt,
                 t.scale,
@@ -868,7 +874,7 @@ impl BrowserHost {
         // one given another address or laid out at another size meanwhile gets them.
         for (&tab_id, (sent_url, sent_size)) in &early {
             let pending_url = self.pending_opens.iter().find(|(id, _)| *id == tab_id).map(|(_, u)| u.clone());
-            let (size, nav_url, agent_driven, isolated) = {
+            let (size, zoom, nav_url, agent_driven, isolated) = {
                 let Some(t) = self.tabs.iter_mut().find(|t| t.id == tab_id) else {
                     self.send(HostMsg::CloseTab { tab_id });
                     continue;
@@ -889,13 +895,16 @@ impl BrowserHost {
                     }
                     _ => None,
                 };
-                (size, nav, t.prompts.agent_driven, t.context.is_isolated() || t.preview.is_some())
+                (size, t.zoom, nav, t.prompts.agent_driven, t.context.is_isolated() || t.preview.is_some())
             };
             if agent_driven {
                 self.send(HostMsg::SetAgentDriven { tab_id, agent_driven: true });
             }
             if size != *sent_size {
                 self.send(HostMsg::Resize { tab_id, width_pt: size.0, height_pt: size.1, scale: size.2 });
+            }
+            if (zoom - 1.0).abs() > 0.001 {
+                self.send(HostMsg::SetZoom { tab_id, factor: zoom });
             }
             if let Some(url) = nav_url {
                 if !isolated && self.extensions.filter_gate.maybe_hold(tab_id, &url) {
@@ -991,6 +1000,13 @@ impl BrowserHost {
                     let emulate = t.device.as_ref().map(|d| (d.clone(), d.fit([t.viewport_pt.0, t.viewport_pt.1])));
                     if !skip_open {
                         t.has_engine_tab = true;
+                    } else if t.residency.is_waking() {
+                        crate::residency::step(
+                            &mut t.residency,
+                            crate::residency::ResidencyEvent::WakeFailed {
+                                now: rune::time::Instant::now(),
+                            },
+                        );
                     }
                     (
                         open_url,
@@ -1172,6 +1188,11 @@ impl BrowserHost {
         self.next_tab_id = self.next_tab_id.max(snap.tab_id + 1);
         let want_zoom = self.site_zoom.get(&snap.url);
         if let Some(t) = self.tabs.iter_mut().find(|t| t.id == snap.tab_id) {
+            // Ignore late in-flight engine snapshots after a tab has been hibernated so it never
+            // resurrects into a zombie with `has_engine_tab == true`.
+            if t.residency.is_hibernated() && !t.has_engine_tab {
+                return false;
+            }
             // While an `http(s)` navigation is held behind startup DNR filter readiness, the
             // engine paints an initial `about:blank` shell; keep the tab showing its target URL
             // and spinner so the address bar never flickers.
