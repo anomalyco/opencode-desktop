@@ -201,11 +201,23 @@ pub fn activity_with<'s>(steps: &[Step<'s>], script_steps: bool) -> Option<Activ
     // Commands are counted, never quoted: a command can be any length.
     let runs = of(Mode::Run).count();
     let commands: Vec<String> = (runs > 0).then(|| plural!("ui.timeline.activity.commands", runs)).into_iter().collect();
+    // Counting a script's steps, tools the timeline doesn't know read as one "tool", after the
+    // ones it does (`packages/session-ui/src/timeline-next/tools/activity-label.ts:87-95`, `opencode#66853`).
     let mut used: Vec<&str> = Vec::new();
+    let mut unknown_tool = false;
     for t in of(Mode::Tool) {
-        let title = crate::turns::tool_title(rules::current_name(t.raw_name));
-        if !used.contains(&title) {
+        let name = rules::current_name(t.raw_name);
+        let title = crate::turns::tool_title(name);
+        if script_steps && title == name {
+            unknown_tool = true;
+        } else if !used.contains(&title) {
             used.push(title);
+        }
+    }
+    if unknown_tool {
+        let other = t!("ui.timeline.activity.otherTool");
+        if !used.contains(&other) {
+            used.push(other);
         }
     }
     let others_of = |m: Mode| -> Vec<String> {
