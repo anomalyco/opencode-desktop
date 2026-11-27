@@ -2,16 +2,16 @@
   "generated_at": "2026-11-27",
   "upstream_repo": "anomalyco/opencode",
   "upstream_reference_base": "f6e0c2d0833ffe772035f221fed923e1cd5fb408",
-  "upstream_head": "740bd1d732fc857957f3d3ea1f1ce2c682d9b18e",
+  "upstream_head": "a4f1040b48c15f002e87433a60a5b26bb01c9ec3",
   "upstream_pre_window_base": "3751be8138ebcf33343eb3f3d011b32fc814103c",
   "rune_desktop_repo": "anomalyco/opencode-rune",
-  "rune_desktop_head": "f837fd50f",
-  "post_1114_commit_count": 799,
+  "rune_desktop_head": "b6ca6bfc15",
+  "post_1114_commit_count": 800,
   "post_1114_in_ledger": 269,
-  "post_1114_skipped": 530,
+  "post_1114_skipped": 531,
   "post_1114_skipped_breakdown": {
     "test-only": 35,
-    "ci-bench-deps": 26,
+    "ci-bench-deps": 27,
     "docs-site-data": 84,
     "tui-only": 34,
     "cli-acp-only": 15,
@@ -7047,10 +7047,13 @@
       "summary": "Aligns desktop provider catalog and Connect dialog provider ordering with TUI and CLI auth login.",
       "size": "XS",
       "status": "missing",
-      "status_evidence": "Claimed by UPSTREAM-f. Official: packages/app/src/providers/catalog/order.ts, packages/app/src/providers/connect/dialog.tsx.",
+      "status_evidence": "Open PR #1399 (head 3be72bacf1, CI running): aligns POPULAR provider order across pickers, Settings, and Connect dialog.",
       "depends_on": "none",
       "risks": "none",
-      "workstream": "UPSTREAM"
+      "workstream": "UPSTREAM",
+      "pr_refs": [
+        1399
+      ]
     },
     {
       "id": "UP-262",
@@ -7070,10 +7073,13 @@
       "summary": "After archiving the currently open session from the sidebar inbox list, selects and opens the next row below it (or above if last) instead of jumping away.",
       "size": "S",
       "status": "missing",
-      "status_evidence": "Claimed by UPSTREAM-f. Official: packages/app/src/shell/tabs/tabs.tsx, titlebar/inbox.tsx, titlebar/inbox-successor.ts.",
+      "status_evidence": "Open PR #1403 (head 5c35d0501a, CI running): opens the nearest visible row below (or above if last) after archiving or deleting the open sidebar session.",
       "depends_on": "none",
       "risks": "none",
-      "workstream": "UPSTREAM"
+      "workstream": "UPSTREAM",
+      "pr_refs": [
+        1403
+      ]
     },
     {
       "id": "UP-263",
@@ -7091,10 +7097,13 @@
       "summary": "Keeps the active/selected session row visible inside the collapsed Working section of the sidebar inbox list rather than hiding it.",
       "size": "XS",
       "status": "missing",
-      "status_evidence": "Claimed by UPSTREAM-f. Official: packages/app/src/shell/titlebar/inbox.tsx.",
+      "status_evidence": "Open PR #1403 (head 5c35d0501a, CI running): keeps the selected session visible in the collapsed Working section (inline, shelf, and keyboard nav).",
       "depends_on": "none",
       "risks": "none",
-      "workstream": "UPSTREAM"
+      "workstream": "UPSTREAM",
+      "pr_refs": [
+        1403
+      ]
     },
     {
       "id": "UP-264",
@@ -7114,10 +7123,13 @@
       "summary": "Prevents the sidebar inbox list from jumping scroll position when a focused session moves between inbox sections.",
       "size": "S",
       "status": "missing",
-      "status_evidence": "Claimed by UPSTREAM-f. Official: packages/app/src/shell/titlebar/inbox.tsx, packages/ui/src/context/focus-rescue.tsx.",
+      "status_evidence": "Open PR #1403 (head 5c35d0501a, CI running): keeps list scroll in place and follows focus key across shelf remounts when a focused session changes section.",
       "depends_on": "none",
       "risks": "none",
-      "workstream": "UPSTREAM"
+      "workstream": "UPSTREAM",
+      "pr_refs": [
+        1403
+      ]
     },
     {
       "id": "UP-265",
@@ -7160,10 +7172,13 @@
       "summary": "Restores the Recent section header in the sidebar inbox list when Recent sessions are shown.",
       "size": "XS",
       "status": "missing",
-      "status_evidence": "Claimed by UPSTREAM-f. Official: packages/app/src/shell/titlebar/inbox.tsx.",
+      "status_evidence": "Open PR #1403 (head 5c35d0501a, CI running): restores the visible Recent section header in the sidebar.",
       "depends_on": "none",
       "risks": "none",
-      "workstream": "UPSTREAM"
+      "workstream": "UPSTREAM",
+      "pr_refs": [
+        1403
+      ]
     },
     {
       "id": "UP-267",
@@ -7182,10 +7197,13 @@
       "summary": "Groups a Code Mode execute script's multiple file changes into a single patch group card matching direct multi-file patches.",
       "size": "S",
       "status": "missing",
-      "status_evidence": "Claimed by UPSTREAM-f. Official: packages/session-ui/src/tools/tool-renderer.tsx, timeline-next/timeline-next.css.",
+      "status_evidence": "Open PR #1402 (head 9c5ed802ef, CI running): groups consecutive diff-bearing script file changes into one stacked patch group.",
       "depends_on": "UP-255",
       "risks": "none",
-      "workstream": "UPSTREAM"
+      "workstream": "UPSTREAM",
+      "pr_refs": [
+        1402
+      ]
     },
     {
       "id": "UP-268",
@@ -7204,10 +7222,13 @@
       "summary": "Updates tooltip line-height for readability and adds tone/colored tooltip text styling.",
       "size": "XS",
       "status": "missing",
-      "status_evidence": "Claimed by UPSTREAM-f. Official: packages/ui/src/overlays/tooltip/tooltip.{css,tsx}.",
+      "status_evidence": "Open PR #1401 (head dc8899c027, CI running): adds opencode_ui::tooltip (COMPACT_PADDING 4px 6px, COMPACT_LINE_HEIGHT 16px, TooltipTextVariant) and applies compact tooltip line-height/padding.",
       "depends_on": "none",
       "risks": "none",
-      "workstream": "UPSTREAM"
+      "workstream": "UPSTREAM",
+      "pr_refs": [
+        1401
+      ]
     },
     {
       "id": "UP-269",
@@ -7229,10 +7250,13 @@
       "summary": "Replaces the post-connect provider models grid with a searchable model list allowing direct model selection after connecting a provider.",
       "size": "M",
       "status": "missing",
-      "status_evidence": "Handed to UPSTREAM-g. Official: packages/app/src/providers/connect/{connected-models,dialog,dialog-machine,controller,remote}.*, runtime/i18n/en.ts.",
+      "status_evidence": "Open PR #1400 (head cba2de894b, UPSTREAM-g, CI running): replaces post-connect models grid with searchable model list.",
       "depends_on": "none",
       "risks": "none",
-      "workstream": "UPSTREAM"
+      "workstream": "UPSTREAM",
+      "pr_refs": [
+        1400
+      ]
     }
   ],
   "browser_security_review": {
