@@ -651,6 +651,7 @@ pub(crate) enum EngineCaps {
         passkeys: bool,
         trace_isolation: bool,
         menu_extras: bool,
+        tab_lifecycle: bool,
     },
 }
 
@@ -722,6 +723,10 @@ impl EngineCaps {
 
     pub(crate) fn menu_extras(self) -> bool {
         matches!(self, Self::Known { menu_extras: true, .. })
+    }
+
+    pub(crate) fn tab_lifecycle(self) -> bool {
+        matches!(self, Self::Known { tab_lifecycle: true, .. })
     }
 }
 

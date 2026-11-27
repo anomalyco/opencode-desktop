@@ -428,6 +428,7 @@ impl crate::BrowserHost {
             url: url.clone(),
             title: "New tab".into(),
             loading: refused.is_none(),
+            audible: false,
             can_go_back: false,
             can_go_forward: false,
             zoom: 1.0,

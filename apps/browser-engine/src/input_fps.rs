@@ -86,6 +86,14 @@ pub fn boost(tab_id: u64, host: &BrowserHost) {
     });
 }
 
+/// Drops any pending input-FPS boost for a hidden or closed tab so `relax()` never
+/// restores `pane_fps()` on a throttled hidden tab.
+pub fn clear(tab_id: u64) {
+    BOOSTED.with(|b| {
+        b.borrow_mut().remove(&tab_id);
+    });
+}
+
 /// Returns each tab whose agent input stopped to the pane's display-matched rate.
 pub fn relax(now: Instant) {
     let target = pane_fps();
