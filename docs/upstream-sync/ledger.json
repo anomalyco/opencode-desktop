@@ -5,7 +5,7 @@
   "upstream_head": "ef0431d44c13a6b12d7bd41f2c30b84ae14ecd64",
   "upstream_pre_window_base": "3751be8138ebcf33343eb3f3d011b32fc814103c",
   "rune_desktop_repo": "anomalyco/opencode-rune",
-  "rune_desktop_head": "366cdf7df8",
+  "rune_desktop_head": "26ad040cab",
   "post_1114_commit_count": 801,
   "post_1114_in_ledger": 269,
   "post_1114_skipped": 532,
@@ -20,11 +20,11 @@
   "pre_1114_carryover_rows": 15,
   "total_ledger_rows": 290,
   "status_counts": {
-    "have it": 240,
+    "have it": 242,
     "not applicable": 39,
     "differs on purpose": 1,
-    "partly": 2,
-    "missing": 8
+    "partly": 1,
+    "missing": 7
   },
   "rows": [
     {
@@ -6335,11 +6335,18 @@
       ],
       "summary": "The browser's import dialog in two groups: what comes over (Sign-ins, Browsing history) and from which sites: a radio choice 'All sites' (with the count) or 'Only sites I choose', which shows the search and the site list under it with nothing ticked; one box in the list's header ticks or clears every shown site (mixed when some are ticked) in place of the Select all / Select none buttons; the 'Choose sites' disclosure in the footer is gone; a profile picker ('From') shows only where the dialog has several profiles to offer, and a Settings row opens it for its own profile, named in the title with the profile as a badge; a new dialog size 'tall' (480 x 600, fixed top edge); the Settings row's button says 'Import', not 'Import...', and a browser's profile name beside it is a badge.",
       "size": "L",
-      "status": "partly",
-      "status_evidence": "Ported in opencode-rune #1202 (56bd7bb4; plugin contract 1.11): the browser Import dialog is organized into two groups (Include: Sign-ins and Browsing history; Sites: All sites with count, or Only sites I choose with search, select-all checkbox and site list), with the profile shown as a badge beside the browser title when opened from a Settings row, and the dialog keeping its top edge when the list opens; Return on a checkbox starts the import. Two older faults were fixed in the same change: Settings > Browser now lists profiles on its first open without leaving the page, and working copies of another browser's cookie database left behind if the app ended during a read are claimed by an OS lock file and swept once after launch (official packages/gui-plugins/src/browser/profile/index.ts:102, database.ts:62-86). Official: packages/gui-plugins/src/browser/site-chooser.tsx, settings.tsx, panel.tsx. Run headless on Windows x64 CI builds under sealed scratch roots (wall clock only, every process environment verified under the root before the first tap): cases 7, 1, 2, 3 (400 sites, tall and short windows) and 6 (Return on checkbox) held on b7edbacba beside before build cc991c6505; on the merged head 0e3df708a beside before build 278f9aaf38: shared strings, press on the words of Only sites I choose (140 wide, label 116) and press beside, first-open frame check (16.9 ms before, 41.0 ms new; an earlier 2.3 s frame did not recur), sweep cases 8-10 (planted copy+lock removed; no-lock copy waits 10 min; real lock swept after quick end; mid-read Cookies copy not caught, case 8 stands for it), and all three shared-file samples (Add extension framed list, address field, /rename row). Not run: case 4 (pane offer) and case 5 (cookie import). Partly because three named differences from official remain open (follow-ups owed): (1) the From picker is a menu button rather than a select (needs a select in the plugin kit, select.css:22-45); (2) the Import button while importing uses the kit's loading look rather than a disabled primary button with a 14 pt spinner (site-chooser.tsx:682-694); (3) list rows are list items with checkboxes rather than a listbox of options (site-chooser.tsx:570-591). Closing all 3 remaining gaps in opencode-rune #1385 (head 8c67700b80, CI running, contract 1.12): adds ui.select (rune_kit::Select + Menu::picker) for the From profile picker, renders the busy Import primary button disabled with a 14 pt ink-colored spinner and not-allowed cursor, and switches the site chooser to dedicated ui.listbox / ui.option host nodes (selected=chosen) with presentation-only checkboxes.",
+      "status": "have it",
+      "status_evidence": "Merged in #1202 + #1385 (dev 1d614619e1, CI run 46008071378 green, contract 1.12): adds ui.select (rune_kit::Select + Menu::picker) for the From profile picker, renders the busy Import primary button disabled with a 14 pt ink-colored spinner and not-allowed cursor, and switches the site chooser to dedicated ui.listbox / ui.option host nodes (selected=chosen) with presentation-only checkboxes. Verified headless on Windows x64 PR build (run 46008071378, peak <= 0.50 GiB): Only sites I choose renders with zero plugin error, role=listbox + 4 role=option rows, presentation checkboxes role=group focusable=false, Import disabled at 0 of 4 and enabled after Select all (4 of 4). Not run: real window, macOS, Linux.",
       "depends_on": "none",
       "risks": "none",
-      "workstream": "UPSTREAM"
+      "workstream": "UPSTREAM",
+      "rune_files": [
+        "apps/desktop/src/plugin_host/ui/nodes.rs",
+        "crates/opencode-plugin-runtime/src/ui_nodes.rs",
+        "crates/opencode-plugin-spec/contract.json",
+        "plugins/browser/plugin.toml",
+        "plugins/browser/settings.luau"
+      ]
     },
     {
       "id": "UP-233",
@@ -7227,13 +7234,18 @@
       ],
       "summary": "Updates tooltip line-height for readability and adds tone/colored tooltip text styling.",
       "size": "XS",
-      "status": "missing",
-      "status_evidence": "Open PR #1401 (head dc8899c027, CI running): adds opencode_ui::tooltip (COMPACT_PADDING 4px 6px, COMPACT_LINE_HEIGHT 16px, TooltipTextVariant) and applies compact tooltip line-height/padding.",
+      "status": "have it",
+      "status_evidence": "Merged in #1401 (dev 26ad040cab, CI run 46009928636 green): adds opencode_ui::tooltip (COMPACT_PADDING 4px 6px, COMPACT_LINE_HEIGHT 16px, TooltipTextVariant base/muted/faint/accent/warning, tooltip_text) and applies compact tooltip padding and line-height on HelpLook. Post-merge bulk headless verification queued.",
       "depends_on": "none",
       "risks": "none",
       "workstream": "UPSTREAM",
       "pr_refs": [
         1401
+      ],
+      "rune_files": [
+        "crates/opencode-ui/src/tooltip.rs",
+        "crates/opencode-ui/src/lib.rs",
+        "apps/desktop/src/shell/view/mod.rs"
       ]
     },
     {
