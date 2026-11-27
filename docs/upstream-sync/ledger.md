@@ -1,9 +1,9 @@
 # Upstream Sync Ledger: `anomalyco/opencode` -> `anomalyco/opencode-rune`
 
 - **Updated:** 2026-11-27
-- **Upstream `origin/dev` audited:** `f6e0c2d083` -> `eb010a1a68` (**822** post-14 Nov commits: **275** in ledger + **547** skipped) plus **15** pre-14 Nov carry-over rows (`3751be8138..f6e0c2d083`) and 6 owner-split sub-rows of `UP-095`.
-- **`opencode-rune` `origin/dev` checked:** `619f9fe5ca`.
-- **Total ledger rows:** **296** - **254** have it · **39** not applicable · **1** differs on purpose · **1** partly · **1** missing.
+- **Upstream `origin/dev` audited:** `f6e0c2d083` -> `ca43c2f68d` (**823** post-14 Nov commits: **276** in ledger + **547** skipped) plus **15** pre-14 Nov carry-over rows (`3751be8138..f6e0c2d083`) and 6 owner-split sub-rows of `UP-095`.
+- **`opencode-rune` `origin/dev` checked:** `e4ec669da2`.
+- **Total ledger rows:** **297** - **254** have it · **39** not applicable · **1** differs on purpose · **1** partly · **2** missing.
 - **Machine-readable twin:** `docs/upstream-sync/ledger.json` (generated together; identical rows).
 - **Status vs. Reviewed:** a row is **have it** only when its code is merged on `dev`; security-review tracking for browser rows lives in the separate **Reviewed** column.
 - **Open PR note column:** informational only (lists unmerged open PRs on `anomalyco/opencode-rune` that touch the same upstream PR; does not change row status).
@@ -27,8 +27,8 @@
 | **SCREENS-A** | 0 | 0 | 0 | _done_ |
 | **SCREENS-B** | 0 | 0 | 0 | _done_ |
 | **UPDATER** | 0 | 0 | 0 | _done_ |
-| **UPSTREAM** | 1 | 0 | 1 | `UP-275` |
-| **Total** | **1** | **1** | **2** | |
+| **UPSTREAM** | 2 | 0 | 2 | `UP-275`, `UP-276` |
+| **Total** | **2** | **1** | **3** | |
 
 ## Browser Security Review Status (Tracked Separately in `Reviewed` Column)
 
@@ -57,7 +57,7 @@
 | PRE-14 | #63744 (`46aefe3da3`)<br>fix(app): hide zero session cost for OpenCode Go | 2026-11-13 | **gui-plugins**<br>`packages/gui-plugins/src/context/indicator.tsx`, `packages/gui-plugins/src/context/tab.tsx` | Hide the $0.00 cost line in the session header indicator and omit the Total Cost row in the Context tab when spend is zero on an OpenCode Go model. | S | **have it** |  | Ported in opencode-rune #243 (4b5175ef): plugins/context/indicator.luau and plugins/context/tab.luau hide $0.00 cost for opencode-go and pad odd 2-column grid rows. (PR #243) | none | none | none |  |
 | PRE-15 | #63739 (`f352f5e875`)<br>fix(ui): switch submenus without blinking and keep them open on the way in | 2026-11-13 | **ui, app**<br>`patches/@kobalte%2Fcore@0.13.13.patch`, `packages/app/src/shell/titlebar/sidebar-view-menu.tsx` | Keep submenus open along the pointer aim corridor and avoid flashing when moving between sibling submenu triggers. | S | **have it** |  | Ported in opencode-rune #271 (08f28f82): explicit submenu pointer-corridor aiming + 150 ms leave delay machine in crates/opencode-ui/src/popup/submenu.rs. (PR #271) | none | none | none |  |
 
-## Post-14 Nov Rows (`f6e0c2d083..eb010a1a68`)
+## Post-14 Nov Rows (`f6e0c2d083..ca43c2f68d`)
 
 | ID | PR / Commit | Date | Packages & Main Files | What User Sees / Client Must Do | Size | Status | Reviewed | Evidence in `opencode-rune` | Depends On | Risks | Stream | Open PR Note |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -342,3 +342,4 @@
 | UP-273 | #66853 (`b40acc9eb0`)<br>fix(session-ui): group unknown tools as "Tool" in step-counted headers | 2026-11-27 | **session-ui, ui**<br>`packages/session-ui/src/timeline-next/tools/activity-label.ts`, `packages/session-ui/src/tools/context-group-label.ts`, `packages/ui/src/i18n/en.ts` | When counting a script's steps (full_codemode), groups unrecognized tools into one trailing 'tool' entry in activity headers instead of listing raw tool names. | XS | **have it** | `crates/opencode-i18n/locales/official/en.json`, `crates/session-view/src/activity/label.rs` | Merged in #1435 (dev 5b4bfe9c43, CI run 46044004770 green): adds ui.timeline.activity.otherTool and ui.tool.other to en.json and collapses unrecognized tools into one trailing 'tool' in activity_with when script_steps is true. Post-merge verified headless on Windows x64 PR build (run 46044004770, 7/7 passes exit 0, peak <= 0.52 GiB): unknown-only script tools render 'Used tool', mixed known + unknown render 'Used Questions, tool', and regression scenes stay unchanged. Not run: real window, macOS, Linux. | UP-258 | none | UPSTREAM | #1435 |
 | UP-274 | #61288 (`999950b2fc`)<br>fix(client): treat an empty XDG_STATE_HOME as unset | 2026-11-27 | **client**<br>`packages/client/src/service-probe.ts` | Treats an empty XDG_STATE_HOME environment variable as unset when resolving opencode/service.json, matching the XDG specification. | XS | **have it** | `apps/desktop/src/workspace/servers/sidecar/service.rs`, `crates/opencode-kit/src/local_service.rs` | Already holds by construction: both apps/desktop/src/workspace/servers/sidecar/service.rs:112 (std::env::var_os("XDG_STATE_HOME").filter(|v| !v.is_empty())) and crates/opencode-kit/src/local_service.rs:55 (var(k).filter(|v| !v.is_empty())) treat empty XDG_STATE_HOME as unset and fall back to <home>/.local/state. | none | none | UPSTREAM |  |
 | UP-275 | #66825 (`eb010a1a68`)<br>feat(app): answer questions from the composer in the New question UI experiment | 2026-11-27 | **app, session-ui**<br>`packages/app/src/session/requests/session-question-dock-classic.tsx`, `packages/app/src/session/requests/question-answer-composer.css`, `packages/app/src/session/requests/session-question-dock.tsx`, `packages/app/src/settings/experimental/experimental.tsx`, `packages/app/src/settings/model.tsx` | Replaces the old experimental keyboard-first question dock with the composer-integrated New question UI experiment (settings.general.questionComposer, preset answers card above custom answer composer + actions, removing session-question-dock-experimental and newQuestionUI). | L | **missing** |  | Open PR #1444 (head ccc00503d3, CI running): replaces retired experimental question dock (face.rs) with composer-integrated dock (composer.rs), adds general.questionComposer setting (local/dev/pr), and adds --scene question-composer. | none | none | UPSTREAM | #1444 |
+| UP-276 | #66618 (`ca43c2f68d`)<br>feat(app): rename Component Lab to Lab, with pages and states | 2026-11-27 | **app, gui-plugins**<br>`packages/gui-plugins/src/debug/bar.tsx`, `packages/gui-plugins/src/debug/i18n/en.ts`, `packages/app/src/runtime/i18n/en.ts` | Renames Component Lab to Lab in the debug bar (LAB button and tooltip) and updates lab.* strings across all 63 locale catalogs. | XS | **missing** |  | Open PR #1446 (head ab732b3075, CI running): updates plugins/debug/init.luau to lab.label/lab.tip and syncs 126 debug/official locale JSON files. | none | none | UPSTREAM | #1446 |
