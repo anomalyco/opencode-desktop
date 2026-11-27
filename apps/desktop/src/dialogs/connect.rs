@@ -351,12 +351,24 @@ mod scenes {
         super::preview_step(s, "drive", Step::Models);
     }
 
+    /// Single-provider models scene: keeps live Drive models when present, or seeds sample ones for fixture runs.
+    fn single_models(s: &mut App) {
+        if !s.composer_ext.pickers.models.iter().any(|m| m.provider == "drive") {
+            s.composer_ext.pickers.models.extend([
+                crate::pickers::Model { key: "drive:simulated".into(), id: "simulated".into(), provider: "drive".into(), group: "Drive".into(), name: "Drive Simulated".into(), variants: vec![], hidden: false, free: false, latest: false, inputs: vec![], tools: true, speed: None },
+                crate::pickers::Model { key: "drive:fast".into(), id: "fast".into(), provider: "drive".into(), group: "Drive".into(), name: "Drive Fast".into(), variants: vec![], hidden: false, free: false, latest: false, inputs: vec![], tools: true, speed: None },
+            ]);
+        }
+        super::preview_step(s, "drive", Step::Models);
+    }
+
     /// Multi-provider Console workspace models (tests sticky provider headers + prefix strip).
     fn multi_models(s: &mut App) {
         use opencode_feature_connect::{ProviderInfo, seed_catalogs};
+        use opencode_kit::integration::Integration;
         seed_catalogs(
             s,
-            vec![],
+            vec![Integration { id: "opencode".into(), name: "OpenCode".into(), ..Default::default() }],
             vec![
                 ProviderInfo { id: "ws-openai".into(), name: "Acme / OpenAI".into(), integration: Some("opencode".into()) },
                 ProviderInfo { id: "ws-anthropic".into(), name: "Acme / Anthropic".into(), integration: Some("opencode".into()) },
@@ -370,7 +382,7 @@ mod scenes {
     }
 
     rune_register::register!(crate::scenes::SCENE_LIST: crate::scenes::Scene = [
-        ("connect-models", |s| super::preview_step(s, "drive", Step::Models)),
+        ("connect-models", single_models),
         ("connect-models-multi", multi_models),
         ("connect-models-long", long_models),
         ("connect-failed-long", |s| {
