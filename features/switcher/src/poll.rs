@@ -5,14 +5,14 @@
 use std::collections::BTreeSet;
 
 use opencode_kit::client::Server;
-use opencode_kit::model::{self, SessionInfo};
+
 use opencode_search::file_rank::{normalize_path, parse_path_and_line, rank_file_query_with};
 use opencode_search::query::{HighlightEvent, upsert_latest};
 use rune::Tx;
 
-use crate::entries::{MATCHES, active, asks_sessions, files_session, matches_for, searching};
+use crate::entries::{Listed, MATCHES, active, asks_sessions, files_session, matches_for, searching};
 use crate::shown::{Effect, Event, Shown};
-use crate::{Reply, Restore, SwitcherHost, SwitcherMode, encode, restore_replied, search, servers};
+use crate::{Reply, Restore, SwitcherHost, encode, restore_replied, search, servers};
 
 /// Searches workspace files via `/api/fs/find`, at most `limit` of them.
 pub fn fetch_live_find(server: &Server, directory: &str, query: &str, limit: usize) -> Vec<String> {
@@ -155,24 +155,8 @@ fn sessions_step(host: &mut dyn SwitcherHost, event: search::Event<()>, tx: &mut
             search::Effect::Cancel => host.switcher_mut().fetch.cancel(),
             search::Effect::Fetch { attempt, query } => {
                 let Some(server) = host.live_server() else { continue };
-                let archived = host.switcher().mode == SwitcherMode::Archived;
-                host.switcher_mut().fetch.request(query, move |q| {
-                    let path = format!("/api/session?parentID=null&archived={archived}&limit=50&search={}", encode(&q));
-                    let listed = server.get(&path);
-                    // `looksLikeSessionID`: a pasted id finds its session even when no title matches.
-                    let exact = (q.len() > 20 && q.starts_with("ses_"))
-                        .then(|| server.get(&format!("/api/session/{q}")).ok())
-                        .flatten()
-                        .map(|v| model::parse_session(v.get("data").unwrap_or(&v)));
-                    if listed.is_err() && exact.is_none() {
-                        return Reply { attempt, items: Err(()) };
-                    }
-                    let mut sessions: Vec<SessionInfo> = exact.into_iter().collect();
-                    if let Ok(v) = &listed {
-                        sessions.extend(model::parse_sessions(v));
-                    }
-                    Reply { attempt, items: Ok(sessions) }
-                });
+                let asked = Listed::asked(host.switcher().mode);
+                host.switcher_mut().fetch.request(query, move |q| Reply { attempt, items: servers::found(&server, &q, asked) });
             }
         }
     }

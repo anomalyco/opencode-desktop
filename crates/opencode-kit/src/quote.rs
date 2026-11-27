@@ -260,18 +260,48 @@ impl FileComment {
 pub struct Quote {
     pub text: String,
     pub comment: Option<String>,
+    /// Where text quoted from outside the timeline came from (Desktop's `QuoteSource`: `label`,
+    /// `icon`, `subject`), kept as it was sent; none for a quote from the conversation.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<Value>,
 }
 
 impl Quote {
-    /// What the model reads (Desktop's `formatQuoteComment`). Every quoted line is prefixed,
-    /// so quoted text can't end the quote early and read as the user's own words.
+    /// What the model reads (Desktop's `formatQuoteComment`, `composer/comment-note.ts`): a
+    /// reply-style blockquote, named only when it came from another source, with the comment
+    /// under it. Every quoted line is prefixed, so quoted text can't end the quote early and
+    /// read as the user's own words.
     pub fn prompt_text(&self) -> String {
+        let from = self.subject().map(|s| format!("From {s}:"));
+        let lines = self.text.split('\n').map(|l| if l.is_empty() { ">".to_owned() } else { format!("> {l}") });
+        let comment = self.comment().into_iter().flat_map(|c| [String::new(), c.to_owned()]);
+        from.into_iter().chain(lines).chain(comment).collect::<Vec<_>>().join("\n")
+    }
+
+    /// What prompts sent before opencode#66247 carry for it: read, to find the user's own
+    /// words in such a message, never sent.
+    pub fn legacy_prompt_text(&self) -> String {
         let lines: Vec<String> = self.text.split('\n').map(|l| format!("> {l}")).collect();
-        let quote = format!("The user quoted the following from earlier in the conversation:\n{}", lines.join("\n"));
+        let quote = format!("The user quoted the following from {}:\n{}", self.subject().unwrap_or("earlier in the conversation"), lines.join("\n"));
         match self.comment() {
             Some(c) => format!("{quote}\n\nThe user made the following comment regarding this quote: {c}"),
             None => quote,
         }
+    }
+
+    /// The source's name as the model reads it (`source.subject`).
+    fn subject(&self) -> Option<&str> {
+        self.source.as_ref()?["subject"].as_str()
+    }
+
+    /// The source's name on the card while the quote has no comment (`source.label`).
+    pub fn source_label(&self) -> Option<&str> {
+        self.source.as_ref()?["label"].as_str()
+    }
+
+    /// The source's icon on the card, by Desktop's icon name (`source.icon`).
+    pub fn source_icon(&self) -> Option<&str> {
+        self.source.as_ref()?["icon"].as_str()
     }
 
     /// The trimmed comment, when there's one to send.
@@ -285,6 +315,9 @@ impl Quote {
         if let Some(c) = self.comment() {
             v["comment"] = c.into();
         }
+        if let Some(source) = &self.source {
+            v["source"] = source.clone();
+        }
         v
     }
 
@@ -293,8 +326,49 @@ impl Quote {
             return None;
         }
         let text = v["text"].as_str()?.to_owned();
-        Some(Quote { text, comment: v["comment"].as_str().map(str::to_owned) })
+        Some(Quote { text, comment: v["comment"].as_str().map(str::to_owned), source: v["source"].is_object().then(|| v["source"].clone()) })
     }
+}
+
+/// Where a quote from outside the timeline came from, as Desktop keeps it with the draft and the
+/// sent message (`QuoteSource`, `ComposerQuote.source`): `label` and `icon` for its card,
+/// `subject` for the model's `From <subject>:` line, which isn't localized.
+pub fn source(label: &str, icon: &str, subject: &str) -> Value {
+    serde_json::json!({ "label": label, "icon": icon, "subject": subject })
+}
+
+/// A prompt's `text` as the model reads it (Desktop's `buildPromptRequest`, `composer/request.ts`):
+/// the quotes lead, like an email reply, each a block of its own; then `body` (the user's words
+/// and the `Attached file:` lines, [`crate::prompt::path_lines`]) with the notes and file
+/// comments on the lines after it.
+pub fn model_text(body: &str, comments: &[PromptComment]) -> String {
+    let quotes = comments.iter().filter(|c| c.quote().is_some()).map(PromptComment::prompt_text);
+    let rest = comments.iter().filter(|c| c.quote().is_none()).map(PromptComment::prompt_text);
+    let body = std::iter::once(body.to_owned()).filter(|b| !b.is_empty()).chain(rest).collect::<Vec<_>>().join("\n");
+    quotes.chain(std::iter::once(body)).filter(|block| !block.is_empty()).collect::<Vec<_>>().join("\n\n")
+}
+
+/// The user's own words in `text`, a prompt [`model_text`] built from `comments` and the
+/// `Attached file:` lines `refs`; none when `text` isn't built that way. `legacy` reads a
+/// prompt sent before opencode#66247, whose quotes came last, among the other comments.
+pub fn typed_text<'a>(text: &'a str, refs: &[String], comments: &[PromptComment], legacy: bool) -> Option<&'a str> {
+    let strip_tail = |text: &'a str, tail: Vec<String>| {
+        let tail = tail.join("\n");
+        if tail.is_empty() {
+            return Some(text);
+        }
+        text.strip_suffix(tail.as_str()).map(|head| head.strip_suffix('\n').unwrap_or(head))
+    };
+    if legacy {
+        let said = |c: &PromptComment| c.quote().map_or_else(|| c.prompt_text(), Quote::legacy_prompt_text);
+        return strip_tail(text, refs.iter().cloned().chain(comments.iter().map(said)).collect());
+    }
+    let lead = comments.iter().filter(|c| c.quote().is_some()).map(PromptComment::prompt_text).collect::<Vec<_>>().join("\n\n");
+    let body = match text.strip_prefix(lead.as_str())? {
+        rest if lead.is_empty() || rest.is_empty() => rest,
+        rest => rest.strip_prefix("\n\n")?,
+    };
+    strip_tail(body, refs.iter().cloned().chain(comments.iter().filter(|c| c.quote().is_none()).map(PromptComment::prompt_text)).collect())
 }
 
 /// The paths a comment names with `@`, as written (Desktop's `parseCommentMentions`,

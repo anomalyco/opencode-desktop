@@ -71,5 +71,6 @@ fn entry(server: &ServerKey, tag: Option<&str>, p: &Project) -> Entry {
         group: t!("palette.group.projects"),
         updated: None,
         open: false,
+        archived: false,
     }
 }

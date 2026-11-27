@@ -54,6 +54,8 @@ string_enum! {
         ServerIndicator = "serverIndicator",
         /// A status capsule.
         Pill = "pill",
+        /// Desktop's compact badge.
+        Badge = "badge",
         /// A settings row: title and description beside a control.
         SettingsRow = "settingsRow",
         /// A card of settings rows.
@@ -110,7 +112,7 @@ impl NodeKind {
         match self {
             Self::Box | Self::Row | Self::Col | Self::Frame | Self::Spacer | Self::Divider => NodeCategory::Layout,
             Self::Text | Self::Icon | Self::Image | Self::Video | Self::Metric | Self::Shimmer | Self::Keybind | Self::ProgressCircle => NodeCategory::Content,
-            Self::Button | Self::IconButton | Self::Switch | Self::Checkbox | Self::Radio | Self::Field | Self::Segmented | Self::Loader | Self::ServerIndicator | Self::Pill | Self::SettingsRow | Self::SettingsList | Self::FlyoutRow | Self::DialogHeader => NodeCategory::Control,
+            Self::Button | Self::IconButton | Self::Switch | Self::Checkbox | Self::Radio | Self::Field | Self::Segmented | Self::Loader | Self::ServerIndicator | Self::Pill | Self::Badge | Self::SettingsRow | Self::SettingsList | Self::FlyoutRow | Self::DialogHeader => NodeCategory::Control,
             Self::Markdown | Self::VirtualList | Self::TerminalSurface | Self::TerminalTabLabel | Self::BrowserSurface | Self::CodeView | Self::DiffView | Self::FileTree | Self::PanelSidebar | Self::OpenInButton | Self::OfficePages | Self::OfficeSheet | Self::GenUi => NodeCategory::Native,
         }
     }
@@ -144,6 +146,7 @@ impl NodeKind {
             Self::ProgressCircle => &UI_PROGRESS_CIRCLE_PROPS,
             Self::ServerIndicator => &UI_SERVER_INDICATOR_PROPS,
             Self::Pill => &UI_PILL_PROPS,
+            Self::Badge => &UI_BADGE_PROPS,
             Self::SettingsRow => &UI_SETTINGS_ROW_PROPS,
             Self::SettingsList => &UI_SETTINGS_LIST_PROPS,
             Self::FlyoutRow => &UI_FLYOUT_ROW_PROPS,
@@ -164,6 +167,11 @@ impl NodeKind {
         }
     }
 }
+
+/// `UiBadgeProps`.
+pub static UI_BADGE_PROPS: PropsSpec = PropsSpec::new("UiBadgeProps", Some(&UI_LAYOUT_PROPS), &[
+    PropSpec::new("text", PropType::String, true),
+]);
 
 /// `UiBoxProps`.
 pub static UI_BOX_PROPS: PropsSpec = PropsSpec::new("UiBoxProps", Some(&UI_LAYOUT_PROPS), &[
@@ -226,6 +234,7 @@ pub static UI_CHECKBOX_PROPS: PropsSpec = PropsSpec::new("UiCheckboxProps", Some
     PropSpec::new("text", PropType::String, true),
     PropSpec::new("description", PropType::String, false),
     PropSpec::new("checked", PropType::Bool, true),
+    PropSpec::new("indeterminate", PropType::Bool, false),
     PropSpec::new("surface", PropType::Any, false),
     PropSpec::new("disabled", PropType::Bool, false),
     PropSpec::new("onChange", PropType::Handler, false),
@@ -243,6 +252,7 @@ pub static UI_CODE_VIEW_PROPS: PropsSpec = PropsSpec::new("UiCodeViewProps", Som
 pub static UI_DIALOG_HEADER_PROPS: PropsSpec = PropsSpec::new("UiDialogHeaderProps", Some(&UI_LAYOUT_PROPS), &[
     PropSpec::new("title", PropType::String, true),
     PropSpec::new("description", PropType::String, false),
+    PropSpec::new("badge", PropType::String, false),
     PropSpec::new("hideClose", PropType::Bool, false),
     PropSpec::new("closeLabel", PropType::String, false),
     PropSpec::new("wrapTitle", PropType::Bool, false),
@@ -398,6 +408,7 @@ pub static UI_LAYOUT_PROPS: PropsSpec = PropsSpec::new("UiLayoutProps", None, &[
     PropSpec::new("helpSide", PropType::Enum("Side"), false),
     PropSpec::new("helpOpen", PropType::Bool, false),
     PropSpec::new("dir", PropType::Any, false),
+    PropSpec::new("cursor", PropType::Any, false),
 ]);
 
 /// `UiLoaderProps`.

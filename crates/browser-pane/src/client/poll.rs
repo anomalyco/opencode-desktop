@@ -16,8 +16,13 @@ impl BrowserHost {
         if let Ok(msg) = self.inbox_rx.try_recv() {
             self.held.borrow_mut().push_back(msg);
         }
+        #[cfg(feature = "engine")]
+        let needs_fresh = self.shared.lock().unwrap_or_else(PoisonError::into_inner).needs_fresh_spawn();
+        #[cfg(not(feature = "engine"))]
+        let needs_fresh = false;
         self.held.borrow().is_empty()
             && self.pending_opens.is_empty()
+            && !needs_fresh
             && self.status() == self.last_polled_status
             && self
                 .extensions
@@ -78,6 +83,7 @@ impl BrowserHost {
                     for t in &mut self.tabs {
                         t.files.clear();
                         t.prompts.reset_for_engine();
+                        t.scroll_cursor = Default::default();
                         t.find.step(crate::find::FindEvent::DocumentChanged);
                     }
                     rune::marks::mark("browser.engine.ready");
@@ -85,6 +91,10 @@ impl BrowserHost {
                     match self.color_scheme.load(std::sync::atomic::Ordering::Relaxed) {
                         0 => {}
                         s => self.send(HostMsg::SetColorScheme { dark: s == 2 }),
+                    }
+                    let fps = self.display_fps.load(std::sync::atomic::Ordering::Relaxed);
+                    if fps != 0 {
+                        self.send(HostMsg::SetFrameRate { fps });
                     }
 
                     // Tabs opened before it: their size and device emulation again
@@ -141,6 +151,7 @@ impl BrowserHost {
                         t.rejected += 1;
                         changed = true;
                     }
+                    self.sync_has_tabs();
                 }
                 EngineMsg::ControlledPermissionRefused { tab_id, url } => {
                     if let Some(t) = self.tabs.iter_mut().find(|t| t.id == tab_id) {
@@ -199,6 +210,7 @@ impl BrowserHost {
                     } else {
                         false
                     };
+                    self.sync_has_tabs();
                     self.closed_tabs.push_back((tab_id, fatal_close));
                 }
                 EngineMsg::InspectState { tab_id, active, picked } => {
@@ -343,8 +355,21 @@ impl BrowserHost {
         }
         #[cfg(feature = "engine")]
         self.check_for_update_once();
-        // A download finished while a tab waited for it (and one still running hurries).
-        if !self.pending_opens.is_empty()
+        #[cfg(feature = "engine")]
+        if self.shared.lock().unwrap_or_else(PoisonError::into_inner).needs_fresh_spawn() {
+            if self.has_engine_tabs() {
+                self.requeue_tabs();
+                self.connect_fresh();
+            } else {
+                self.shared.lock().unwrap_or_else(PoisonError::into_inner).step(EngineEvent::Shutdown);
+            }
+        }
+        // An idle engine exited right as a new tab opened (before it could confirm it), or a
+        // download finished while a tab waited for it: requeue unconfirmed tabs and reconnect.
+        if !self.is_connected() && self.status() == EngineStatus::Installed && self.has_engine_tabs() {
+            self.requeue_tabs();
+            self.ensure_connected();
+        } else if !self.pending_opens.is_empty()
             && !self.is_connected()
             && matches!(
                 self.status(),

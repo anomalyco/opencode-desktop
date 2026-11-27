@@ -75,9 +75,16 @@ const V2 = [
   "illustration-illustration-layer-01",
   "illustration-illustration-layer-02",
   "illustration-illustration-layer-03",
+  "blue-400",
   "blue-500",
+  "blue-700",
+  "blue-1100",
   "grey-300",
+  "grey-500",
+  "grey-700",
   "grey-800",
+  "red-900",
+  "yellow-900",
 ]
 const V1 = [
   "text-stronger",
@@ -88,6 +95,8 @@ const V1 = [
   "surface-raised-stronger-non-alpha",
   "surface-raised-base-hover",
   "icon-base",
+  "icon-weak-base",
+  "icon-warning-base",
   "icon-interactive-base",
   "syntax-comment",
   "syntax-string",
@@ -119,18 +128,19 @@ function hex(v: string): string {
   throw new Error(`not a colour: ${v}`)
 }
 
-function resolve(tokens: Record<string, string>, prefix: string, key: string, seen = new Set<string>()): string {
-  const v = tokens[prefix + key]
+function resolve(tokens: Record<string, string>, key: string, seen = new Set<string>()): string {
+  const v = tokens[key]
   if (v === undefined) {
-    if (key.startsWith("alpha-")) return key
-    throw new Error(`missing token ${prefix}${key}`)
+    const alpha = key.startsWith("v2-alpha-") ? key.slice(3) : key
+    if (alpha.startsWith("alpha-")) return alpha
+    throw new Error(`missing token ${key}`)
   }
   const ref = v.match(/^var\(--([a-z0-9-]+)\)$/)
   if (!ref) return hex(v)
-  const name = ref[1].startsWith(prefix) ? ref[1].slice(prefix.length) : ref[1]
+  const name = ref[1]
   if (seen.has(name)) throw new Error(`cycle at ${name}`)
   seen.add(name)
-  return resolve(tokens, prefix, name, seen)
+  return resolve(tokens, name, seen)
 }
 
 const names = Object.fromEntries(
@@ -147,10 +157,13 @@ const themes = readdirSync(join(dir, "themes"))
       const variant = dark ? theme.dark : theme.light
       const v1 = resolveThemeVariant(variant, dark)
       const v2 = resolveThemeVariantV2(variant, dark)
+      // Desktop emits `themeToCss(v1)` followed by `themeV2ToCss(v2)` in `:root` (`context.tsx`),
+      // so unprefixed v1 bridge overrides from `resolveThemeVariantV2` (`v1CodeAndDiffBridge`)
+      // override v1 tokens, and v1 tokens can reference `--v2-*` tokens.
+      const combined = { ...v1, ...v2 }
       const out: Record<string, string> = {}
-      if (id !== "oc-2") for (const k of V2) out[k] = resolve(v2, "v2-", k)
-      // v1 tokens may name v2 ones (`syntax-keyword: var(--v2-pink-800)`).
-      for (const k of V1) out[k] = resolve({ ...v1, ...Object.fromEntries(Object.entries(v2).map(([n, v]) => [n.startsWith("v2-") ? n : `v2-${n}`, v])) }, "", k)
+      if (id !== "oc-2") for (const k of V2) out[k] = resolve(combined, `v2-${k}`)
+      for (const k of V1) out[k] = resolve(combined, k)
       return out
     }
     return { id, name: names[id] ?? theme.name, light: mode(false), dark: mode(true) }

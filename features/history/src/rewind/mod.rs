@@ -11,6 +11,7 @@
 //! it go.
 
 pub mod machine;
+pub mod take_back;
 
 use std::collections::HashMap;
 use std::ops::Range;
@@ -64,6 +65,8 @@ pub struct RewindState {
     pub menu: Option<(String, String)>,
     /// Each session's rewinds, undos and redos (`machine.rs`).
     sessions: HashMap<String, SessionRevert>,
+    /// Each session's prompt on its way back after a Stop (`take_back.rs`).
+    taking: HashMap<String, take_back::TakeBack>,
 }
 
 impl RewindState {
@@ -605,17 +608,18 @@ pub fn message_items(host: &dyn RewindHost, session: &str, mid: &str, mut menu: 
     if !when.is_empty() {
         menu = menu.group(when).separator();
     }
-    if pending {
+    if root && pending {
         menu = menu.item(Item::new("queue", opencode_i18n::t!("ui.message.moveToQueue")).icon(&ic::BULLET_LIST).enabled(!busy));
     }
     menu = menu.item(Item::new("copy", opencode_i18n::t!("ui.message.copyMessage")).icon(&ic::OUTLINE_COPY).enabled(!body.trim().is_empty()));
+    if !root {
+        // Official `timeline-actions.ts:36-45`: child sessions omit fork, revert, and pending actions.
+        return Some(menu);
+    }
     if pending {
         return Some(menu.separator().item(Item::new("delete", opencode_i18n::t!("ui.message.deletePending")).icon(&ic::OUTLINE_TRASH).danger(true).enabled(!busy)));
     }
-    menu = menu.item(Item::new("fork", opencode_i18n::t!("ui.message.forkMessage")).icon(&ic::FORK).enabled(root && !busy));
-    if !root {
-        return Some(menu);
-    }
+    menu = menu.item(Item::new("fork", opencode_i18n::t!("ui.message.forkMessage")).icon(&ic::FORK).enabled(!busy));
     let latest = visible_user_ids(host, session).last().is_some_and(|l| l == mid);
     let revert = if latest {
         Item::new("revert", opencode_i18n::t!("ui.message.undoMessage")).icon(&ic::OUTLINE_UNDO).enabled(!busy)

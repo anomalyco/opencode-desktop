@@ -60,6 +60,8 @@ struct Runtime {
     /// What the last sync listed, to step the controllers only on a change.
     inputs: Vec<(ServerConn, String)>,
     version: u64,
+    #[cfg(not(target_arch = "wasm32"))]
+    sidecar_published: u64,
 }
 
 thread_local! {
@@ -118,6 +120,45 @@ pub(crate) fn sidecar_stamp() -> u64 {
 
 pub(crate) fn peer(key: &ServerKey) -> Option<Rc<ServerPeer>> {
     RUNTIME.with_borrow(|r| r.peers.get(key).cloned())
+}
+
+/// Weak handles to every `Pages` prefetch cache in this window (active and parked servers).
+pub(crate) fn all_cache_refs(s: &App) -> Vec<crate::session_pages::CacheRef> {
+    s.pages
+        .cache_ref()
+        .into_iter()
+        .chain(s.checkout.parked.iter().filter_map(|(_, _, half)| half.pages.cache_ref()))
+        .collect()
+}
+
+/// True when `refs` already matches the exact set of `Pages` pools in this window (avoids
+/// reallocating `Open::pages` on every turn).
+pub(crate) fn same_cache_refs(s: &App, refs: &[crate::session_pages::CacheRef]) -> bool {
+    let expected = usize::from(s.pages.has_pool()) + s.checkout.parked.iter().filter(|(_, _, h)| h.pages.has_pool()).count();
+    if refs.len() != expected {
+        return false;
+    }
+    let mut i = 0;
+    if s.pages.has_pool() {
+        if !s.pages.same_pool(&refs[i]) { return false; }
+        i += 1;
+    }
+    for (_, _, half) in &s.checkout.parked {
+        if half.pages.has_pool() {
+            if !half.pages.same_pool(&refs[i]) { return false; }
+            i += 1;
+        }
+    }
+    true
+}
+
+/// User message ids held by every parked server half's `Pages` cache and local transcripts.
+pub(crate) fn parked_user_message_ids(s: &App) -> Vec<String> {
+    s.checkout
+        .parked
+        .iter()
+        .flat_map(|(_, _, half)| half.pages.user_message_ids().into_iter().chain(half.store.local_user_message_ids()))
+        .collect()
 }
 
 /// User message ids held by every other server's shared peer (outside `active`), so `App::rest`
@@ -194,7 +235,7 @@ fn sync(s: &App) {
             let key = conn.key();
             let Some(l) = r.listed.iter_mut().find(|l| l.key == key) else { continue };
             let server = server_for(conn, &own);
-            if server.base != l.server.base {
+            if server.base != l.server.base || server.auth_header() != l.server.auth_header() {
                 r.peers.remove(&key);
             }
             l.server = server;
@@ -276,6 +317,7 @@ enum Listing {
 struct Meta {
     listing: Listing,
     base: String,
+    auth: Option<String>,
 }
 
 /// A window's own part of one server, checked out into its plain fields while it works against
@@ -342,7 +384,7 @@ pub struct Checkout {
     meta: Meta,
     parked: Vec<(ServerKey, Meta, Half)>,
     /// Each tab's mark and project on a server the window isn't checked out on, as of its last
-    /// checkout.
+    /// checkout; of a draft's tab, its project alone.
     snaps: HashMap<(ServerKey, String), Snap>,
     pub boot: Boot,
     synced: u64,
@@ -588,7 +630,7 @@ fn new_half(s: &mut App, key: &ServerKey, adopt: bool) -> (Meta, Half) {
     let listed = listed().into_iter().find(|l| l.key == *key && !l.signed_out);
     let allow_send = matches!(*s.source, Source::Live { allow_send: true, .. });
     let (meta, server) = match &listed {
-        Some(l) => (Meta { listing: Listing::Listed(l.attempt), base: l.server.base.clone() }, l.server.clone()),
+        Some(l) => (Meta { listing: Listing::Listed(l.attempt), base: l.server.base.clone(), auth: l.server.auth_header().map(str::to_owned) }, l.server.clone()),
         None if key.is_sidecar() => (Meta::default(), own_server().unwrap_or_else(|| Server::new(opencode_kit::client::DEFAULT_SERVER))),
         None => (Meta::default(), Server::new(&format!("http://{}.invalid", key.as_str().replace([':', '/'], "-"))).with_remote_files()),
     };
@@ -618,6 +660,14 @@ fn snap(s: &mut App) {
         let read_menu = (!marks.attention && !marks.busy && (marks.unread || s.session(&id).is_some_and(|i| i.idle.is_some()))).then_some(marks.unread);
         s.checkout.snaps.insert((key.clone(), id.clone()), Snap { status, project, known, read_menu });
     }
+    // A draft's project is its folder's on its own server (official
+    // `packages/app/src/shell/titlebar/auto-tab-sections.tsx:39-42`): kept too, so its tab stays
+    // in its group while the window works against another server.
+    let drafts: Vec<(String, String)> = s.tabs.iter().filter(|t| t.is_draft() && t.server == key).map(|t| (t.id.clone(), t.directory.clone())).collect();
+    for (id, dir) in drafts {
+        let project = s.project_at(&dir).cloned();
+        s.checkout.snaps.insert((key.clone(), id), Snap { project, ..Snap::default() });
+    }
     crate::inbox_model::snap(s);
 }
 
@@ -627,6 +677,16 @@ fn snap(s: &mut App) {
 pub fn poll(s: &mut App, tx: &mut Tx) -> bool {
     if !s.live() {
         return false;
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    if super::sidecar::managed() {
+        let pv = super::sidecar::published_version();
+        if pv != RUNTIME.with_borrow(|r| r.sidecar_published) {
+            RUNTIME.with_borrow_mut(|r| r.sidecar_published = pv);
+            if let Some(actual) = super::sidecar::current() {
+                set_sidecar(&actual);
+            }
+        }
     }
     sync(s);
     if s.checkout.synced != version() {
@@ -670,7 +730,7 @@ fn refit(s: &mut App) {
     // A server signed out has no connection: windows hold an offline half of it.
     let listed: Vec<Listed> = listed().into_iter().filter(|l| !l.signed_out).collect();
     let stale = |key: &ServerKey, meta: &Meta| match listed.iter().find(|l| l.key == *key) {
-        Some(l) => meta.base != l.server.base || matches!(meta.listing, Listing::Listed(a) if a != l.attempt),
+        Some(l) => meta.base != l.server.base || meta.auth.as_deref() != l.server.auth_header() || matches!(meta.listing, Listing::Listed(a) if a != l.attempt),
         None => meta.listing != Listing::Unlisted,
     };
     let gone: Vec<ServerKey> = s.checkout.parked.iter().filter(|(k, m, _)| stale(k, m)).map(|(k, ..)| k.clone()).collect();
@@ -714,6 +774,7 @@ fn refit(s: &mut App) {
 pub fn bind(s: &mut App, server: Server) -> Server {
     let server = own_server().unwrap_or(server);
     s.checkout.meta.base = server.base.clone();
+    s.checkout.meta.auth = server.auth_header().map(str::to_owned);
     set_sidecar(&server);
     server
 }
@@ -723,6 +784,7 @@ pub fn bind(s: &mut App, server: Server) -> Server {
 pub fn moved(s: &mut App, server: &Server) {
     if s.checkout.active.is_sidecar() {
         s.checkout.meta.base = server.base.clone();
+        s.checkout.meta.auth = server.auth_header().map(str::to_owned);
     }
     set_sidecar(server);
 }

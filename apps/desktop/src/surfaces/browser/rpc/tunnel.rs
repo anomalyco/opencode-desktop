@@ -1,13 +1,16 @@
 //! Per-remote-server loopback [`TunnelProxy`] lifecycle synced to `BrowserHost::set_partition_proxy`
-//! (WS-1 `#288`/`#292` `ContextKind::RemoteServer` contract + `review-rd-engine.md` point 4).
+//! (WS-1 `#288`/`#292` `ContextKind::RemoteServer` contract + `review-rd-engine.md` point 4 +
+//! `opencode#66217` multiplexed binary WebSocket stream transport & `tunnel.grant`).
 //!
 //! Invariants:
 //! - Every remote tunnel binds strictly to IP literal `127.0.0.1` (never a hostname) with fresh
 //!   384-bit OS-CSPRNG Basic credentials (`realm = "OpenCode Browser Proxy"`).
+//! - When `attached` advertises `tunnel.ws.v1` (and `OPENCODE_BROWSER_TUNNEL_TRANSPORT != legacy`),
+//!   `TunnelProxy::activate` prewarms one authenticated binary WebSocket [`ClientMux`] and signals
+//!   `WorkerMsg::StreamActivated` / `WorkerMsg::StreamEnded` so the WS owns attachment liveness.
 //! - On rotation, the new proxy binds while the prior listener is still open (so the OS cannot
 //!   recycle the port), updates `BrowserHost::set_partition_proxy(server_id, Some(new_cfg))`
-//!   atomically, and only then closes the prior proxy — never reusing credentials across ports and
-//!   never force-closing live remote tabs during normal reconnect.
+//!   atomically, and only then closes the prior proxy.
 //! - During transient reconnect (`Connecting`/`Backoff` after a prior `Attached` state), the old
 //!   proxy is suspended (`503 Service Unavailable`, zero egress) instead of sending
 //!   `SetPartitionProxy(None)`. On permanent detach/close/block/unsupported/unavailable,
@@ -16,11 +19,11 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use browser_pane::RemoteProxyConfig;
-use opencode_kit::browser_rpc::{AttachState, LocationRef, PROXY_REALM, TunnelProxy};
+use opencode_kit::browser_rpc::{AttachState, LocationRef, PROXY_REALM, TunnelProxy, TunnelTarget};
 use opencode_kit::client::Server;
 use opencode_kit::servers::ServerKey;
 
-use super::BROWSER_RPC;
+use super::{BROWSER_RPC, WorkerMsg};
 use crate::App;
 
 pub(super) struct ActiveTunnel {
@@ -37,7 +40,52 @@ struct DesiredTunnel {
     server: Server,
     location: LocationRef,
     session_id: String,
+    attempt: u64,
     connection_id: String,
+    capabilities: Vec<String>,
+}
+
+/// Sends `experimental.browser/tunnel.grant` on the active remote [`TunnelProxy`] for a trusted
+/// desktop navigation URL (`packages/gui-plugins/src/browser/pane.ts:609-644`, opencode#66217).
+/// No-op for local servers, non-HTTP(S) URLs, or legacy servers that did not advertise `tunnel.ws.v1`.
+pub fn grant_remote_navigation(app: &App, sid: Option<&str>, url: &str) {
+    let server_key = app.browser_server_for_session(sid);
+    if server_key.is_sidecar() && app.session_server_is_local(sid) {
+        return;
+    }
+    let Some(target) = parse_http_url_target(url) else { return };
+    let st = app.kernel.slots.get(&BROWSER_RPC);
+    if let Some(active) = st.tunnels.tunnels.get(&server_key) {
+        active.proxy.grant_private_target(target, Vec::new());
+    }
+}
+
+fn parse_http_url_target(raw: &str) -> Option<TunnelTarget> {
+    let trimmed = raw.trim();
+    let (scheme, rest) = trimmed.split_once("://")?;
+    let default_port = if scheme.eq_ignore_ascii_case("https") {
+        443u16
+    } else if scheme.eq_ignore_ascii_case("http") {
+        80u16
+    } else {
+        return None;
+    };
+    let authority = rest.split(['/', '?', '#']).next()?;
+    let host_port = authority.rsplit_once('@').map_or(authority, |(_, hp)| hp);
+    let (host, port) = if let Some(after) = host_port.strip_prefix('[') {
+        let (h, tail) = after.split_once(']')?;
+        let port = match tail.strip_prefix(':') {
+            Some(p) => p.parse::<u16>().ok()?,
+            None if tail.is_empty() => default_port,
+            None => return None,
+        };
+        (h, port)
+    } else if let Some((h, p)) = host_port.rsplit_once(':') {
+        (h, p.parse::<u16>().ok()?)
+    } else {
+        (host_port, default_port)
+    };
+    TunnelTarget::parse(host, port)
 }
 
 /// Immediately suspends any active remote [`TunnelProxy`] for `server_key` when `/api/event`
@@ -61,8 +109,14 @@ pub(super) fn sync_remote_tunnels(app: &mut App) {
     let engine_known = app.workspace_panes.browser.host.engine_caps_known();
     let engine_remote_ok = !engine_known || app.workspace_panes.browser.host.engine_remote_proxy();
 
-    // Pick one live attached session per remote server as the tunnel carrier, and note remote
-    // servers currently in transient reconnect (`Connecting`/`Backoff` after prior attach).
+    let (worker_tx, waker) = {
+        let st = app.kernel.slots.get(&BROWSER_RPC);
+        (
+            st.worker_tx.clone(),
+            app.workspace_panes.browser.host.message_waker().or_else(|| st.waker.clone()),
+        )
+    };
+
     let mut desired: BTreeMap<ServerKey, DesiredTunnel> = BTreeMap::new();
     let mut reconnecting: BTreeSet<ServerKey> = BTreeSet::new();
     if engine_remote_ok {
@@ -75,13 +129,16 @@ pub(super) fn sync_remote_tunnels(app: &mut App) {
             let sse_up = st.sse_connected.get(key).copied().unwrap_or(true);
             if sse_up
                 && let Some(conn_id) = att.attach.connection_id()
+                && let Some(attempt) = att.attach.attempt()
                 && att.attach.is_attached()
             {
                 desired.entry(key.clone()).or_insert_with(|| DesiredTunnel {
                     server: att.server.clone(),
                     location: att.location.clone(),
                     session_id: sid.clone(),
+                    attempt,
                     connection_id: conn_id.to_owned(),
+                    capabilities: att.attach.capabilities().to_vec(),
                 });
             } else if !sse_up
                 || matches!(
@@ -94,11 +151,8 @@ pub(super) fn sync_remote_tunnels(app: &mut App) {
         }
     }
 
-    // Move manager out temporarily so we can mutate `BrowserHost`.
     let mut mgr = std::mem::take(&mut app.kernel.slots.get_mut(&BROWSER_RPC).tunnels);
 
-    // 1. Suspend tunnels in transient reconnect (`503`, zero egress, keeps tabs alive), and stop
-    //    tunnels for remote servers that permanently detached, closed, blocked, or lost engine support.
     let mut stale: Vec<ServerKey> = Vec::new();
     for (key, cur) in &mgr.tunnels {
         if desired.contains_key(key) {
@@ -117,7 +171,6 @@ pub(super) fn sync_remote_tunnels(app: &mut App) {
         }
     }
 
-    // 2. Start or rotate tunnels whenever a remote server attaches with a new `connection_id`.
     for (key, want) in desired {
         if let Some(cur) = mgr.tunnels.get(&key)
             && cur.connection_id == want.connection_id
@@ -138,15 +191,47 @@ pub(super) fn sync_remote_tunnels(app: &mut App) {
             }
             continue;
         }
-        // Start the replacement BEFORE closing `prev` so the OS cannot recycle the prior port
-        // and the engine switches atomically from `Some(old)` to `Some(new)`.
         match TunnelProxy::start(
             want.server,
             want.location,
-            want.session_id,
+            want.session_id.clone(),
             want.connection_id.clone(),
         ) {
             Ok(proxy) => {
+                let tx_ready = worker_tx.clone();
+                let wake_ready = waker.clone();
+                let key_ready = key.clone();
+                let sid_ready = want.session_id.clone();
+                let attempt = want.attempt;
+                let tx_closed = worker_tx.clone();
+                let wake_closed = waker.clone();
+                let key_closed = key.clone();
+                let sid_closed = want.session_id;
+                proxy.activate(
+                    &want.capabilities,
+                    Box::new(move || {
+                        let _ = tx_ready.send(WorkerMsg::StreamActivated {
+                            server_key: key_ready,
+                            session_id: sid_ready,
+                            attempt,
+                        });
+                        if let Some(w) = wake_ready {
+                            w();
+                        }
+                    }),
+                    Box::new(move |info| {
+                        let _ = tx_closed.send(WorkerMsg::StreamEnded {
+                            server_key: key_closed,
+                            session_id: sid_closed,
+                            attempt,
+                            replaced: info.replaced,
+                            reason: info.reason,
+                        });
+                        if let Some(w) = wake_closed {
+                            w();
+                        }
+                    }),
+                );
                 let cfg = RemoteProxyConfig {
                     host: "127.0.0.1".to_owned(),
                     port: proxy.port,

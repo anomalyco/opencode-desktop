@@ -85,42 +85,73 @@ impl App {
 /// Reopen closed window brings it back within the rule below; then its own rows go, as a closed
 /// window's do. Runs on the storage thread once everything is read.
 pub fn keep_orphans(ids: Vec<String>, now_ms: i64) {
-    crate::storage::with_storage(move |s| {
-        let store = s.clone();
-        s.state().load(&[NAMESPACE], Some(Box::new(move || {
-            let docs: Vec<String> = ids.iter().flat_map(|id| store.documents().keys(&opencode_storage::draft_document(id, ""))).collect();
-            let refs: Vec<&str> = docs.iter().map(String::as_str).collect();
-            let again = store.clone();
-            store.documents().load(&refs, Some(Box::new(move || {
-                let store = again;
-                let mut index: Vec<String> = store.state().json(NAMESPACE, "index").unwrap_or_default();
-                // The oldest first, so the one made last ends first in the index.
-                for id in ids.iter().rev() {
-                    let rows: Map<String, Value> = store.state().items(&opencode_storage::window_namespace(id)).unwrap_or_default().into_iter().map(|(k, v)| (k, Value::String(v.to_string()))).collect();
-                    let tabs = rows.get("tabs").and_then(Value::as_str).and_then(|t| serde_json::from_str::<Vec<Value>>(t).ok()).map_or(0, |t| t.len());
-                    if tabs > 0 {
-                        let prefix = opencode_storage::draft_document(id, "");
-                        let (mut keys, mut bytes) = (Vec::new(), 0u64);
-                        for doc_key in store.documents().keys(&prefix) {
-                            if let opencode_storage::Lookup::Ready(Some(doc)) = store.documents().get(&doc_key) {
-                                let key = doc_key[prefix.len()..].to_owned();
-                                bytes += image_bytes(&doc);
-                                store.documents().set(&kept_draft(id, &key), Some(doc.to_string()));
-                                keys.push(key);
-                            }
-                        }
-                        let frame = store.windows().frame(id).map(|f| f.to_json());
-                        store.state().set_json(NAMESPACE, id, &json!({ "closedAt": now_ms, "tabs": tabs, "rows": rows, "drafts": keys, "bytes": bytes, "frame": frame }));
-                        index.retain(|x| x != id);
-                        index.insert(0, id.clone());
-                    }
-                    store.windows().forget(id);
-                }
-                trim(&store, index, now_ms);
-                store.commit_soon();
-            })));
-        })));
+    crate::storage::with_storage(move |s| keep_lost(s, ids, now_ms));
+}
+
+/// Once a launch, after the first frame: the windows that have rows and that no launch opens
+/// again go the way [`keep_orphans`] takes them. A window is lost when the saved list doesn't
+/// name it, it isn't open, and it was made before this launch (a tab torn out later has rows
+/// and no place in the list while it follows the pointer). The builds of 23 to 25 Nov 2026
+/// left one behind at every close of the last window by its close button or Alt+F4; a profile
+/// whose last quit there kept its list (the Quit command) still holds them, in the boot record
+/// too. Read and moved on the storage thread: the launch does none of it.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn sweep_lost(now_ms: i64) {
+    static DONE: std::sync::Once = std::sync::Once::new();
+    DONE.call_once(|| {
+        let open: Vec<String> = OPEN.with(|o| o.borrow().iter().map(|w| w.id.clone()).collect());
+        let mark = super::store::new_id();
+        crate::storage::with_storage(move |s| {
+            let listed = s.windows().ids().unwrap_or_default();
+            let mut lost: Vec<String> = s.windows().stored().into_iter().filter(|id| !listed.contains(id) && !open.contains(id) && super::store::made_before(id, &mark)).collect();
+            if lost.is_empty() {
+                return;
+            }
+            // The one made last first: ours in id order, then the imported ones.
+            lost.sort_by_key(|id| !super::store::ours(id));
+            keep_lost(s, lost, now_ms);
+        });
     });
+}
+
+/// [`keep_orphans`] with the storage in hand. A window the saved list names by the time its
+/// rows are read stays as it is.
+fn keep_lost(s: &opencode_storage::Storage, ids: Vec<String>, now_ms: i64) {
+    let store = s.clone();
+    s.state().load(&[NAMESPACE], Some(Box::new(move || {
+        let docs: Vec<String> = ids.iter().flat_map(|id| store.documents().keys(&opencode_storage::draft_document(id, ""))).collect();
+        let refs: Vec<&str> = docs.iter().map(String::as_str).collect();
+        let again = store.clone();
+        store.documents().load(&refs, Some(Box::new(move || {
+            let store = again;
+            let mut index: Vec<String> = store.state().json(NAMESPACE, "index").unwrap_or_default();
+            let listed = store.windows().ids().unwrap_or_default();
+            // The oldest first, so the one made last ends first in the index.
+            for id in ids.iter().rev().filter(|id| !listed.contains(*id)) {
+                let rows: Map<String, Value> = store.state().items(&opencode_storage::window_namespace(id)).unwrap_or_default().into_iter().map(|(k, v)| (k, Value::String(v.to_string()))).collect();
+                let tabs = rows.get("tabs").and_then(Value::as_str).and_then(|t| serde_json::from_str::<Vec<Value>>(t).ok()).map_or(0, |t| t.len());
+                if tabs > 0 {
+                    let prefix = opencode_storage::draft_document(id, "");
+                    let (mut keys, mut bytes) = (Vec::new(), 0u64);
+                    for doc_key in store.documents().keys(&prefix) {
+                        if let opencode_storage::Lookup::Ready(Some(doc)) = store.documents().get(&doc_key) {
+                            let key = doc_key[prefix.len()..].to_owned();
+                            bytes += image_bytes(&doc);
+                            store.documents().set(&kept_draft(id, &key), Some(doc.to_string()));
+                            keys.push(key);
+                        }
+                    }
+                    let frame = store.windows().frame(id).map(|f| f.to_json());
+                    store.state().set_json(NAMESPACE, id, &json!({ "closedAt": now_ms, "tabs": tabs, "rows": rows, "drafts": keys, "bytes": bytes, "frame": frame }));
+                    index.retain(|x| x != id);
+                    index.insert(0, id.clone());
+                }
+                store.windows().forget(id);
+            }
+            trim(&store, index, now_ms);
+            store.commit_soon();
+        })));
+    })));
 }
 
 /// Keeps `index` (newest first) within the rule: 7 days, [`KEEP`] windows, [`BYTES`] of images

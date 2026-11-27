@@ -47,3 +47,14 @@ pub(crate) fn pick_position(host: &mut dyn SettingsHost, id: &str, tx: &mut Tx) 
     host.set_tab_layout(TabLayout::parse(Some(id)), tx);
 }
 
+/// Group tabs choices (`settings-tab-grouping`, `interface-mode.tsx:42-52`): None, By project,
+/// By server.
+pub(crate) fn groupings() -> Vec<(String, String)> {
+    crate::TabGrouping::ALL.iter().map(|g| (g.name().to_owned(), g.label().to_owned())).collect()
+}
+
+pub(crate) fn pick_grouping(host: &mut dyn SettingsHost, id: &str, _: &mut Tx) {
+    let grouping = crate::TabGrouping::parse(Some(id));
+    crate::change_settings(host, |x| x.tab_grouping = grouping);
+}
+

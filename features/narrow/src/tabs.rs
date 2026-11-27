@@ -3,7 +3,14 @@
 //! count, which opens a drawer of every tab, New session, Home, Settings and Help.
 
 use opencode_i18n::t;
-use rune::{El, PointerPress, TextStyle, Tx, col, el, icon, row, text};
+use rune::{El, Icon, PointerPress, TextStyle, Tx, col, el, icon, row, text};
+
+/// `sessions-stack` (`packages/ui/src/icons/catalog.ts:393`, `titlebar.tsx:796,879`, `opencode#66594`).
+static SESSIONS_STACK: Icon = Icon {
+    name: "sessions-stack",
+    view: 16.0,
+    body: r#"<path d="M3.5 3.5H12.5M1.5 5.5V12.5H14.5V5.5H12.5H3.5H1.5Z" stroke-linecap="round" stroke-linejoin="round" stroke="currentColor"/>"#,
+};
 use rune_theme_opencode::icons as ic;
 use opencode_ui::focus::FocusExt;
 use opencode_ui::palette::{Pal, kit};
@@ -67,7 +74,7 @@ pub fn trigger<H: NarrowHost + 'static>(s: &H, p: &Pal) -> El {
     let current = s.current_tab_uid();
     let tab = current.as_deref().and_then(|uid| s.narrow_tab(uid));
     let lead = match &tab {
-        None => icon(&ic::GRID_PLUS, 16.0).color(p.icon),
+        None => icon(&SESSIONS_STACK, 16.0).color(p.icon),
         Some(t) if t.is_draft => icon(&ic::EDIT, 16.0).color(p.icon),
         Some(t) => s.tab_avatar(p, &t.uid),
     };
@@ -119,7 +126,7 @@ pub fn drawer<H: NarrowHost + 'static>(s: &H, p: &Pal) -> El {
     let mut home_row = button(
         "narrow-tabs-home",
         home.then_some(p.pressed),
-        &ic::GRID_PLUS,
+        &SESSIONS_STACK,
         16.0,
         t!("home.title"),
         if home { p.text } else { p.faint },

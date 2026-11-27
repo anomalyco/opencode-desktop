@@ -1,4 +1,4 @@
-# OpenCode plugin API reference (contract 1.9)
+# OpenCode plugin API reference (contract 1.11)
 
 > Generated from crates/opencode-plugin-spec/contract.json by `cargo run -p opencode-plugin-spec -- --write`. Do not edit. For a walkthrough, read [Writing a plugin](writing-a-plugin.md).
 
@@ -6,7 +6,7 @@ Contents: [Versioning](#versioning) · [Modules and globals](#modules-and-global
 
 ## Versioning
 
-Contract versions are `MAJOR.MINOR`. This is contract `1.9`.
+Contract versions are `MAJOR.MINOR`. This is contract `1.11`.
 
 - A plugin names the contract it targets in plugin.toml: `contract = "1.0"`.
 - Minor versions (1.1, 1.2, …) only add: new optional properties on `ui.*` nodes and specs, new semantic tokens (each with a 1.0 fallback token), new services, methods, signals, contribution kinds and enum values. A plugin that targets 1.0 runs unchanged on every 1.x host.
@@ -562,6 +562,7 @@ The plugin's own messages in the interface language, and numbers, dates and list
 | `ui.progressCircle(props: UiProgressCircleProps) -> UiNode` | content | [`UiProgressCircleProps`](#uiprogresscircleprops) | The app's progress ring: a track and an arc from twelve o'clock, clockwise. |
 | `ui.serverIndicator(props: UiServerIndicatorProps) -> UiNode` | control | [`UiServerIndicatorProps`](#uiserverindicatorprops) | A server's health indicator, for a server source's row. |
 | `ui.pill(props: UiPillProps) -> UiNode` | control | [`UiPillProps`](#uipillprops) | A status capsule. |
+| `ui.badge(props: UiBadgeProps) -> UiNode` | control | [`UiBadgeProps`](#uibadgeprops) | Desktop's compact badge. Since 1.11. |
 | `ui.settingsRow(props: UiSettingsRowProps, control: UiNode?) -> UiNode` | control | [`UiSettingsRowProps`](#uisettingsrowprops) | A settings row: title and description beside a control. |
 | `ui.settingsList(props: UiSettingsListProps, rows: { UiNode }) -> UiNode` | control | [`UiSettingsListProps`](#uisettingslistprops) | A card of settings rows. |
 | `ui.flyoutRow(props: UiFlyoutRowProps) -> UiNode` | control | [`UiFlyoutRowProps`](#uiflyoutrowprops) | A popover row that opens a nested popover. |
@@ -1213,13 +1214,14 @@ A kind of menu entry.
 
 ### DialogSize
 
-A dialog's size: one of Desktop's three presets, each clamped to the window.
+A dialog's size: one of Desktop's four presets, each clamped to the window.
 
 | Value | Meaning |
 |---|---|
 | `"normal"` | Confirmations, sign-ins and small forms: 480 points wide, as tall as its content. The default. |
-| `"large"` | Palettes, pickers and lists: 880 by 600 points. |
-| `"x-large"` | Long documents and settings-like panels: 1040 by 680 points. |
+| `"tall"` | A short form that reveals a list under a choice: 480 points wide, as tall as its content up to 600 points, its top edge kept so that it only grows downward. Since 1.11. |
+| `"large"` | Palettes, pickers and lists: 680 by 600 points. |
+| `"x-large"` | Long documents and settings-like panels: 880 by 680 points. |
 | `"small"` | Deprecated: the same as `normal`. |
 | `"medium"` | Deprecated: the same as `normal`. |
 
@@ -1520,6 +1522,7 @@ Size, spacing, position and accessibility: every `ui.*` node takes these. A prop
 | `helpSide` | `Side?` | Where the tooltip shows. Defaults to below. |
 | `helpOpen` | `boolean?` | Keeps the tooltip showing while true, whatever the pointer does, as Desktop's `Tooltip forceOpen`: a Copy button's "Copied" for a moment after the press. Since 1.7. |
 | `dir` | `("ltr" \| "rtl" \| "auto")?` | Which way the subtree reads, as HTML's `dir` does: `ltr` or `rtl` keeps a figure or a path in that order inside a window running the other way, `auto` takes a text's first strong direction (a name). On `ui.field` it is the value's direction, as on an `input`: `auto` starts an Arabic name at the right, `ltr` keeps an address or a host left to right. Defaults to the window's. |
+| `cursor` | `("default" \| "pointer" \| "text" \| "grab" \| "grabbing" \| "not-allowed" \| "move" \| "col-resize" \| "row-resize" \| "ew-resize" \| "ns-resize" \| "nwse-resize" \| "nesw-resize" \| "crosshair" \| "cell" \| "zoom-in" \| "zoom-out")?` | The pointer's shape over the node and over what is inside it that sets none, by its CSS `cursor` name. Desktop shows the arrow on controls; set this only where its style sheet names another cursor, as the browser's address field does (`text`). Since 1.10. |
 
 ### UiPin
 
@@ -1749,6 +1752,7 @@ Also takes every field of [`UiLayoutProps`](#uilayoutprops).
 | `text` | `string` | The label, beside the box. |
 | `description` | `string?` | A line under the label. |
 | `checked` | `boolean` | Ticked. |
+| `indeterminate` | `boolean?` | Some of what it stands for is ticked: the box shows a dash, as Desktop's `indeterminate`. A press still reports the opposite of `checked`. Since 1.11. |
 | `surface` | `("base" \| "layer-1")?` | The background the box sits on: `base` (the default) or `layer-1`, as Desktop's `surface`; an unticked box takes its fill. |
 | `disabled` | `boolean?` | Cannot change; drawn at half opacity. |
 | `onChange` | `UiHandler?` | Runs with the new state in `event.checked`. |
@@ -1902,6 +1906,16 @@ Also takes every field of [`UiLayoutProps`](#uilayoutprops).
 | `side` | `Side?` | The side of the row the nested popover opens on. Defaults to `right`; a popover at the window's right edge opens its rows' lists on the `left`. |
 | `radius` | `number?` | Corner radius of the row's hover and open fill. Defaults to 4. |
 
+### UiBadgeProps
+
+`ui.badge` props: Desktop's compact badge, a short muted label in a 16-point tag. Desktop's plugin API calls it `Badge`.
+
+Also takes every field of [`UiLayoutProps`](#uilayoutprops).
+
+| Field | Type | Description |
+|---|---|---|
+| `text` | `string` | Its label, on one line; cut short where it has no room. |
+
 ### UiDialogHeaderProps
 
 `ui.dialogHeader` props: the app's dialog header (`DialogHeader` with a `DialogTitleGroup`), 16 in from the frame, with its close button. Desktop's plugin API calls it `DialogHeader`.
@@ -1912,6 +1926,7 @@ Also takes every field of [`UiLayoutProps`](#uilayoutprops).
 |---|---|---|
 | `title` | `string` | The dialog's title: 15 pt, wrapping anywhere unless `wrapTitle` is false. |
 | `description` | `string?` | A muted line under the title. |
+| `badge` | `string?` | A badge after the title on its line, such as a profile's name. The title then stays on one line, and each is cut short where the line has no room for both. Since 1.11. |
 | `hideClose` | `boolean?` | Leaves out the close button. |
 | `closeLabel` | `string?` | The close button's accessible name. Defaults to Close. |
 | `wrapTitle` | `boolean?` | Whether the title wraps across lines (breaking anywhere for long identifiers). Defaults to true; set false for short single-line dialog titles. Since 1.5. |
@@ -3482,9 +3497,9 @@ A modal dialog, opened with `Dialog:Open`.
 | `title` | `string?` | Its heading and accessible name. |
 | `size` | `DialogSize?` | Its size preset. |
 | `layer` | `DialogLayer?` | Which modal overlay layer the dialog draws in (`"standard"` beneath elevated recovery/server dialogs, or `"elevated"` above them). Defaults to `"elevated"`. Since 1.5. |
-| `radius` | `number?` | Corner radius in points. Defaults to 6 for `normal` dialogs and 12 for `large` and `x-large`. Since 1.5. |
+| `radius` | `number?` | Corner radius in points. Defaults to 6 for `normal` dialogs and 12 for `tall`, `large` and `x-large`. Since 1.5. |
 | `hideScrollbar` | `boolean?` | Hides the scroll bar when a `normal` dialog's content overflows, as Desktop's `dialog-content` does. Defaults to false. Since 1.5. |
-| `render` | `(view: View, props: DialogProps) -> UiNode?` | Draws its body inside the host's dialog frame: Desktop's dialog with the overlay elevation. A normal one is as tall as its content on layer-01 with 6-point corners; a large or x-large one is its size's height on bg-base with 12-point corners, so its body can fill it (`h = "full"`). |
+| `render` | `(view: View, props: DialogProps) -> UiNode?` | Draws its body inside the host's dialog frame: Desktop's dialog with the overlay elevation. A normal one is as tall as its content on layer-01 with 6-point corners; a tall one is as tall as its content up to its size's height on bg-base with 12-point corners, and what in it may shrink (`shrink = true`, `minH = 0`) gives way once it is that tall; a large or x-large one is its size's height on bg-base with 12-point corners, so its body can fill it (`h = "full"`). |
 | `onDismiss` | `(() -> ())?` | Runs when Esc or a click outside closes it. |
 
 ### PopoverProps

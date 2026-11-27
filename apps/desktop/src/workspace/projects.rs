@@ -364,6 +364,10 @@ impl ProjectsHost for App {
         self.open_draft_tab();
     }
 
+    fn session_location_picked(&mut self, attempt: rune::machine::Attempt, directory: Option<String>, tx: &mut Tx) {
+        crate::location_missing::picker_settled(self, attempt, directory, tx);
+    }
+
     fn open_session(&mut self, server: &ServerKey, id: &str, tx: &mut Tx) {
         crate::servers::runtime::with_server(self, server, |s| s.open(id, tx));
     }

@@ -33,6 +33,12 @@ impl Server {
         self.write("POST", &format!("/api/experimental/session/{session}/wait"), None).map(|_| ())
     }
 
+    /// Moves `session` to `directory` (`POST /api/session/:id/move`), waiting up to 30 s
+    /// (Desktop's `WORKSPACE_MOVE_TIMEOUT_MS`).
+    pub fn move_session(&self, session: &str, directory: &str) -> Result<(), WireError> {
+        self.write_within("POST", &format!("/api/session/{session}/move"), Some(serde_json::json!({ "directory": directory })), std::time::Duration::from_secs(30)).map(|_| ())
+    }
+
     /// Stages a revert at `message` (`POST /api/session/:id/revert/stage`).
     pub fn revert_stage(&self, session: &str, message: &str) -> Result<Value, WireError> {
         self.write("POST", &format!("/api/session/{session}/revert/stage"), Some(serde_json::json!({ "messageID": message })))
@@ -53,6 +59,17 @@ impl Server {
     /// Commits a staged revert (`POST /api/session/:id/revert/commit`).
     pub fn revert_commit(&self, session: &str) -> Result<(), WireError> {
         self.write("POST", &format!("/api/session/{session}/revert/commit"), None).map(|_| ())
+    }
+
+    /// Desktop's take-back of an unanswered prompt after Stop (`session/revert.ts:293-304`): `wait`,
+    /// since the interrupt is acknowledged before the run settles and staging a busy session
+    /// fails; `revert/stage` at `message` with `files: false`, since the model called no tool
+    /// and any file that changed meanwhile is the user's own edit; then `revert/commit`.
+    pub fn take_back(&self, session: &str, message: &str) -> Result<(), WireError> {
+        self.wait(session)?;
+        let stage = serde_json::json!({ "messageID": message, "files": false });
+        self.write("POST", &format!("/api/session/{session}/revert/stage"), Some(stage))?;
+        self.revert_commit(session)
     }
 
     /// Sends `prompt` from a staged revert (`composer/submit.ts`): switches agent, commits the

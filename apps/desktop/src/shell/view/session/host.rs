@@ -58,6 +58,9 @@ impl session_view::TimelineHost for App {
     fn turn_diffs(&self) -> bool {
         self.settings.turn_diffs
     }
+    fn full_codemode(&self, session: &str) -> bool {
+        crate::session::meta::flags::full_codemode(self, session)
+    }
     fn wrap_code_blocks(&self) -> bool {
         self.settings.wrap_code_blocks
     }
@@ -235,8 +238,10 @@ impl session_view::TimelineHost for App {
             r.send(req).ok();
         }
     }
+    /// Official `packages/app/src/session/composer/timeline-actions.ts:45`: child sessions hide
+    /// the Switch model action on error cards.
     fn can_switch_model(&self) -> bool {
-        true
+        self.subagent_page().is_none()
     }
     fn switch_model(&mut self, _tx: &mut Tx) {
         if self.composer_ext.pickers.open() != Some(pickers::Kind::Model) {
@@ -317,6 +322,9 @@ impl session_view::TimelineHost for App {
     }
     fn on_timeline_selection_change(s: &mut Self, change: &rune::SelectionChange, tx: &mut Tx) {
         quote::selection_changed(s, change, tx);
+    }
+    fn on_timeline_key(&mut self, ev: &rune::KeyEvent, tx: &mut Tx) -> bool {
+        crate::keys::timeline_key(self, ev, tx)
     }
     fn find_row_version(&self, row_key: &str) -> u64 {
         self.kernel.slots.get(&crate::find::FIND).row_version(row_key)

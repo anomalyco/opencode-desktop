@@ -18,7 +18,7 @@ const VARIANTS: &[(&str, usize)] = &[("One", 0), ("Three", 1), ("Long", 2), ("Cu
 const ASK: &str = "Is this true? Does this really matter?";
 
 fn quote(text: &str, comment: Option<&str>) -> PromptComment {
-    Quote { text: text.into(), comment: comment.map(str::to_owned) }.into()
+    Quote { text: text.into(), comment: comment.map(str::to_owned), source: None }.into()
 }
 
 fn quotes(variant: usize) -> Vec<PromptComment> {

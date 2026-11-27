@@ -331,7 +331,7 @@ fn header(s: &App, p: &Pal, g: &Group) -> El {
         .key(format!("tg-head-{}", g.key))
         .w_full()
         .h(26.0)
-        .pr(2.0)
+        .pr(4.0)
         .gap(6.0)
         .center_y()
         .radius(6.0)
@@ -385,6 +385,7 @@ fn tab_row(s: &App, p: &Pal, g: &Group, t: &crate::tabs::Tab, tab_index: usize, 
         .role("button")
         .label_static(t!("common.closeTab"))
         .focusable(true)
+        .absolute(0.0, 0.0)
         .size(20.0, 20.0)
         .center()
         .radius(4.0)
@@ -393,11 +394,22 @@ fn tab_row(s: &App, p: &Pal, g: &Group, t: &crate::tabs::Tab, tab_index: usize, 
         .press(p.pressed)
         .on_press_tx(move |s: &mut App, tx: &mut Tx| s.close_tab(&close_uid, tx))
         .child(icon(&ic::XMARK_SMALL, 14.0).color(p.icon_muted));
+    // Status mark and close button share the same 20×20 slot (`tab-nav.css:1-8, 40-50`),
+    // both positioned at (0, 0) so the hover close button never pushes the spinner aside.
+    let mark_el = status_el.map(|m| {
+        row()
+            .key("mark")
+            .absolute(0.0, 0.0)
+            .size(20.0, 20.0)
+            .center()
+            .a11y_hidden()
+            .group_opacity(1.0, 0.0)
+            .child(m)
+    });
     let tail = el()
         .key("tail")
         .size(20.0, 20.0)
-        .center()
-        .children(status_el.map(|m| m.group_opacity(1.0, 0.0)))
+        .children(mark_el)
         .child(session_view::style::hover_reveal(close_btn));
 
     let press_uid = uid.clone();
@@ -423,7 +435,8 @@ fn tab_row(s: &App, p: &Pal, g: &Group, t: &crate::tabs::Tab, tab_index: usize, 
         .focus_selected(active)
         .w_full()
         .h(28.0)
-        .px(8.0)
+        .pl(8.0)
+        .pr(4.0)
         .gap(8.0)
         .center_y()
         .radius(6.0)

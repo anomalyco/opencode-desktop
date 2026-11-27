@@ -155,7 +155,8 @@ pub(super) fn run_queue_op(host: &mut dyn QueueHost, session: &str, attempt: Att
         return super::queue_settled(host, session, attempt.0, Ok(()));
     }
     let ticket = Ticket { kind: TicketKind::Inbox, session: session.to_owned(), attempt: attempt.0 };
-    if !host.write(Write::Tracked { ticket, write: Box::new(write) }) {
+    // The write says nothing itself when it can't go: `step_queue`'s one toast does.
+    if host.write_quiet(Write::Tracked { ticket, write: Box::new(write) }) != super::Offered::Sent {
         super::queue_settled(host, session, attempt.0, Err(None));
     }
 }

@@ -168,6 +168,16 @@ impl App {
         self.session(id).is_none_or(|i| i.parent.is_none()).then(|| id.to_owned())
     }
 
+    /// The open root session and whether it's archived (`archivable` / `unarchivable`,
+    /// `use-session-commands.tsx`), when the window knows it: among the sessions, or on the
+    /// archived list, which the session list leaves out.
+    pub(crate) fn open_root_archived(&self) -> Option<(String, bool)> {
+        let id = self.open_root_session()?;
+        let info = self.session(&id).or_else(|| self.inbox_archived().iter().find(|a| a.id == id))?;
+        let archived = info.archived.is_some();
+        Some((id, archived))
+    }
+
     pub(crate) fn in_root_session(&self) -> bool {
         self.open_root_session().is_some()
     }

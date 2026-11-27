@@ -68,15 +68,15 @@ pub const TAB_UI: TextStyle = opencode_ui::style::UI.features("\"tnum\"");
 
 pub const TERM_FONT: Knob = Knob::choice(
     "Terminal font",
-    &["Commit Mono", "IBM Plex Mono", "SF Mono", "JetBrains Mono"],
+    &["Commit Mono", "IBM Plex Mono", "SF Mono", "OpenMono"],
     3,
 )
 .about("Monospace font family in the terminal")
 .hints(&[
     "Kit's Ghostty Commit Mono face",
-    "OpenCode bundled IBM Plex Mono",
+    "System IBM Plex Mono face (falls back to OpenMono)",
     "macOS SF Mono system face",
-    "Desktop's JetBrainsMono Nerd Font Mono",
+    "Desktop's bundled OpenMono with Nerd Fonts icons",
 ]);
 
 pub const TERM_SIZE: Knob = Knob::new("Font size", 11.0, 18.0, 14.0)
@@ -395,6 +395,8 @@ pub struct TerminalTab {
     /// The cell under the pointer and whether the follow modifier (Ctrl, ⌘ on macOS) was held:
     /// the link there (`links::span`) is underlined, and followable with the modifier.
     pub hover: HoverLink,
+    /// Where the quote last taken with its comment editor came from (`grid::quote`).
+    pub(crate) quote_source: Cell<Option<grid::QuoteSource>>,
 }
 
 impl TerminalTab {
@@ -680,9 +682,10 @@ pub trait TerminalSurfaceHost: opencode_kernel::AppEnv + opencode_kernel::AppFee
         let _ = selected;
         false
     }
-    /// Adds `selected` terminal text to the composer as a quote.
-    fn quote_terminal_selection(&mut self, selected: &str, tx: &mut Tx) {
-        let _ = (selected, tx);
+    /// Adds `selected` terminal text to the composer as a quote; with `comment`, its comment
+    /// editor opens, beside the rows the quote came from.
+    fn quote_terminal_selection(&mut self, selected: &str, comment: Option<grid::QuotePlace>, tx: &mut Tx) {
+        let _ = (selected, comment, tx);
     }
     /// Notifies assistive speech tracking that a key/IME went to terminal `(ws_key, tab_id)`.
     fn speech_terminal_key(&mut self, ws_key: &str, tab_id: &str) {
