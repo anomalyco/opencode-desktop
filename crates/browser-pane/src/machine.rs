@@ -653,6 +653,8 @@ pub(crate) enum EngineCaps {
         menu_extras: bool,
         tab_lifecycle: bool,
         tab_hibernation: bool,
+        host_clipboard: bool,
+        x11_clipboard: bool,
     },
 }
 
@@ -732,6 +734,15 @@ impl EngineCaps {
 
     pub(crate) fn tab_hibernation(self) -> bool {
         matches!(self, Self::Known { tab_hibernation: true, .. })
+    }
+
+    pub(crate) fn host_clipboard(self) -> bool {
+        matches!(self, Self::Known { host_clipboard: true, .. })
+    }
+
+    #[cfg(target_os = "linux")]
+    pub(crate) fn x11_clipboard(self) -> bool {
+        matches!(self, Self::Known { x11_clipboard: true, .. })
     }
 }
 

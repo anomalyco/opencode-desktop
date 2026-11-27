@@ -246,6 +246,11 @@ impl EngineManager {
                     menu_extras: true,
                     tab_lifecycle: true,
                     tab_hibernation: true,
+                    host_clipboard: true,
+                    #[cfg(target_os = "linux")]
+                    x11_clipboard: crate::linux_gpu::is_x11(),
+                    #[cfg(not(target_os = "linux"))]
+                    x11_clipboard: false,
                 });
                 for (&tab_id, t) in &self.tabs {
                     t.menu.cancel_all();
@@ -594,21 +599,9 @@ impl EngineManager {
                     send_key(&t.host, down, text.as_deref(), named.as_deref(), cef_mods(mods));
                 }
             }
-            HostMsg::EditCmd { tab_id, cmd } => {
-                if let Some(t) = self.tabs.get(&tab_id)
-                    && let Some(frame) = t.browser.main_frame()
-                {
-                    match cmd.as_str() {
-                        "select_all" => frame.select_all(),
-                        "copy" => frame.copy(),
-                        "paste" => frame.paste(),
-                        "cut" => frame.cut(),
-                        "undo" => frame.undo(),
-                        "redo" => frame.redo(),
-                        _ => {}
-                    }
-                }
-            }
+            HostMsg::EditCmd { tab_id, cmd } => if let Some(t) = self.tabs.get(&tab_id) { crate::menu_extras::run_edit_cmd(t, &cmd); }
+            HostMsg::CopySelection { tab_id, cut } => if let Some(t) = self.tabs.get(&tab_id) { crate::menu_extras::start_copy_selection(t, &self.next_cdp_id, cut); }
+            HostMsg::PasteText { tab_id, text } => if let Some(t) = self.tabs.get(&tab_id) { crate::menu_extras::paste_host_text(t, &text); }
             HostMsg::Ime { tab_id, commit, preedit } => {
                 if let Some(t) = self.tabs.get(&tab_id) {
                     if let Some(c) = commit {
@@ -820,18 +813,13 @@ impl EngineManager {
                             }
                         }
                         Some(crate::menu::MenuFollowUp::CopyImage { url, frame_id }) => {
-                            // The menu's own frame when the engine knows it on the tab's session,
-                            // else the main frame (an image in an out-of-process frame is not read).
-                            let frame = {
-                                let ledger = t.cdp_ledger.lock().unwrap();
-                                frame_id.filter(|f| ledger.is_root_session_frame(f)).or_else(|| ledger.main_frame_id())
-                            };
-                            if let Some(frame) = frame {
-                                let msg_id = self.next_cdp_id.fetch_add(1, Ordering::Relaxed);
-                                t.cdp_id_map.lock().unwrap().insert(msg_id, CdpPending::CopyImageContent { frame_id: frame.clone() });
-                                let raw = crate::menu_extras::resource_request(msg_id, &frame, &url);
-                                t.host.send_dev_tools_message(Some(raw.as_bytes()));
-                            }
+                            crate::menu_extras::start_copy_image(t, &self.next_cdp_id, &url, frame_id);
+                        }
+                        Some(crate::menu::MenuFollowUp::CopyText { text }) => {
+                            let _ = self.out_tx.send(EngineMsg::CopiedText { tab_id, text });
+                        }
+                        Some(crate::menu::MenuFollowUp::CopySelection { cut }) => {
+                            crate::menu_extras::start_copy_selection(t, &self.next_cdp_id, cut);
                         }
                         None => {}
                     }
