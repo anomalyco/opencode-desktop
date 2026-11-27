@@ -75,6 +75,18 @@ pub struct UiSegmentedItem {
 }
 impl_record!(UiSegmentedItem, ["id", "icon", "label", "key"], [], []);
 
+/// One option of `ui.select`.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[non_exhaustive]
+pub struct UiSelectOption {
+    /// What `onChange` receives in `event.value`.
+    pub value: String,
+    /// The option's visible text.
+    pub label: String,
+}
+impl_record!(UiSelectOption, ["value", "label"], [], []);
+
 /// The panels' shared file sidebar.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
