@@ -125,7 +125,7 @@ pub fn reload(host: &mut dyn FilesHost, sid: &str, path: &str) {
     super::trace::changed(sid, path);
     if super::video::is_video(path) {
         let pane = host.files_mut();
-        pane.reads.clear_stale(sid, path);
+        pane.reads.clear(sid, path);
         pane.forget_video_auth(sid, path);
         if let Some(ws) = pane.sessions.get_mut(sid) {
             ws.videos.remove(path);

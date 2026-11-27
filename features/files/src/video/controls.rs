@@ -145,18 +145,21 @@ fn controls<H: FilesHost + 'static>(sid: &str, path: &str, v: &FileVideo, w: f32
         // Chromium's fullscreen button keeps its place, hidden; Desktop's expand button lies over it.
         .child(el().w(BUTTON).h(BUTTON))
         .child(button::<H>(sid, path, "media-more", &MORE, "Show more media controls", |_| {}));
-    let mut bar = el()
+    let bar = el()
         .key("media-controls")
-        .pin(Some(0.0), Some(0.0), Some(0.0), Some(0.0))
-        .opacity(if shown { 1.0 } else { 0.0 })
+        .w_full()
+        .h(SCRIM.min(h))
+        .group_opacity(if shown { 1.0 } else { 0.0 }, 1.0)
         .opacity_motion(Anim::new(fade))
         .child(scrim)
         .child(buttons)
         .child(timeline::<H>(sid, path, v, w, time, duration));
-    if !shown {
-        bar = bar.inert();
-    }
-    bar
+    el().key("media-controls-group")
+        .pin(Some(0.0), None, Some(0.0), Some(0.0))
+        .h(SCRIM.min(h))
+        .hover_group_focus()
+        .hover_motion(Anim::new(Curve::tween(0.25, Easing::EASE)), Anim::new(Curve::tween(1.0, Easing::EASE)))
+        .child(bar)
 }
 
 /// The scrim's stops, bottom (1) to top (0): Chromium's eased black.
@@ -274,7 +277,7 @@ fn timeline<H: FilesHost + 'static>(sid: &str, path: &str, v: &FileVideo, w: f32
     let (key_sid, key_path) = (sid.to_owned(), path.to_owned());
     timeline_shell(track, played, scrubbing)
         .focusable(true)
-        .on_drag(move |s: &mut H, d, tx: &mut Tx| on_timeline_drag(s, &drag_sid, &drag_path, d, track, tx))
+        .on_drag(move |s: &mut H, d, tx: &mut Tx| on_timeline_drag(s, &drag_sid, &drag_path, d, tx))
         .on_key(move |s: &mut H, key, tx: &mut Tx| {
             key.mods == rune::Mods::default()
                 && matches!(&key.key, Key::Text(t) if t == " ")

@@ -83,7 +83,7 @@ pub(crate) fn step(state: Option<Read>, event: ReadEvent, next: u64) -> (Option<
             Then::Done => (None, ReadEffect::Show),
         },
         (state, ReadEvent::Landed { .. }) => (state, ReadEffect::Drop),
-        (Some(Read::Stale), ReadEvent::Cleared) => (None, ReadEffect::Nothing),
+        (Some(Read::Reading { .. } | Read::Stale), ReadEvent::Cleared) => (None, ReadEffect::Nothing),
         (state, ReadEvent::Cleared) => (state, ReadEffect::Nothing),
     }
 }
@@ -188,8 +188,9 @@ impl Reads {
         self.step(sid, path, ReadEvent::Outdated);
     }
 
-    /// Marks a stale file as handled by a non-read loader (e.g., streaming video player).
-    pub(crate) fn clear_stale(&mut self, sid: &str, path: &str) {
+    /// Clears stale or in-flight read state when a non-read loader (e.g., video player) takes over
+    /// or the file tab closes. Any late answer from a superseded worker lands as `ReadEffect::Drop`.
+    pub fn clear(&mut self, sid: &str, path: &str) {
         self.step(sid, path, ReadEvent::Cleared);
     }
 
