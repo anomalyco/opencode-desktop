@@ -184,9 +184,11 @@ pub(super) fn tab_bar<H: PanelsHost + 'static>(
         .grow(1.0)
         .min_w(0.0)
         // Leaving the strip releases any mouse-close tab width hold (`tab-strip-widths.ts:74`).
-        .on_hover_change(move |s: &mut H, inside: bool, _tx: &mut Tx| {
-            if !inside {
-                release_pane_width_hold(s, pane);
+        .on_hover_change(move |s: &mut H, inside: bool, tx: &mut Tx| {
+            if !inside && release_pane_width_hold(s, pane) {
+                tx.instant();
+            } else {
+                tx.live_only();
             }
         })
         .child(viewport)

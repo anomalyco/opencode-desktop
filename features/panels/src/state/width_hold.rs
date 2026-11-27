@@ -110,10 +110,13 @@ pub fn release_strip_width_holds(host: &mut dyn PanelsHost) {
     }
 }
 
-/// Releases held tab widths for one pane if currently held.
-pub fn release_pane_width_hold(host: &mut dyn PanelsHost, pane: SessionPane) {
+/// Releases held tab widths for one pane if currently held. Returns true if a hold was released.
+pub fn release_pane_width_hold(host: &mut dyn PanelsHost, pane: SessionPane) -> bool {
     let slot = pane as usize;
     if !matches!(host.side().width_holds[slot], StripWidthHold::Released) {
         host.side_mut().width_holds[slot].step(WidthHoldEvent::Release);
+        true
+    } else {
+        false
     }
 }
