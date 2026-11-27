@@ -68,6 +68,8 @@ impl SettingsScreen {
     }
 }
 
+pub use prefs::question_composer_available;
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct Settings {
     /// The composer's agent picker (`general.showCustomAgents`); the agent still applies when it's hidden.
@@ -110,18 +112,15 @@ pub struct Settings {
     pub tab_grouping: TabGrouping,
     /// One side panel open state for every session tab instead of one per tab (`general.sharedSidePanel`, #64950).
     pub shared_side_panel: bool,
-    /// Questions take the keyboard-first dock instead of Classic (Desktop's `general.newQuestionUI`,
-    /// Settings › Experimental › New question UI). Off unless turned on, as there.
-    pub new_question_ui: bool,
-    /// Experimental side tab groups (`general.tabGroups`, #64407): `None` until toggled,
-    /// defaulting to `false` across all packaged builds (`local`, `dev`, `beta`, `prod`) to match
-    /// upstream `settings/model.tsx:460-463` (`import.meta.env.DEV && VITE_OPENCODE_TEST_FIXTURES !== "1"`).
+    /// Questions answer from the composer instead of Classic (Desktop's `general.questionComposer`,
+    /// Settings › Experimental › New question UI, `opencode#66825`). Only local and dev builds offer
+    /// it, on by default there.
+    pub question_composer: Option<bool>,
+    /// Experimental side tab groups (`general.tabGroups`, #64407): opt-in (`false` by default).
     pub tab_groups: Option<bool>,
-    /// Experimental Automations screen in sidebar and Home (`general.automations`, opencode#66393):
-    /// `None` until toggled, defaulting to `false` in packaged builds.
+    /// Experimental Automations screen (`general.automations`, opencode#66393): opt-in.
     pub automations: Option<bool>,
-    /// Experimental › Sidebar sections (Rune's own, `rune.settings`): multi-select on side tabs,
-    /// batch actions and minimal collapsible section headers. `None` until toggled; off by default.
+    /// Experimental › Sidebar sections (`rune.settings`): opt-in.
     pub sidebar_sections: Option<bool>,
     /// Ease a live delivery into place: the Pending label, the tray's room and joined prompts.
     pub smooth_timeline: bool,
@@ -207,7 +206,7 @@ impl Default for Settings {
             navigation: Navigation::default(),
             tab_grouping: TabGrouping::default(),
             shared_side_panel: false,
-            new_question_ui: false,
+            question_composer: None,
             tab_groups: None,
             automations: None,
             sidebar_sections: None,
@@ -250,6 +249,7 @@ impl Settings {
             m.insert("backgroundNoticeShown".into(), json!(self.background_notice_shown));
             if let Some(on) = self.tab_groups { m.insert("tabGroups".into(), json!(on)); }
             if let Some(on) = self.automations { m.insert("automations".into(), json!(on)); }
+        if let Some(on) = self.question_composer { m.insert("questionComposer".into(), json!(on)); }
             if let Some(on) = self.sidebar_sections { m.insert("sidebarSections".into(), json!(on)); }
         }
         v
@@ -291,7 +291,6 @@ impl Settings {
             "navigation": self.navigation.name(),
             "tabGrouping": self.tab_grouping.name(),
             "sharedSidePanel": self.shared_side_panel,
-            "newQuestionUI": self.new_question_ui,
             "smoothTimeline": self.smooth_timeline,
             "terminal": { "optionAsMeta": self.terminal_option_meta, "marks": self.terminal_marks },
             "language": self.language,
@@ -352,7 +351,7 @@ impl Settings {
             navigation: Navigation::parse(v["navigation"].as_str().or_else(|| v["appearance"]["navigation"].as_str())),
             tab_grouping: TabGrouping::parse(v["tabGrouping"].as_str().or_else(|| v["appearance"]["tabGrouping"].as_str())),
             shared_side_panel: v["sharedSidePanel"].as_bool().unwrap_or(false),
-            new_question_ui: v["newQuestionUI"].as_bool().unwrap_or(false),
+            question_composer: v["questionComposer"].as_bool(),
             tab_groups: v["tabGroups"].as_bool(),
             automations: v["automations"].as_bool(),
             sidebar_sections: v["sidebarSections"].as_bool(),

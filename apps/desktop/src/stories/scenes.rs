@@ -50,6 +50,7 @@ const ORDER: &[&str] = &[
     "settings",
     "settings-sidebar-closed",
     "question",
+    "question-composer",
     "question-morph",
     "question-long",
     "sidebar-closed",

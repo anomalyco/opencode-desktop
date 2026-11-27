@@ -23,7 +23,7 @@ const SHARED: [(&str, &str, &str); 29] = [
     ("tabGroups", "general", "tabGroups"),
     ("automations", "general", "automations"),
     ("foldUserMessages", "general", "foldUserMessages"),
-    ("newQuestionUI", "general", "newQuestionUI"),
+    ("questionComposer", "general", "questionComposer"),
     ("sharedSidePanel", "general", "sharedSidePanel"),
     ("sidebarOrganize", "general", "sidebarOrganize"),
     ("mobileTitlebarPosition", "general", "mobileTitlebarPosition"),
