@@ -38,7 +38,8 @@ pub struct State {
     histories: Histories,
     /// The session whose timeline stands near its top, told by its scroll viewport.
     near_top: std::rc::Rc<std::cell::RefCell<String>>,
-    wake: Option<Waker>,
+    /// Shared waker slot so `watch_top` closures built before `State::set` still wake the window.
+    wake: std::rc::Rc<std::cell::RefCell<Option<Waker>>>,
     /// The calm "still trying" toast (`machines::Stall`).
     stall: Stall,
     stall_after: Option<Duration>,
@@ -55,7 +56,7 @@ const STALL_AFTER: Duration = Duration::from_secs(30);
 
 impl State {
     pub fn set(&mut self, pages: Pages) {
-        self.wake = pages.wake.clone();
+        *self.wake.borrow_mut() = pages.wake.clone();
         self.histories.clear();
         self.pool = Some(pages);
     }
@@ -108,7 +109,7 @@ impl State {
                 *n = id.clone();
                 drop(n);
                 // The scroll may have stopped on this frame; poll without waiting for another.
-                if let Some(wake) = &wake { wake(); }
+                if let Some(wake) = wake.borrow().as_ref() { wake(); }
             } else if !is && *n == id { n.clear(); }
         }
     }
@@ -213,7 +214,7 @@ impl QueueState {
 
 type Shared = Arc<(Mutex<QueueState>, Condvar)>;
 pub type Fetch = Arc<dyn Fn(&str) -> Result<Value, opencode_kit::wire_error::WireError> + Send + Sync>;
-pub type PageResult = Result<Arc<Page>, (Key, opencode_kit::wire_error::WireError)>;
+pub type PageResult = Result<Arc<Page>, (Key, bridge::ReadOf, opencode_kit::wire_error::WireError)>;
 
 pub struct Pages {
     shared: Shared,
@@ -302,18 +303,20 @@ impl Pages {
     fn enqueue(&self, job: Job) {
         let mut guard = self.shared.0.lock().unwrap_or_else(PoisonError::into_inner);
         let QueueState::Running(q) = &mut *guard else { return };
+        let speculative = !job.foreground && job.cursor.is_none();
         q.failed.retain(|_, until| *until > Instant::now());
-        if !job.foreground && q.failed.contains_key(&job.key) { return; }
-        if job.cursor.is_none() && !job.foreground && q.ready.iter().any(|p| p.key == job.key) { return; }
+        if speculative && q.failed.contains_key(&job.key) { return; }
+        if speculative && q.ready.iter().any(|p| p.key == job.key) { return; }
         if q.active.contains(&(job.key.clone(), job.cursor.clone())) { return; }
         if let Some(old) = q.jobs.iter_mut().find(|j| j.key.id == job.key.id && j.cursor == job.cursor) {
             old.foreground |= job.foreground;
             if job.key.updated > old.key.updated { old.key = job.key; }
         } else {
-            // A pointer sweeping the list cannot leave an unbounded speculative backlog.
-            if !job.foreground
-                && q.jobs.iter().filter(|j| !j.foreground).count() >= ENTRIES
-                && let Some(i) = q.jobs.iter().position(|j| !j.foreground)
+            // A pointer sweeping the list cannot leave an unbounded speculative backlog, and must
+            // never evict an explicit history/bridge read.
+            if speculative
+                && q.jobs.iter().filter(|j| !j.foreground && j.cursor.is_none()).count() >= ENTRIES
+                && let Some(i) = q.jobs.iter().position(|j| !j.foreground && j.cursor.is_none())
             {
                 q.jobs.remove(i);
             }
@@ -532,12 +535,19 @@ impl crate::App {
             self.timeline_fx.ends.progress(id);
         }
         if page.history {
-            // A page that added nothing ends it too, so a server that keeps handing out cursors
-            // can't loop (`history-machine.ts` `stalled`).
+            // A page that returned no raw messages and added nothing (or repeated its own cursor)
+            // stops paging instead of looping (`history-machine.ts` `stalled`). Counting raw server
+            // `stubs` keeps paging across pages of non-rendered message types (`synthetic`, `system`,
+            // `idle`) and when history re-enters on an already-populated shared transcript.
             let id = id.clone();
-            self.step_history(&id, HistoryEvent::Landed { cursor: page.cursor.clone(), added }, tx);
+            if let bridge::ReadOf::Before(sent) = &page.read_of {
+                let progressed = added > 0 || !page.stubs.is_empty();
+                self.step_history(&id, HistoryEvent::Landed { sent, cursor: page.cursor.clone(), progressed }, tx);
+            }
             // Where the page leaves the reader is reported next frame; read on only from there.
-            self.pages.near_top.borrow_mut().clear();
+            let mut near = self.pages.near_top.borrow_mut();
+            if *near == *id { near.clear(); }
+            drop(near);
             self.context_window_landed(&id);
         }
         self.window_read(&page.key.id, &page.stubs, page.history, page.cursor.is_none() || page.stubs.len() < page.asked);
@@ -584,11 +594,11 @@ impl crate::App {
             }
             match result {
                 Ok(page) if self.route == crate::Route::here(page.key.id.clone()) || self.opening.as_ref().is_some_and(|o| o.id == page.key.id) || (page.history && self.transcripts.contains_key(&page.key.id)) => { self.show_page(&page, tx); changed = true; }
-                Err((key, error)) if self.opening.as_ref().is_some_and(|o| o.id == key.id) && error.status() == Some(404) => {
+                Err((key, bridge::ReadOf::Newest, error)) if self.opening.as_ref().is_some_and(|o| o.id == key.id) && error.status() == Some(404) => {
                     *self.opening = None;
                     changed |= crate::session_state::missing(self, &key.id, tx);
                 }
-                Err((key, error)) if self.opening.as_ref().is_some_and(|o| o.id == key.id) => {
+                Err((key, bridge::ReadOf::Newest, error)) if self.opening.as_ref().is_some_and(|o| o.id == key.id) => {
                     *self.diag.status = error.to_string();
                     // What the timeline's loading row says: why, from the typed error (`crate::errors`).
                     let server = crate::servers::runtime::label(crate::servers::runtime::active(self));
@@ -601,16 +611,28 @@ impl crate::App {
                     }
                     changed = true;
                 }
-                Err((key, error)) if self.route == crate::Route::here(key.id.clone()) && error.status() == Some(404) => {
+                Err((key, bridge::ReadOf::Newest, error)) if self.route == crate::Route::here(key.id.clone()) && error.status() == Some(404) => {
                     changed |= crate::session_state::missing(self, &key.id, tx);
                 }
-                Err((key, error)) if self.route == crate::Route::here(key.id.clone()) => {
+                Err((key, bridge::ReadOf::Newest, error)) if self.route == crate::Route::here(key.id.clone()) => {
                     self.pages.bridges.remove(&key.id);
-                    changed |= self.step_history(&key.id, HistoryEvent::Failed { now: Instant::now() }, tx);
                     // A busy server is waited out; only silence that lasts is told (below).
                     if error.transient() { eprintln!("opencode-rune: session read failed: {error}"); continue; }
                     crate::status_toast::failed_wire(self, "Couldn't load this session", &error);
                     changed = true;
+                }
+                Err((key, bridge::ReadOf::Before(cursor), error)) => {
+                    // Always settle an in-flight bridge or history read even after switching tabs,
+                    // so `History::Filling` / `Loading` never hang until timeout.
+                    if self.pages.bridges.get(&key.id).is_some_and(|h| h.awaits(&cursor)) {
+                        self.pages.bridges.remove(&key.id);
+                    }
+                    changed |= self.step_history(&key.id, HistoryEvent::Failed { sent: &cursor, now: Instant::now() }, tx);
+                    if self.route == crate::Route::here(key.id.clone()) {
+                        if error.transient() { eprintln!("opencode-rune: session read failed: {error}"); continue; }
+                        crate::status_toast::failed_wire(self, "Couldn't load this session", &error);
+                        changed = true;
+                    }
                 }
                 _ => {}
             }

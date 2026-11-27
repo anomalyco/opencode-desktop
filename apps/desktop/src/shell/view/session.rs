@@ -68,6 +68,7 @@ pub(super) fn session_body(s: &App, p: &Pal, id: &str, page: El, with_header: bo
                     s.kernel.slots.untracked(&crate::files::FILES).reply_version(shown),
                     s.kernel.slots.untracked(&crate::subagents::SHELLS).follow.version(),
                     has_pills,
+                    s.pages.more_above(shown),
                     s.opening.as_ref().filter(|o| o.id == shown).and_then(|o| o.error()).map(str::to_owned),
                 ),
             );

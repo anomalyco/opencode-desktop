@@ -46,6 +46,12 @@ pub(super) struct Held {
     messages: Vec<Message>,
 }
 
+impl Held {
+    pub(super) fn awaits(&self, cursor: &str) -> bool {
+        matches!(&self.bridge, Bridge::Reading { cursor: awaited, .. } if awaited == cursor)
+    }
+}
+
 /// How many loaded messages that were still running are read again after one read.
 const REFRESH: usize = 16;
 
@@ -60,7 +66,7 @@ impl App {
                     t.merge(page.messages.clone());
                 }
             }
-            ReadOf::Before(cursor) if self.pages.bridges.get(&id).is_some_and(|h| matches!(&h.bridge, Bridge::Reading { cursor: awaited, .. } if awaited == cursor)) => {
+            ReadOf::Before(cursor) if self.pages.bridges.get(&id).is_some_and(|h| h.awaits(cursor)) => {
                 let Some(held) = self.pages.bridges.remove(&id) else { return };
                 let mut messages = page.messages.clone();
                 messages.extend(held.messages);
