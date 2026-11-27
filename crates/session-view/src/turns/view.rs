@@ -2,7 +2,7 @@
 //! an activity group, the one thought a group of thoughts alone reads as, an events row, a row
 //! of thoughts, and calls on their own row.
 
-use rune::{El, col, el, row, text};
+use rune::{El, Span, col, el, row, text};
 
 use super::{Calls, Label, Loc, Step, call, file_like, file_tool, grouped_read, label, named_skill, script_change};
 use crate::TimelineHost;
@@ -205,15 +205,37 @@ pub fn group<S: TimelineHost>(
 }
 
 /// An activity label's words (`context-tool-group-title[data-activity]`): the verb muted, what it
-/// touched in base ink, then a dot and the rest, 6 apart, all at 440.
+/// touched in base ink, then a dot and the rest, 6 apart, all at 440. Main and secondary details
+/// share one shrinking text run so a long secondary list never squeezes the headline before it.
 fn activity_words(p: &Pal, a: &activity::Activity) -> El {
-    let mut r = row().key("words").gap(6.0).center_y().shrink().min_w(0.0).child(text(a.verb.clone()).key("verb").font(UI).color(p.muted));
-    if !a.main.is_empty() {
-        r = r.child(text(a.main.clone()).key("main").font(UI).color(p.text).shrink().min_w(0.0).truncate_fade());
-    }
-    if !a.others.is_empty() {
-        r = r.child(text("\u{00b7}").key("sep").font(UI).color(p.muted))
-            .child(text(a.others.join(", ")).key("others").font(UI).color(p.text).shrink().min_w(0.0).truncate_fade());
+    let mut r = row().key("words").gap(6.0).center_y().shrink().min_w(0.0)
+        .child(text(a.verb.clone()).key("verb").font(UI).color(p.muted));
+    match (a.main.is_empty(), a.others.is_empty()) {
+        (true, true) => {}
+        (false, true) => {
+            r = r.child(text(a.main.clone()).key("detail").font(UI).color(p.text).shrink().min_w(0.0).truncate_fade());
+        }
+        (true, false) => {
+            r = r.child(text("\u{00b7}").key("sep").font(UI).color(p.muted))
+                .child(text(a.others.join(", ")).key("detail").font(UI).color(p.text).shrink().min_w(0.0).truncate_fade());
+        }
+        (false, false) => {
+            let mut body = a.main.clone();
+            let sep_start = body.len();
+            body.push_str("  \u{00b7}  ");
+            let sep_end = body.len();
+            body.push_str(&a.others.join(", "));
+            r = r.child(
+                text(body)
+                    .key("detail")
+                    .font(UI)
+                    .color(p.text)
+                    .spans(vec![Span::new(sep_start, sep_end).color(p.muted)])
+                    .shrink()
+                    .min_w(0.0)
+                    .truncate_fade(),
+            );
+        }
     }
     r
 }
