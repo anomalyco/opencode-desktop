@@ -2,12 +2,12 @@
   "generated_at": "2026-11-28",
   "upstream_repo": "anomalyco/opencode",
   "upstream_reference_base": "f6e0c2d0833ffe772035f221fed923e1cd5fb408",
-  "upstream_head": "d70760947e931e58bd01317a7bbdbe205af8e7b7",
+  "upstream_head": "eb010a1a68b710acbc7800914d6ee4fe7fb9dd9b",
   "upstream_pre_window_base": "3751be8138ebcf33343eb3f3d011b32fc814103c",
   "rune_desktop_repo": "anomalyco/opencode-rune",
-  "rune_desktop_head": "2f96e52839",
-  "post_1114_commit_count": 821,
-  "post_1114_in_ledger": 274,
+  "rune_desktop_head": "619f9fe5ca",
+  "post_1114_commit_count": 822,
+  "post_1114_in_ledger": 275,
   "post_1114_skipped": 547,
   "post_1114_skipped_breakdown": {
     "test-only": 39,
@@ -18,13 +18,13 @@
     "server-core-ai-codemode-internal": 342
   },
   "pre_1114_carryover_rows": 15,
-  "total_ledger_rows": 295,
+  "total_ledger_rows": 296,
   "status_counts": {
     "have it": 254,
     "not applicable": 39,
     "differs on purpose": 1,
     "partly": 1,
-    "missing": 0
+    "missing": 1
   },
   "rows": [
     {
@@ -7465,6 +7465,32 @@
         "crates/opencode-kit/src/local_service.rs"
       ],
       "status_evidence": "Already holds by construction: both apps/desktop/src/workspace/servers/sidecar/service.rs:112 (std::env::var_os(\"XDG_STATE_HOME\").filter(|v| !v.is_empty())) and crates/opencode-kit/src/local_service.rs:55 (var(k).filter(|v| !v.is_empty())) treat empty XDG_STATE_HOME as unset and fall back to <home>/.local/state.",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "UPSTREAM"
+    },
+    {
+      "id": "UP-275",
+      "window": "post-1120",
+      "pr": 66825,
+      "sha": "eb010a1a68",
+      "title": "feat(app): answer questions from the composer in the New question UI experiment",
+      "merged": "2026-11-27",
+      "packages": [
+        "app",
+        "session-ui"
+      ],
+      "main_files": [
+        "packages/app/src/session/requests/session-question-dock-classic.tsx",
+        "packages/app/src/session/requests/question-answer-composer.css",
+        "packages/app/src/session/requests/session-question-dock.tsx",
+        "packages/app/src/settings/experimental/experimental.tsx",
+        "packages/app/src/settings/model.tsx"
+      ],
+      "summary": "Replaces the old experimental keyboard-first question dock with the composer-integrated New question UI experiment (settings.general.questionComposer, preset answers card above custom answer composer + actions, removing session-question-dock-experimental and newQuestionUI).",
+      "size": "L",
+      "status": "missing",
+      "status_evidence": "In progress. Official: packages/app/src/session/requests/{session-question-dock-classic.tsx,question-answer-composer.css,session-question-dock.tsx,question-controller.ts}, settings/{experimental/experimental.tsx,model.tsx,search-catalog.ts}, runtime/i18n/en.ts.",
       "depends_on": "none",
       "risks": "none",
       "workstream": "UPSTREAM"
