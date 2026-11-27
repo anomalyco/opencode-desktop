@@ -78,9 +78,12 @@ const MAX_PUMP_DELAY: Duration = Duration::from_secs(1);
 const BUSY_PUMP_DELAY: Duration = Duration::from_millis(16);
 #[cfg(not(target_os = "macos"))]
 const BUSY_FOR: Duration = Duration::from_secs(3);
-/// macOS also pumps the AppKit run loop between CEF's work calls, every 4 ms as before.
+/// macOS pumps the AppKit run loop every 4 ms while a tab is awake, relaxing to 50 ms when idle
+/// (0 tabs or all tabs hidden) to avoid 250 Hz idle wakeups.
 #[cfg(target_os = "macos")]
 const MAX_PUMP_DELAY: Duration = Duration::from_millis(4);
+#[cfg(target_os = "macos")]
+const IDLE_PUMP_DELAY: Duration = Duration::from_millis(50);
 #[cfg(target_os = "macos")]
 const BUSY_PUMP_DELAY: Duration = MAX_PUMP_DELAY;
 #[cfg(target_os = "macos")]
@@ -522,7 +525,15 @@ pub fn run_browser(
             pump_at = Some(Instant::now());
         }
         let now = Instant::now();
-        let cap = if now < busy_until { BUSY_PUMP_DELAY } else { MAX_PUMP_DELAY };
+        #[cfg(target_os = "macos")]
+        let max_pump = if !manager.has_awake_tabs() {
+            IDLE_PUMP_DELAY
+        } else {
+            MAX_PUMP_DELAY
+        };
+        #[cfg(not(target_os = "macos"))]
+        let max_pump = MAX_PUMP_DELAY;
+        let cap = if now < busy_until { BUSY_PUMP_DELAY } else { max_pump };
         if pump_at.is_some_and(|at| at <= now) || now.saturating_duration_since(last_pump) >= cap {
             pump_at = None;
             last_pump = now;
@@ -564,7 +575,7 @@ pub fn run_browser(
             .into_iter()
             .flatten()
             .min()
-            .unwrap_or(now + MAX_PUMP_DELAY);
+            .unwrap_or(now + max_pump);
         #[cfg(windows)]
         high_res_timer.sync(
             now < busy_until

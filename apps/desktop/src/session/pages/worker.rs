@@ -11,6 +11,19 @@ use serde_json::Value;
 
 use super::{ENTRIES, Fetch, Job, LaneHealthEvent, MEMORY_BYTES, Page, PageResult, QueueEvent, QueueState, Shared, bridge, now};
 
+/// Selects the next job for `foreground`'s lane: foreground picks newest-first; background serves
+/// explicit history/bridge page reads ahead of single-message re-reads and speculative prefetches.
+fn pick_job(jobs: &std::collections::VecDeque<Job>, foreground: bool) -> Option<usize> {
+    if foreground {
+        jobs.iter().rposition(|j| j.foreground)
+    } else {
+        jobs.iter()
+            .position(|j| !j.foreground && j.cursor.is_some() && !j.one)
+            .or_else(|| jobs.iter().position(|j| !j.foreground && j.cursor.is_some()))
+            .or_else(|| jobs.iter().rposition(|j| !j.foreground))
+    }
+}
+
 #[cfg(not(target_arch = "wasm32"))]
 pub(super) fn worker(q: Shared, fetch: Fetch, out: Sender<PageResult>, wake: Waker, images: Arc<rune::ImageCache>, foreground: bool) {
     let mut worked = false;
@@ -19,7 +32,7 @@ pub(super) fn worker(q: Shared, fetch: Fetch, out: Sender<PageResult>, wake: Wak
             let mut state = q.0.lock().unwrap_or_else(PoisonError::into_inner);
             loop {
                 let QueueState::Running(inner) = &mut *state else { return };
-                if let Some(i) = inner.jobs.iter().rposition(|j| j.foreground == foreground)
+                if let Some(i) = pick_job(&inner.jobs, foreground)
                     && let Some(job) = inner.jobs.remove(i)
                 {
                     inner.active.insert((job.key.clone(), job.cursor.clone()));
@@ -46,7 +59,7 @@ pub(super) fn worker(q: Shared, fetch: Fetch, out: Sender<PageResult>, wake: Wak
 pub(super) fn take_now(q: &Shared, foreground: bool) -> Option<Job> {
     let mut state = q.0.lock().unwrap_or_else(PoisonError::into_inner);
     let QueueState::Running(inner) = &mut *state else { return None };
-    let i = inner.jobs.iter().rposition(|j| j.foreground == foreground)?;
+    let i = pick_job(&inner.jobs, foreground)?;
     let job = inner.jobs.remove(i)?;
     inner.active.insert((job.key.clone(), job.cursor.clone()));
     Some(job)
@@ -77,16 +90,20 @@ pub(super) fn read(q: &Shared, fetch: &Fetch, out: &Sender<PageResult>, wake: &W
                 images: prepared,
                 read,
             });
-            if !page.history {
+            {
                 let mut state = q.0.lock().unwrap_or_else(PoisonError::into_inner);
-                if let QueueState::Running(inner) = &mut *state
-                    && inner.ready.iter().all(|p| p.key.id != page.key.id || p.key.updated <= page.key.updated)
-                {
-                    inner.ready.retain(|p| p.key.id != page.key.id);
-                    inner.ready.push_back(page.clone());
-                    while inner.ready.len() > ENTRIES || inner.ready.iter().map(|p| p.bytes).sum::<usize>() > MEMORY_BYTES {
-                        inner.ready.pop_front();
+                if let QueueState::Running(inner) = &mut *state {
+                    if !page.history
+                        && inner.ready.iter().all(|p| p.key.id != page.key.id || p.key.updated <= page.key.updated)
+                    {
+                        inner.ready.retain(|p| p.key.id != page.key.id);
+                        inner.ready.push_back(page.clone());
+                        while inner.ready.len() > ENTRIES || inner.ready.iter().map(|p| p.bytes).sum::<usize>() > MEMORY_BYTES {
+                            inner.ready.pop_front();
+                        }
                     }
+                    // Clear active before waking the UI thread so an immediate re-enqueue cannot race.
+                    inner.active.remove(&(job.key.clone(), job.cursor.clone()));
                 }
             }
             if out.send(Ok(page)).is_ok() { wake(); }
@@ -125,11 +142,19 @@ pub(super) fn read(q: &Shared, fetch: &Fetch, out: &Sender<PageResult>, wake: &W
                 publish(value, read);
             }
             Err(error) => {
-                if let QueueState::Running(inner) = &mut *q.0.lock().unwrap_or_else(PoisonError::into_inner) { inner.failed.insert(job.key.clone(), Instant::now() + Duration::from_secs(30)); }
-                if out.send(Err((job.key.clone(), error))).is_ok() { wake(); }
+                {
+                    let mut state = q.0.lock().unwrap_or_else(PoisonError::into_inner);
+                    if let QueueState::Running(inner) = &mut *state {
+                        if job.cursor.is_none() {
+                            inner.failed.insert(job.key.clone(), Instant::now() + Duration::from_secs(30));
+                        }
+                        inner.active.remove(&(job.key.clone(), job.cursor.clone()));
+                    }
+                }
+                let read_of = bridge::ReadOf::of(job.cursor.as_deref(), job.one);
+                if out.send(Err((job.key.clone(), read_of, error))).is_ok() { wake(); }
             }
         }
-        if let QueueState::Running(inner) = &mut *q.0.lock().unwrap_or_else(PoisonError::into_inner) { inner.active.remove(&(job.key, job.cursor)); }
     }
     true
 }
