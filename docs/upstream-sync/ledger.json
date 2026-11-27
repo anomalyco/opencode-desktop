@@ -2,12 +2,12 @@
   "generated_at": "2026-11-28",
   "upstream_repo": "anomalyco/opencode",
   "upstream_reference_base": "f6e0c2d0833ffe772035f221fed923e1cd5fb408",
-  "upstream_head": "8815bc9d47ea9a07744bb6a4a3e505ea6e6a2763",
+  "upstream_head": "9dff0b82550eae0f0e933db5b39c02fecedb2a1a",
   "upstream_pre_window_base": "3751be8138ebcf33343eb3f3d011b32fc814103c",
   "rune_desktop_repo": "anomalyco/opencode-rune",
-  "rune_desktop_head": "f935e6d13f",
-  "post_1114_commit_count": 806,
-  "post_1114_in_ledger": 271,
+  "rune_desktop_head": "e9ea53d0ad",
+  "post_1114_commit_count": 807,
+  "post_1114_in_ledger": 272,
   "post_1114_skipped": 535,
   "post_1114_skipped_breakdown": {
     "test-only": 35,
@@ -18,13 +18,13 @@
     "server-core-ai-codemode-internal": 339
   },
   "pre_1114_carryover_rows": 15,
-  "total_ledger_rows": 292,
+  "total_ledger_rows": 293,
   "status_counts": {
-    "have it": 243,
+    "have it": 249,
     "not applicable": 39,
     "differs on purpose": 1,
     "partly": 1,
-    "missing": 8
+    "missing": 3
   },
   "rows": [
     {
@@ -7085,13 +7085,19 @@
       ],
       "summary": "After archiving the currently open session from the sidebar inbox list, selects and opens the next row below it (or above if last) instead of jumping away.",
       "size": "S",
-      "status": "missing",
-      "status_evidence": "Open PR #1403 (head 14f4e7218f, CI running): opens the nearest visible row below (or above if last) after archiving or deleting the open sidebar session.",
+      "status": "have it",
+      "status_evidence": "Merged in #1403 (dev b38eea2222, CI run 46017629411 green): adds inbox_successor and SidebarInbox::shown snapshot so archiving or deleting the open sidebar session opens the nearest visible row below it (or above if last). Headless build verified (run 46014218715, 6/6 exit 0, peak <= 0.51 GiB; live archive/delete path not exercised on no-server fixture). Not run: real window, live server, macOS, Linux.",
       "depends_on": "none",
       "risks": "none",
       "workstream": "UPSTREAM",
       "pr_refs": [
         1403
+      ],
+      "rune_files": [
+        "apps/desktop/src/session/inbox/order.rs",
+        "apps/desktop/src/session/inbox/model.rs",
+        "apps/desktop/src/session/menu.rs",
+        "apps/desktop/src/shell/tabs/actions.rs"
       ]
     },
     {
@@ -7109,13 +7115,18 @@
       ],
       "summary": "Keeps the active/selected session row visible inside the collapsed Working section of the sidebar inbox list rather than hiding it.",
       "size": "XS",
-      "status": "missing",
-      "status_evidence": "Open PR #1403 (head 14f4e7218f, CI running): keeps the selected session visible in the collapsed Working section (inline, shelf, and keyboard nav).",
+      "status": "have it",
+      "status_evidence": "Merged in #1403 (dev b38eea2222, CI run 46017629411 green): keeps the selected working session visible when Working is collapsed (inline, bottom shelf, Sections::rows keyboard nav, and Home/End). Verified headless on Windows x64 PR build (run 46014218715, 6/6 exit 0, peak <= 0.51 GiB): collapsing Working with a selected working row keeps it visible in inbox-working-rows. Not run: real window, macOS, Linux.",
       "depends_on": "none",
       "risks": "none",
       "workstream": "UPSTREAM",
       "pr_refs": [
         1403
+      ],
+      "rune_files": [
+        "apps/desktop/src/session/inbox/order.rs",
+        "apps/desktop/src/session/inbox/model.rs",
+        "apps/desktop/src/shell/view/inbox.rs"
       ]
     },
     {
@@ -7135,13 +7146,16 @@
       ],
       "summary": "Prevents the sidebar inbox list from jumping scroll position when a focused session moves between inbox sections.",
       "size": "S",
-      "status": "missing",
-      "status_evidence": "Open PR #1403 (head 14f4e7218f, CI running): keeps list scroll in place and follows focus key across shelf remounts when a focused session changes section.",
+      "status": "have it",
+      "status_evidence": "Merged in #1403 (dev b38eea2222, CI run 46017629411 green): follows a focused session card across main list / Working shelf remounts via tx.focus(key, false) without scrolling the list. Headless build verified (run 46014218715, 6/6 exit 0, peak <= 0.51 GiB; live section move not exercised on no-server fixture). Not run: real window, live server, macOS, Linux.",
       "depends_on": "none",
       "risks": "none",
       "workstream": "UPSTREAM",
       "pr_refs": [
         1403
+      ],
+      "rune_files": [
+        "apps/desktop/src/shell/view/inbox.rs"
       ]
     },
     {
@@ -7163,13 +7177,18 @@
       ],
       "summary": "Shows a first-quit notice explaining that OpenCode's background service keeps running after quit, and adds a Settings > General toggle to stop the background service on quit.",
       "size": "M",
-      "status": "missing",
-      "status_evidence": "Open PR #1408 (head 3a60ec5592, CI running): first-quit background-service notice modal, Settings > General Keep running in the background toggle, and sidecar stop-on-quit.",
+      "status": "have it",
+      "status_evidence": "Merged in #1408 (dev 8effe4f95c, CI run 46014613580 green): adds first-quit background-service notice modal, Settings > General Keep running in the background toggle, and sidecar stop-on-quit. Verified headless on Windows x64 PR build (3/3 cases PASS: settings-preferences switch toggle, Settings search highlight, and background-notice modal Open Settings flow). Not run: real window, macOS, Linux.",
       "depends_on": "none",
       "risks": "none",
       "workstream": "UPSTREAM",
       "pr_refs": [
         1408
+      ],
+      "rune_files": [
+        "features/settings/src/pages/general.rs",
+        "features/settings/src/search/mod.rs",
+        "apps/desktop/src/workspace/lifecycle/quit.rs"
       ]
     },
     {
@@ -7187,13 +7206,16 @@
       ],
       "summary": "Restores the Recent section header in the sidebar inbox list when Recent sessions are shown.",
       "size": "XS",
-      "status": "missing",
-      "status_evidence": "Open PR #1403 (head 14f4e7218f, CI running): restores the visible Recent section header in the sidebar.",
+      "status": "have it",
+      "status_evidence": "Merged in #1403 (dev b38eea2222, CI run 46017629411 green): restores visible Recent section header above Recent rows in sidebar. Verified headless on Windows x64 PR build (run 46014218715, 6/6 exit 0, peak <= 0.51 GiB): --scene layout-inbox shows Recent header cleanly above Recent rows. Not run: real window, macOS, Linux.",
       "depends_on": "none",
       "risks": "none",
       "workstream": "UPSTREAM",
       "pr_refs": [
         1403
+      ],
+      "rune_files": [
+        "apps/desktop/src/shell/view/inbox.rs"
       ]
     },
     {
@@ -7327,10 +7349,44 @@
       ],
       "summary": "Removes the local/dev build-channel gate so inline quotes render inside user message bubbles in every build channel.",
       "size": "XS",
-      "status": "missing",
-      "status_evidence": "Open PR #1413 (head d5d7594bd0, CI running): enables TimelineHost::inline_quotes by default in session-view and removes the build_channel gate in desktop host.",
+      "status": "have it",
+      "status_evidence": "Merged in #1413 (dev e9ea53d0ad, CI run 46018492315 green): enables TimelineHost::inline_quotes by default in session-view and removes the build_channel() gate in desktop host so inline quotes render in every build. Post-merge bulk headless verification queued.",
       "pr_refs": [
         1413
+      ],
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "UPSTREAM",
+      "rune_files": [
+        "crates/session-view/src/lib.rs",
+        "apps/desktop/src/shell/view/session/host.rs"
+      ]
+    },
+    {
+      "id": "UP-272",
+      "window": "post-1120",
+      "pr": 66805,
+      "sha": "9dff0b8255",
+      "title": "fix(i18n): fix a batch of mistranslations and misplaced labels",
+      "merged": "2026-11-27",
+      "packages": [
+        "app",
+        "ui",
+        "gui-plugins"
+      ],
+      "main_files": [
+        "packages/app/src/runtime/i18n/en.ts",
+        "packages/app/src/runtime/i18n/uk.ts",
+        "packages/ui/src/i18n/uk.ts",
+        "packages/gui-plugins/src/details/i18n/uk.ts",
+        "packages/gui-plugins/src/ssh/i18n/uk.ts"
+      ],
+      "summary": "Adds shell/subagent permission tool labels across all locales and fixes mistranslations and misplaced labels in hr, hu, is, lt, uk, vi, fa, ru, tr, and built-in plugin catalogs.",
+      "size": "S",
+      "status": "missing",
+      "status_evidence": "Open PR #1415 (head f729de2f9e, CI running): syncs 65 official and built-in plugin locale JSON catalogs matching opencode#66805.",
+      "pr_refs": [
+        1415
       ],
       "depends_on": "none",
       "risks": "none",
