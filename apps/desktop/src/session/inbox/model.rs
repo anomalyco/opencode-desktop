@@ -302,45 +302,6 @@ impl App {
         crate::servers::runtime::with_server(self, &server, |s| f(s, &id));
     }
 
-    /// Snapshots the inbox's visible row order while the open session is non-archived and visible,
-    /// so archiving or deleting it opens the row below it rather than falling back to tab order
-    /// (`packages/app/src/shell/titlebar/inbox.tsx:212-248`, `opencode#66558`).
-    pub(crate) fn record_inbox_shown(&mut self) {
-        if self.tab_layout() != TabLayout::Inbox {
-            return;
-        }
-        let Some(current) = self.nav_current() else { return };
-        let keys = self.nav_order();
-        if !keys.contains(&current) {
-            return;
-        }
-        let (server, sid) = self.inbox_target(&current);
-        let archived = (server == *crate::servers::runtime::active(self) && self.session(&sid).is_some_and(|s| s.archived.is_some()))
-            || self.inbox_archived().iter().any(|a| a.id == sid);
-        if archived && self.sidebar_inbox.shown.as_ref().is_some_and(|(k, _)| k == &current) {
-            return;
-        }
-        self.sidebar_inbox.shown = Some((current, keys));
-    }
-
-    /// Picks the inbox successor row after `gone` (sessions on `server`) left the list
-    /// (`inbox.tsx:226-248`, `opencode#66558`).
-    pub(crate) fn pick_inbox_successor(&self, server: &ServerKey, gone: &[String]) -> Option<String> {
-        if self.tab_layout() != TabLayout::Inbox {
-            return None;
-        }
-        let (shown_key, shown_keys) = self.sidebar_inbox.shown.as_ref()?;
-        let is_gone = |k: &str| {
-            let (s, id) = self.inbox_target(k);
-            s == *server && gone.iter().any(|g| g == &id)
-        };
-        if !is_gone(shown_key) {
-            return None;
-        }
-        let visible: HashSet<String> = self.nav_order().into_iter().collect();
-        crate::inbox_order::inbox_successor(shown_keys, shown_key, |k| visible.contains(k) && !is_gone(k))
-    }
-
     /// Archive (`inbox.archive`): beyond Desktop, which waits for the server, the session leaves
     /// the list and its tabs at once; a refusal puts it back (`archive_moves`).
     pub fn archive_session(&mut self, id: &str, tx: &mut Tx) {
