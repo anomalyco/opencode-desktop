@@ -6,7 +6,12 @@
 #![forbid(unsafe_code)]
 
 mod delete_dialog;
+mod detail;
+mod fold;
 pub mod format;
+mod list;
+mod parts;
+mod samples;
 pub mod source;
 mod story;
 pub mod view;
@@ -49,6 +54,8 @@ pub struct State {
     pub query: TextEdit,
     pub selected: Option<String>,
     pub show_done: bool,
+    /// The long prompts, code and outputs the reader opened in the inspector.
+    pub folds: fold::Folds,
     pub mutate: MutatePhase,
     pub delete_modal: DeleteModal,
     pub results: Arc<Mutex<Vec<BgResult>>>,
@@ -62,6 +69,7 @@ impl Default for State {
             query: TextEdit::default(),
             selected: None,
             show_done: false,
+            folds: fold::Folds::default(),
             mutate: MutatePhase::Idle,
             delete_modal: DeleteModal::Closed,
             results: Arc::new(Mutex::new(Vec::new())),

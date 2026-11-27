@@ -26,30 +26,62 @@ pub fn trigger_label(row: &AutomationInfo) -> String {
     }
 }
 
+/// The raw cron text of a cron trigger whose label is a description of it, for the inspector to
+/// show beside the description. One with no description is already its own label.
+pub fn described_cron(row: &AutomationInfo) -> Option<&str> {
+    match &row.trigger {
+        AutomationTrigger::Cron { cron, .. } if describe_cron(cron).is_some() => Some(cron.as_str()),
+        _ => None,
+    }
+}
+
+/// The most times of day a description lists: `0 9,13,17,21 * * *` reads as its four times, while
+/// `0 6-22 * * *` keeps its cron text rather than seventeen.
+const MAX_TIMES: usize = 6;
+
 /// Covers the common cron shapes ("every weekday at 9"); anything else keeps its raw cron text
-/// (format.ts:describeCron).
+/// (format.ts:describeCron). Official describes one time of day only and leaves every other
+/// schedule as cron text; this also reads several times a day, every N hours and a day of the
+/// month, which are as common in what people ask for.
 fn describe_cron(cron: &str) -> Option<String> {
     let fields: Vec<&str> = cron.split_whitespace().collect();
     if fields.len() != 5 {
         return None;
     }
-    if fields[2] != "*" || fields[3] != "*" {
-        return None;
-    }
     let minutes = parse_cron_field(fields[0], 0, 59, false)?;
     let hours = parse_cron_field(fields[1], 0, 23, false)?;
+    let days = parse_cron_field(fields[2], 1, 31, false)?;
+    let months = parse_cron_field(fields[3], 1, 12, false)?;
     let weekdays = parse_cron_field(fields[4], 0, 6, true)?;
+    if !months.is_empty() {
+        return None;
+    }
+    let clock = |hour: u32, minute: u32| date::format(Style::Time, Moment { year: 2000, month: 1, day: 1, hour, minute, offset: 0 });
 
-    if minutes.len() == 1 && hours.len() == 1 {
-        let moment = Moment {
-            year: 2000,
-            month: 1,
-            day: 1,
-            hour: hours[0],
-            minute: minutes[0],
-            offset: 0,
-        };
-        let time = date::format(Style::Time, moment);
+    if !days.is_empty() {
+        if let ([day], [hour], [minute], true) = (&days[..], &hours[..], &minutes[..], weekdays.is_empty()) {
+            let day = opencode_i18n::integer(i64::from(*day));
+            return Some(t!("rune.automations.trigger.monthly", day = day, time = clock(*hour, *minute)));
+        }
+        return None;
+    }
+
+    if let [minute] = minutes[..]
+        && !hours.is_empty()
+    {
+        if weekdays.is_empty()
+            && let Some(step) = even_step(&hours, 24).filter(|step| *step > 1)
+        {
+            if minute == 0 {
+                return Some(t!("rune.automations.trigger.hours", count = step));
+            }
+            return Some(t!("rune.automations.trigger.hoursAt", count = step, minute = format!("{minute:02}")));
+        }
+        if hours.len() > MAX_TIMES {
+            return None;
+        }
+        let times: Vec<String> = hours.iter().map(|&hour| clock(hour, minute)).collect();
+        let time = list(&times);
         if weekdays.is_empty() {
             return Some(t!("automations.trigger.daily", time = time));
         }
@@ -67,22 +99,22 @@ fn describe_cron(cron: &str) -> Option<String> {
     if !hours.is_empty() || !weekdays.is_empty() {
         return None;
     }
-    if minutes.len() == 1 {
-        let minute = format!("{:02}", minutes[0]);
+    if let [minute] = minutes[..] {
+        let minute = format!("{minute:02}");
         return Some(t!("automations.trigger.hourly", minute = minute));
     }
-    if minutes.len() >= 2 {
-        let step = minutes[1].saturating_sub(minutes[0]);
-        if step > 0
-            && minutes[0] == 0
-            && 60 % step == 0
-            && minutes.len() == (60 / step) as usize
-            && minutes.iter().enumerate().all(|(i, &m)| m == i as u32 * step)
-        {
-            return Some(t!("automations.trigger.minutes", count = step));
-        }
-    }
-    None
+    even_step(&minutes, 60).map(|step| t!("automations.trigger.minutes", count = step))
+}
+
+/// The step of `values` when they run from 0 in equal steps through a cycle of `cycle` (`*/15`
+/// minutes, `*/2` hours).
+fn even_step(values: &[u32], cycle: u32) -> Option<u32> {
+    let step = values.get(1)?.checked_sub(*values.first()?).filter(|step| *step > 0)?;
+    let even = values[0] == 0
+        && cycle.is_multiple_of(step)
+        && values.len() == (cycle / step) as usize
+        && values.iter().enumerate().all(|(i, &v)| v == i as u32 * step);
+    even.then_some(step)
 }
 
 fn parse_cron_field(raw: &str, min: u32, max: u32, dow: bool) -> Option<Vec<u32>> {
@@ -232,6 +264,51 @@ pub fn status_label(row: &AutomationInfo) -> &'static str {
         (AutomationStatus::Active, _) => t!("automations.status.active"),
         (AutomationStatus::Paused, _) => t!("automations.status.paused"),
         (AutomationStatus::Done, _) => t!("automations.status.done"),
+    }
+}
+
+/// What a run that didn't simply fire says beside its time; a run that fired says nothing.
+pub fn outcome_note(outcome: Option<AutomationOutcome>) -> Option<&'static str> {
+    match outcome? {
+        AutomationOutcome::Fired => None,
+        AutomationOutcome::Late => Some(t!("rune.automations.outcome.late")),
+        AutomationOutcome::Skipped => Some(t!("rune.automations.outcome.skipped")),
+        AutomationOutcome::Disabled => Some(t!("rune.automations.outcome.disabled")),
+        AutomationOutcome::Failed => Some(t!("automations.note.failed")),
+        AutomationOutcome::Expired => Some(t!("automations.status.expired")),
+    }
+}
+
+/// The session a run woke, from the first line of its output.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Delivery<'a> {
+    Prompted(&'a str),
+    Subagent(&'a str),
+}
+
+impl<'a> Delivery<'a> {
+    pub fn session(self) -> &'a str {
+        match self {
+            Self::Prompted(id) | Self::Subagent(id) => id,
+        }
+    }
+}
+
+/// A run's output as the session it woke and what it logged after: the server writes
+/// `Prompted <session>` or `Started subagent <session>` as the first line
+/// (packages/core/src/automation.ts:217 `deliverySummary`). Output that starts any other way is
+/// all log.
+pub fn split_output(output: &str) -> (Option<Delivery<'_>>, &str) {
+    let (first, rest) = output.split_once('\n').unwrap_or((output, ""));
+    let session = |id: &'_ str| id.starts_with("ses_") && !id.contains(char::is_whitespace);
+    let delivery = first
+        .strip_prefix("Started subagent ")
+        .filter(|id| session(id))
+        .map(Delivery::Subagent)
+        .or_else(|| first.strip_prefix("Prompted ").filter(|id| session(id)).map(Delivery::Prompted));
+    match delivery {
+        Some(delivery) => (Some(delivery), rest),
+        None => (None, output),
     }
 }
 

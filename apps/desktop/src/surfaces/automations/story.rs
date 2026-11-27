@@ -16,6 +16,8 @@ const VARIANTS: &[(&str, usize)] = &[
     ("Empty", 1),
     ("Setting off", 2),
     ("Delete confirm", 3),
+    ("Long prompt", 4),
+    ("Long prompt open", 5),
 ];
 
 const KEYS: &[Trigger] = &[
@@ -161,6 +163,24 @@ fn setup_empty(s: &mut App) {
     source::seed_fixture(s, "release-runner-03", Vec::new(), &["/workspace/lumen/release"]);
 }
 
+/// A prompt of many paragraphs on a server with no name, as a local one has.
+fn setup_long(s: &mut App) {
+    setup_base(s, true);
+    let rows = super::samples::long_rows(*s.now_ms);
+    source::seed_fixture(s, "", rows, &super::samples::DIRS);
+    let key = source::entry_key(crate::servers::runtime::active(s), super::samples::LONG_ID);
+    s.kernel.slots.get_mut(&super::AUTOMATIONS).selected = Some(key);
+}
+
+/// [`setup_long`] with the prompt read to its end.
+fn setup_long_open(s: &mut App) {
+    setup_long(s);
+    let st = s.kernel.slots.get_mut(&super::AUTOMATIONS);
+    if let Some(key) = st.selected.clone() {
+        st.folds.step(&super::parts::fold_key(&key, super::detail::DO_BODY), super::fold::Event::Toggle);
+    }
+}
+
 fn setup_off(s: &mut App) {
     setup_base(s, false);
     source::seed_fixture(s, "release-runner-03", Vec::new(), &[]);
@@ -177,6 +197,8 @@ fn open(s: &mut App, _play: &mut rune::Play<'_, App>) {
                 super::ask_delete(s, first.key.clone(), first.server.clone(), first.row.id.clone(), first.row.name.clone());
             }
         }
+        4 => setup_long(s),
+        5 => setup_long_open(s),
         _ => setup_default(s),
     }
 }
@@ -198,4 +220,6 @@ rune_register::register!(crate::scenes::SCENE_LIST: crate::scenes::Scene = [
     ("automations", setup_default),
     ("automations-empty", setup_empty),
     ("automations-off", setup_off),
+    ("automations-long-prompt", setup_long),
+    ("automations-long-prompt-open", setup_long_open),
 ]);

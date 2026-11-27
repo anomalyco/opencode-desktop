@@ -69,7 +69,9 @@ pub struct Entry {
     pub server: ServerKey,
     pub server_label: String,
     pub project_name: String,
+    /// The creating session's title, when the app knows it.
     pub creator: Option<String>,
+    /// The prompted session's title, when the app knows it.
     pub recipient: Option<String>,
     pub trigger: String,
     pub row: AutomationInfo,
@@ -77,6 +79,21 @@ pub struct Entry {
 
 pub fn entry_key(server: &ServerKey, id: &str) -> String {
     format!("{}\0{id}", server.as_str())
+}
+
+/// The title of session `id` on `server`, when the app knows it: from the server the window works
+/// against, or from an open tab.
+pub fn session_title(s: &App, server: &ServerKey, id: &str) -> Option<String> {
+    if server == crate::servers::runtime::active(s)
+        && let Some(info) = s.session(id)
+        && !info.title.trim().is_empty()
+    {
+        return Some(info.title.clone());
+    }
+    s.tabs
+        .iter()
+        .find(|t| !t.is_draft() && t.server == *server && t.id == id && !t.title.trim().is_empty())
+        .map(|t| t.title.clone())
 }
 
 pub fn entries(s: &App) -> Vec<Entry> {
@@ -94,36 +111,17 @@ pub fn entries(s: &App) -> Vec<Entry> {
             } else {
                 None
             }
+            // Official falls back to the project's ID (model.ts:44), an opaque hash beside every
+            // row; the folder's name says where the automation runs.
             .unwrap_or_else(|| {
-                if row.project_id.is_empty() || row.project_id == "global" {
-                    row.directory
-                        .rsplit(['/', '\\'])
-                        .find(|seg| !seg.is_empty())
-                        .unwrap_or(&row.directory)
-                        .to_owned()
-                } else {
-                    row.project_id.clone()
-                }
+                row.directory
+                    .rsplit(['/', '\\'])
+                    .find(|seg| !seg.is_empty())
+                    .map_or_else(|| row.project_id.clone(), str::to_owned)
             });
-            let session_name = |sid: &str| -> String {
-                if on_active
-                    && let Some(info) = s.session(sid)
-                    && !info.title.trim().is_empty()
-                {
-                    return info.title.clone();
-                }
-                if let Some(tab) = s.tabs.iter().find(|t| !t.is_draft() && t.server == *srv_key && t.id == sid)
-                    && !tab.title.trim().is_empty()
-                {
-                    return tab.title.clone();
-                }
-                sid.to_owned()
-            };
-            let creator = row.session_id.as_deref().map(session_name);
+            let creator = row.session_id.as_deref().and_then(|id| session_title(s, srv_key, id));
             let recipient = match &row.action {
-                AutomationAction::Prompt { to: opencode_kit::model::AutomationTarget::Session(sid), .. } => {
-                    Some(session_name(sid))
-                }
+                AutomationAction::Prompt { to: opencode_kit::model::AutomationTarget::Session(id), .. } => session_title(s, srv_key, id),
                 _ => None,
             };
             out.push(Entry {
@@ -163,6 +161,8 @@ pub fn filtered_entries(s: &App, all: &[Entry]) -> Vec<Entry> {
             push(&e.row.directory);
             if let Some(c) = &e.creator { push(c); }
             if let Some(r) = &e.recipient { push(r); }
+            if let Some(id) = &e.row.session_id { push(id); }
+            if let AutomationAction::Prompt { to: opencode_kit::model::AutomationTarget::Session(id), .. } = &e.row.action { push(id); }
             push(&e.server_label);
             if let opencode_kit::model::AutomationTrigger::Event { server, .. } = &e.row.trigger {
                 push(server);
@@ -521,6 +521,7 @@ pub fn seed_fixture(s: &mut App, server_label: &str, rows: Vec<AutomationInfo>, 
     st.query = Default::default();
     st.selected = None;
     st.show_done = false;
+    st.folds = Default::default();
     st.mutate = MutatePhase::Idle;
     st.delete_modal = DeleteModal::Closed;
 }
