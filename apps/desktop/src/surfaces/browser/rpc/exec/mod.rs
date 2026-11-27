@@ -102,9 +102,10 @@ impl ExecPhase {
         att: &mut SessionAttachment,
         app: &mut App,
         tx: Option<&mut Tx>,
+        other_waking: bool,
     ) {
         match self {
-            Self::Wake(st) => st.cancel_cleanup(app),
+            Self::Wake(st) => st.cancel_cleanup(att, app, other_waking),
             Self::Inspect(st) => {
                 for (req_id, _) in st.pending.drain(..) {
                     app.workspace_panes.browser.host.cancel_cdp(req_id);
@@ -163,13 +164,27 @@ impl ActiveCommand {
         self.phase.target_host_tab()
     }
 
+    pub fn is_waking_tab(&self, tab_id: u64) -> bool {
+        matches!(&self.phase, ExecPhase::Wake(st) if st.host_id == tab_id)
+    }
+
     pub fn cancel_cleanup(
         &mut self,
         att: &mut SessionAttachment,
         app: &mut App,
         tx: Option<&mut Tx>,
     ) {
-        self.phase.cancel_cleanup(att, app, tx);
+        self.phase.cancel_cleanup(att, app, tx, false);
+    }
+
+    fn cancel_cleanup_with(
+        &mut self,
+        att: &mut SessionAttachment,
+        app: &mut App,
+        tx: Option<&mut Tx>,
+        other_waking: bool,
+    ) {
+        self.phase.cancel_cleanup(att, app, tx, other_waking);
     }
 }
 
@@ -282,10 +297,7 @@ pub(super) fn start_command(
         && is_hibernated_or_waking
         && let Some(hid) = target_hid
     {
-        if !cmd.is_inspect()
-            && let Some(want_gen) = cmd.generation
-            && att.generation_of(hid) != want_gen
-        {
+        if !cmd.is_inspect() && (cmd.generation.is_some() || cmd.target.is_some()) {
             finish_and_reply(
                 att,
                 app,
@@ -293,13 +305,13 @@ pub(super) fn start_command(
                 request_id,
                 Outcome::fail(
                     failure_code::DOCUMENT_CHANGED,
-                    "The tab navigated or changed documents after authorization. Refresh state and retry.",
+                    "The tab hibernated or is waking and must be re-inspected before running authorized actions. Refresh state and retry.",
                 ),
                 now,
             );
             return;
         }
-        let is_dialog = cmd.is_inspect() || matches!(cmd.action_type(), Some("dialog" | "tabs.focus"));
+        let is_dialog = cmd.is_inspect() || cmd.action_type() == Some("tabs.focus");
         match wake::begin_wake(att, app, hid, cmd, now) {
             StepOutcome::Done(outcome) => {
                 finish_and_reply(att, app, &connection_id, request_id, outcome, now);
@@ -434,16 +446,23 @@ pub(super) fn poll_commands(
 ) -> (bool, Option<Instant>) {
     let mut changed = false;
     let mut earliest: Option<Instant> = None;
-    let mut cmds = std::mem::take(&mut att.active_commands);
+    let cmds = std::mem::take(&mut att.active_commands);
     let mut still_running = Vec::with_capacity(cmds.len());
+    let mut iter = cmds.into_iter();
 
-    for mut cmd in cmds.drain(..) {
+    while let Some(mut cmd) = iter.next() {
+        let host_id = cmd.phase.target_host_tab();
+        let other_waking = || {
+            still_running
+                .iter()
+                .chain(iter.as_slice())
+                .any(|c| c.is_waking_tab(host_id))
+        };
         if !att.attach.is_request_in_flight(&cmd.connection_id, &cmd.request_id) {
-            cmd.cancel_cleanup(att, app, Some(tx));
+            cmd.cancel_cleanup_with(att, app, Some(tx), other_waking());
             changed = true;
             continue;
         }
-        let host_id = cmd.phase.target_host_tab();
         let mid_guard_fail = if !cmd.is_dialog {
             if let Some(site) = app.workspace_panes.browser.host.take_agent_passkey_refused(host_id) {
                 Some(Outcome::fail(
@@ -480,10 +499,10 @@ pub(super) fn poll_commands(
         };
 
         let done = if let Some(fail) = mid_guard_fail {
-            cmd.cancel_cleanup(att, app, Some(tx));
+            cmd.cancel_cleanup_with(att, app, Some(tx), other_waking());
             Some(fail)
         } else if now >= cmd.deadline && !matches!(cmd.phase, ExecPhase::Wake(_) | ExecPhase::Wait(_) | ExecPhase::WaitLoad(_)) {
-            cmd.cancel_cleanup(att, app, Some(tx));
+            cmd.cancel_cleanup_with(att, app, Some(tx), other_waking());
             Some(Outcome::fail(
                 failure_code::OPERATION_FAILED,
                 "Browser command timed out locally.",

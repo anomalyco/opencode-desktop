@@ -310,8 +310,15 @@ impl App {
         };
         if let Some(uid) = &tab {
             self.close_tab(uid, tx);
-        } else if !matches!(&*self.route, Route::Session { id: rid, .. } if rid == id) {
-            self.hibernate_browser_tabs_for_session(id);
+        } else {
+            let routed_family = matches!(&*self.route, Route::Session { id: rid, .. }
+                if rid == id
+                    || self.ancestors(rid).any(|a| a == id)
+                    || self.ancestors(id).any(|a| a == rid.as_str())
+            );
+            if !routed_family {
+                self.hibernate_browser_tabs_for_session(id);
+            }
         }
         let sent = self.write(opencode_kit::client::Write::Archive(id.to_owned()));
         self.archive_move_sent(id, super::moves::Was::Listed { tab: was }, sent, tx);

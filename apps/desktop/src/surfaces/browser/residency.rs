@@ -77,7 +77,7 @@ pub fn can_hibernate_tab(app: &App, tab_id: u64, for_session_close: bool) -> boo
         return false;
     }
     // Hard blockers (apply even on session close / archive).
-    if t.loading || t.prompts.waiting_on_user() {
+    if t.loading || t.prompts.waiting_on_user() || t.refusal.is_some() {
         return false;
     }
     if t.files.iter().any(|f| f.state == DownloadState::Pending)
@@ -87,6 +87,9 @@ pub fn can_hibernate_tab(app: &App, tab_id: u64, for_session_close: bool) -> boo
         return false;
     }
     if browser.devtools.values().any(|p| p.tab_id == tab_id) {
+        return false;
+    }
+    if host.has_extension_popup_for(tab_id) {
         return false;
     }
     if super::rpc::is_tab_or_session_busy(app, tab_id) {
@@ -99,6 +102,8 @@ pub fn can_hibernate_tab(app: &App, tab_id: u64, for_session_close: bool) -> boo
         return false;
     }
     if for_session_close {
+        // Explicit session close/archive intentionally hibernates `ContextKind::Private` and
+        // `RemoteServer` tabs too (matching official `pane-machine.ts` `release-pages` disposal).
         return true;
     }
     // Additional blockers for idle background hibernation while the session stays open.
@@ -117,7 +122,6 @@ pub fn can_hibernate_tab(app: &App, tab_id: u64, for_session_close: bool) -> boo
     }
     if browser.overlay.active_for(tab_id)
         || browser.active_app_reviews.borrow().contains_key(&tab_id)
-        || host.has_extension_popup_for(tab_id)
     {
         return false;
     }
@@ -178,8 +182,21 @@ impl App {
         true
     }
 
+    fn is_browser_owner_open_or_routed(&self, owner: &str) -> bool {
+        let in_open_tab = self.tabs.iter().any(|t| {
+            !t.is_draft() && (t.id == owner || self.ancestors(owner).any(|a| a == t.id))
+        });
+        let is_routed = matches!(&*self.route, crate::Route::Session { id, .. }
+            if id == owner
+                || self.ancestors(id).any(|a| a == owner)
+                || self.ancestors(owner).any(|a| a == id.as_str())
+        );
+        in_open_tab || is_routed
+    }
+
     /// Hibernates eligible live browser tabs belonging to session `sid` and its subagent family
-    /// (matching official `pane-machine.ts` `session.presence { listed: false }` -> `release-pages`).
+    /// (matching official `pane-machine.ts` `session.presence { listed: false }` -> `release-pages`),
+    /// skipping any child subagent whose own tab or family route is still open.
     /// Preserves `BrowserTab` metadata and strip entries so `reopen_tab` and Undo Archive restore them.
     pub fn hibernate_browser_tabs_for_session(&mut self, sid: &str) {
         let candidates: Vec<u64> = self
@@ -187,7 +204,10 @@ impl App {
             .browser
             .session_tabs
             .iter()
-            .filter(|(owner, _)| *owner == sid || self.ancestors(owner).any(|a| a == sid))
+            .filter(|(owner, _)| {
+                (*owner == sid || self.ancestors(owner).any(|a| a == sid))
+                    && !self.is_browser_owner_open_or_routed(owner)
+            })
             .flat_map(|(_, ids)| ids.iter().copied())
             .collect();
         for tab_id in candidates {
@@ -210,17 +230,7 @@ impl App {
             .browser
             .session_tabs
             .iter()
-            .filter(|(owner, _)| {
-                let in_open_tab = self.tabs.iter().any(|t| {
-                    !t.is_draft() && (t.id == **owner || self.ancestors(owner).any(|a| a == t.id))
-                });
-                let is_routed = matches!(&*self.route, crate::Route::Session { id, .. }
-                    if id == *owner
-                        || self.ancestors(id).any(|a| a == owner.as_str())
-                        || self.ancestors(owner).any(|a| a == id.as_str())
-                );
-                !in_open_tab && !is_routed
-            })
+            .filter(|(owner, _)| !self.is_browser_owner_open_or_routed(owner))
             .flat_map(|(_, ids)| ids.iter().copied())
             .collect();
         for tab_id in candidates {
@@ -230,8 +240,48 @@ impl App {
         }
     }
 
+    /// Returns `false` when `tab_id` is a remote/artifact preview whose owning server is offline
+    /// or signed out so callers never spawn a CEF browser into a sticky 403.
+    pub(super) fn preview_server_ready_for_wake(&self, tab_id: u64) -> bool {
+        let needs_server = self
+            .workspace_panes
+            .browser
+            .host
+            .tab(tab_id)
+            .and_then(|t| t.preview_spec.as_ref())
+            .is_some_and(|spec| {
+                matches!(
+                    spec,
+                    browser_pane::PreviewSpec::Remote { .. }
+                        | browser_pane::PreviewSpec::Artifact { .. }
+                )
+            });
+        if !needs_server {
+            return true;
+        }
+        let sid = self.browser_tab_session(tab_id);
+        self.preview_server_for(sid).is_some()
+    }
+
+    /// Re-establishes `PreviewTabBinding` if a live preview tab lost its binding (e.g. after
+    /// server sign-out/reconnect) before issuing a user reload.
+    pub fn ensure_preview_binding(&mut self, tab_id: u64) {
+        let needs_bind = self
+            .workspace_panes
+            .browser
+            .host
+            .tab(tab_id)
+            .is_some_and(|t| t.preview_spec.is_some())
+            && !self.workspace_panes.browser.preview_bindings.contains_key(&tab_id);
+        if needs_bind {
+            let sid = self.browser_tab_session(tab_id).map(str::to_owned);
+            self.bind_preview_tab(tab_id, sid.as_deref());
+        }
+    }
+
     /// Wakes a hibernated browser tab at its preserved URL and context, re-establishing any
-    /// `PreviewTabBinding` for isolated preview/artifact tabs first.
+    /// `PreviewTabBinding` for isolated preview/artifact tabs first. Fails closed without spawning
+    /// a CEF browser when a remote/artifact preview's owning server is signed out or offline.
     pub fn wake_browser_tab(&mut self, tab_id: u64, focused: bool) -> bool {
         let is_preview = self
             .workspace_panes
@@ -240,6 +290,9 @@ impl App {
             .tab(tab_id)
             .is_some_and(|t| t.residency().is_hibernated() && t.preview_spec.is_some());
         if is_preview {
+            if !self.preview_server_ready_for_wake(tab_id) {
+                return false;
+            }
             let sid = self.browser_tab_session(tab_id).map(str::to_owned);
             self.bind_preview_tab(tab_id, sid.as_deref());
         }

@@ -14,7 +14,8 @@ use crate::App;
 
 /// Maximum time to wait for a hibernated tab to confirm and settle its initial load.
 const WAKE_TIMEOUT: Duration = Duration::from_secs(15);
-/// Brief grace before accepting `!tab.loading` so we do not complete before `loading` flips true.
+/// Brief post-confirm grace before accepting `!tab.loading` so we do not complete before
+/// `loading` flips true.
 const WAKE_COMMIT_GRACE: Duration = Duration::from_millis(1_200);
 /// Maximum post-load wait for the main frame's default execution context (so empty/error pages
 /// never hang forever).
@@ -70,7 +71,9 @@ pub(super) fn classify_command(cmd: &Command) -> WakePolicy {
         | "check"
         | "files.upload"
         | "files.drop" => WakePolicy::ImmediateStaleRef,
-        "snapshot" | "find" | "evaluate" | "screenshot" if has_ref => WakePolicy::ImmediateStaleRef,
+        "snapshot" | "find" | "evaluate" | "screenshot" | "scroll" | "press" if has_ref => {
+            WakePolicy::ImmediateStaleRef
+        }
         "navigate" | "navigate.path" | "preview" | "reload" => WakePolicy::DirectTarget,
         "tabs.focus"
         | "frames"
@@ -84,6 +87,7 @@ pub(super) fn classify_command(cmd: &Command) -> WakePolicy {
         | "trace.start"
         | "cpu.start"
         | "heap.snapshot" => WakePolicy::WakeBeforeDispatch,
+        _ if cmd.tab_id().is_some() => WakePolicy::WakeBeforeDispatch,
         _ => WakePolicy::NoWake,
     }
 }
@@ -105,8 +109,8 @@ pub(super) fn needs_eval_context(cmd: &Command) -> bool {
 enum WakeStage {
     /// Awaiting `has_engine_tab && engine_confirmed` from the sidecar.
     Confirm,
-    /// Confirmed by engine; awaiting initial load completion.
-    Load { saw_loading: bool },
+    /// Confirmed by engine at `confirmed_at`; awaiting initial load completion.
+    Load { saw_loading: bool, confirmed_at: Instant },
     /// Load settled; awaiting main-frame `Runtime.executionContextCreated` (bounded by grace).
     EvalContext { settled_at: Instant },
 }
@@ -117,7 +121,6 @@ enum WakeEvent {
         loading: bool,
         has_eval_context: bool,
         needs_eval_context: bool,
-        started_at: Instant,
         deadline: Instant,
         now: Instant,
     },
@@ -135,7 +138,6 @@ fn step_stage(stage: &mut WakeStage, ev: WakeEvent) -> StageStep {
         loading,
         has_eval_context,
         needs_eval_context,
-        started_at,
         deadline,
         now,
     } = ev;
@@ -146,16 +148,16 @@ fn step_stage(stage: &mut WakeStage, ev: WakeEvent) -> StageStep {
         return StageStep::Wait;
     }
     if *stage == WakeStage::Confirm {
-        *stage = WakeStage::Load { saw_loading: loading };
+        *stage = WakeStage::Load { saw_loading: loading, confirmed_at: now };
     }
     match stage {
         WakeStage::Confirm => StageStep::Wait,
-        WakeStage::Load { saw_loading } => {
+        WakeStage::Load { saw_loading, confirmed_at } => {
             if loading {
                 *saw_loading = true;
                 return StageStep::Wait;
             }
-            if !*saw_loading && now.saturating_duration_since(started_at) < WAKE_COMMIT_GRACE {
+            if !*saw_loading && now.saturating_duration_since(*confirmed_at) < WAKE_COMMIT_GRACE {
                 return StageStep::Wait;
             }
             if needs_eval_context && !has_eval_context {
@@ -182,7 +184,6 @@ pub(super) struct WakeState {
     pub cmd: Command,
     pub inspect: bool,
     pub needs_eval_context: bool,
-    pub started_at: Instant,
     pub deadline: Instant,
     stage: WakeStage,
 }
@@ -202,7 +203,6 @@ impl WakeState {
             cmd,
             inspect,
             needs_eval_context: needs_eval,
-            started_at: now,
             deadline: now + WAKE_TIMEOUT,
             stage: WakeStage::Confirm,
         }
@@ -210,18 +210,33 @@ impl WakeState {
 
     pub fn next_wake(&self) -> Instant {
         match self.stage {
-            WakeStage::Confirm | WakeStage::Load { saw_loading: false } => {
-                (self.started_at + WAKE_COMMIT_GRACE).min(self.deadline)
+            // Engine snapshots wake the poll immediately on confirmation; never spin during cold start.
+            WakeStage::Confirm | WakeStage::Load { saw_loading: true, .. } => self.deadline,
+            WakeStage::Load { saw_loading: false, confirmed_at } => {
+                (confirmed_at + WAKE_COMMIT_GRACE).min(self.deadline)
             }
-            WakeStage::Load { saw_loading: true } => self.deadline,
             WakeStage::EvalContext { settled_at } => {
                 (settled_at + WAKE_EVAL_CONTEXT_GRACE).min(self.deadline)
             }
         }
     }
 
-    pub fn cancel_cleanup(&mut self, app: &mut App) {
-        if app.workspace_panes.browser.host.tab_open_in_engine(self.host_id) {
+    pub fn cancel_cleanup(&mut self, att: &SessionAttachment, app: &mut App, other_waking: bool) {
+        let visible = app
+            .workspace_panes
+            .browser
+            .host
+            .visible_tabs()
+            .contains(&self.host_id);
+        let still_waking = other_waking
+            || att
+                .active_commands
+                .iter()
+                .any(|c| c.is_waking_tab(self.host_id));
+        if !visible
+            && !still_waking
+            && app.workspace_panes.browser.host.tab_open_in_engine(self.host_id)
+        {
             app.workspace_panes.browser.host.stop(self.host_id);
         }
     }
@@ -295,7 +310,6 @@ pub(super) fn step_wake(
                     "Timed out waiting for the browser engine to become ready.",
                 ));
             }
-            st.started_at = now;
             return WakePoll::Wait;
         }
     }
@@ -313,12 +327,18 @@ pub(super) fn step_wake(
         ));
     };
 
+    if let Some(code) = refusal {
+        return WakePoll::Failed(Outcome::fail(
+            failure_code::NAVIGATION_FAILED,
+            format!("Failed to wake hibernated browser tab ({code})."),
+        ));
+    }
+
     if residency.is_hibernated() {
-        let msg = match refusal {
-            Some(code) => format!("Failed to wake hibernated browser tab ({code})."),
-            None => "Failed to wake hibernated browser tab.".to_owned(),
-        };
-        return WakePoll::Failed(Outcome::fail(failure_code::NAVIGATION_FAILED, msg));
+        return WakePoll::Failed(Outcome::fail(
+            failure_code::NAVIGATION_FAILED,
+            "Failed to wake hibernated browser tab.",
+        ));
     }
 
     if confirmed {
@@ -338,7 +358,6 @@ pub(super) fn step_wake(
             loading,
             has_eval_context: has_eval,
             needs_eval_context: st.needs_eval_context,
-            started_at: st.started_at,
             deadline: st.deadline,
             now,
         },
@@ -352,17 +371,14 @@ pub(super) fn step_wake(
     }
 }
 
-/// Navigates `host_id` to `candidate`, waking a hibernated web tab directly into the new URL
-/// without double-loading the previous URL.
-pub(super) fn navigate_or_wake(app: &mut App, host_id: u64, candidate: &str) {
-    let hibernated_web = app.workspace_panes.browser.host.tab(host_id).and_then(|t| {
-        (t.residency().is_hibernated() && t.preview.is_none()).then(|| t.context.clone())
-    });
-    if let Some(ctx) = hibernated_web {
-        app.wake_browser_tab_to_url(host_id, candidate, ctx, false);
-    } else {
-        app.navigate_browser_tab(host_id, candidate);
-    }
+/// Returns `true` when `host_id` is hibernated or waking so `WaitLoad` treats the navigation
+/// as a fresh engine tab load rather than settling on a prior wake's commit.
+pub(super) fn is_fresh_residency(app: &App, host_id: u64) -> bool {
+    app.workspace_panes
+        .browser
+        .host
+        .tab(host_id)
+        .is_some_and(|t| t.residency().is_hibernated() || t.residency().is_waking())
 }
 
 /// Reloads `host_id`, waking a hibernated tab at its saved URL (and avoiding a duplicate reload
@@ -422,8 +438,10 @@ pub fn is_tab_or_session_busy(app: &App, tab_id: u64) -> bool {
 }
 
 /// Clears renderer-scoped RPC state (`frames`, `refs`, `cdp_bootstrapped`, `bootstrap_frame_reqs`)
-/// and bumps `generation` ON HIBERNATE (never on wake, preventing `inspect` -> `verify_authorized_state`
-/// `DOCUMENT_CHANGED` errors while preserving wire tab IDs, diagnostics, captures, and downloads).
+/// and bumps `generation` ON HIBERNATE so pre-hibernation authorizations are invalidated
+/// immediately, while wire tab IDs, diagnostics, captures, and downloads stay intact. Subsequent
+/// `inspect: true` calls wake the tab before computing `target`/`generation`, and direct
+/// authorized commands against a hibernated/waking tab fail `DOCUMENT_CHANGED` for re-inspection.
 pub fn on_tab_hibernated(app: &mut App, host_id: u64) {
     let st = app.kernel.slots.get_mut(&super::super::BROWSER_RPC);
     for att in st.sessions.values_mut() {

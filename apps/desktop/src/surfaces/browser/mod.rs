@@ -192,6 +192,10 @@ mod native {
         /// Browser tab IDs rendered via `ui.browserSurface` inside each visible `(panel_sid, panel_key)`
         /// (ensures third-party plugins rendering browser surfaces stay awake while visible).
         pub panel_surfaces: std::cell::RefCell<HashMap<(String, String), Vec<u64>>>,
+        /// One-shot auto-wake retry guard for hibernated `RemoteServer` tabs refused with
+        /// `browser.proxy.required`, keyed by `tab_id -> "host:port"` so persistent engine refusals
+        /// never loop while a fresh tunnel port still auto-recovers once.
+        pub(crate) proxy_wake_tried: HashMap<u64, String>,
     }
 
     pub use super::keys::claims_app_shortcut;
@@ -623,6 +627,7 @@ mod native {
         }
 
         pub fn navigate_browser_tab_with_agent(&mut self, id: u64, url: &str, agent: bool) {
+            self.workspace_panes.browser.proxy_wake_tried.remove(&id);
             if !agent {
                 self.note_browser_addressed(id);
                 crate::plugin_host::services::browser_contract::revoke_tab(self, id);
@@ -752,6 +757,7 @@ mod native {
 
         /// Page `id`'s tab left its strip: the page closes and any preview server binding revokes.
         pub fn forget_browser_tab(&mut self, id: u64) {
+            self.workspace_panes.browser.proxy_wake_tried.remove(&id);
             self.prune_panel_surface_tab(id);
             self.forget_tab_marks(id);
             self.workspace_panes.browser.active_app_reviews.borrow_mut().remove(&id);
