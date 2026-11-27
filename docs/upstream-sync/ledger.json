@@ -2,29 +2,29 @@
   "generated_at": "2026-11-28",
   "upstream_repo": "anomalyco/opencode",
   "upstream_reference_base": "f6e0c2d0833ffe772035f221fed923e1cd5fb408",
-  "upstream_head": "98bc68625268c44aca1ef71bdd097e4842de22d9",
+  "upstream_head": "8815bc9d47ea9a07744bb6a4a3e505ea6e6a2763",
   "upstream_pre_window_base": "3751be8138ebcf33343eb3f3d011b32fc814103c",
   "rune_desktop_repo": "anomalyco/opencode-rune",
-  "rune_desktop_head": "bded6f8d0",
-  "post_1114_commit_count": 804,
-  "post_1114_in_ledger": 270,
-  "post_1114_skipped": 534,
+  "rune_desktop_head": "f935e6d13f",
+  "post_1114_commit_count": 806,
+  "post_1114_in_ledger": 271,
+  "post_1114_skipped": 535,
   "post_1114_skipped_breakdown": {
     "test-only": 35,
     "ci-bench-deps": 27,
     "docs-site-data": 84,
-    "tui-only": 34,
+    "tui-only": 35,
     "cli-acp-only": 15,
     "server-core-ai-codemode-internal": 339
   },
   "pre_1114_carryover_rows": 15,
-  "total_ledger_rows": 291,
+  "total_ledger_rows": 292,
   "status_counts": {
     "have it": 243,
     "not applicable": 39,
     "differs on purpose": 1,
     "partly": 1,
-    "missing": 7
+    "missing": 8
   },
   "rows": [
     {
@@ -7306,6 +7306,32 @@
       "size": "M",
       "status": "missing",
       "status_evidence": "In progress. Official: packages/app/src/runtime/plugin/{new-tab-machine,panels,side-region}.*, packages/gui-plugins/src/browser/{address-field,address-machine,model,new-tab,panel,renderer}.*, packages/plugin/src/gui/builtin.ts.",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "UPSTREAM"
+    },
+    {
+      "id": "UP-271",
+      "window": "post-1120",
+      "pr": 66823,
+      "sha": "8815bc9d47",
+      "title": "feat(session-ui): show quotes inline in user messages in every build",
+      "merged": "2026-11-27",
+      "packages": [
+        "app",
+        "session-ui"
+      ],
+      "main_files": [
+        "packages/app/src/session/timeline/inline-quotes.ts",
+        "packages/session-ui/src/message/message-content.tsx"
+      ],
+      "summary": "Removes the local/dev build-channel gate so inline quotes render inside user message bubbles in every build channel.",
+      "size": "XS",
+      "status": "missing",
+      "status_evidence": "Open PR #1413 (head d5d7594bd0, CI running): enables TimelineHost::inline_quotes by default in session-view and removes the build_channel gate in desktop host.",
+      "pr_refs": [
+        1413
+      ],
       "depends_on": "none",
       "risks": "none",
       "workstream": "UPSTREAM"

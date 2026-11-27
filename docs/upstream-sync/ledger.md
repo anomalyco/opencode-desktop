@@ -1,9 +1,9 @@
 # Upstream Sync Ledger: `anomalyco/opencode` -> `anomalyco/opencode-rune`
 
 - **Updated:** 2026-11-27
-- **Upstream `origin/dev` audited:** `f6e0c2d083` -> `98bc686252` (**804** post-14 Nov commits: **270** in ledger + **534** skipped) plus **15** pre-14 Nov carry-over rows (`3751be8138..f6e0c2d083`) and 6 owner-split sub-rows of `UP-095`.
-- **`opencode-rune` `origin/dev` checked:** `bded6f8d0`.
-- **Total ledger rows:** **291** - **243** have it · **39** not applicable · **1** differs on purpose · **1** partly · **7** missing.
+- **Upstream `origin/dev` audited:** `f6e0c2d083` -> `8815bc9d47` (**806** post-14 Nov commits: **271** in ledger + **535** skipped) plus **15** pre-14 Nov carry-over rows (`3751be8138..f6e0c2d083`) and 6 owner-split sub-rows of `UP-095`.
+- **`opencode-rune` `origin/dev` checked:** `f935e6d13f`.
+- **Total ledger rows:** **292** - **243** have it · **39** not applicable · **1** differs on purpose · **1** partly · **8** missing.
 - **Machine-readable twin:** `docs/upstream-sync/ledger.json` (generated together; identical rows).
 - **Status vs. Reviewed:** a row is **have it** only when its code is merged on `dev`; security-review tracking for browser rows lives in the separate **Reviewed** column.
 - **Open PR note column:** informational only (lists unmerged open PRs on `anomalyco/opencode-rune` that touch the same upstream PR; does not change row status).
@@ -27,8 +27,8 @@
 | **SCREENS-A** | 0 | 0 | 0 | _done_ |
 | **SCREENS-B** | 0 | 0 | 0 | _done_ |
 | **UPDATER** | 0 | 0 | 0 | _done_ |
-| **UPSTREAM** | 7 | 0 | 7 | `UP-262`, `UP-263`, `UP-264`, `UP-265`, `UP-266`, `UP-269`, `UP-270` |
-| **Total** | **7** | **1** | **8** | |
+| **UPSTREAM** | 8 | 0 | 8 | `UP-262`, `UP-263`, `UP-264`, `UP-265`, `UP-266`, `UP-269`, `UP-270`, `UP-271` |
+| **Total** | **8** | **1** | **9** | |
 
 ## Browser Security Review Status (Tracked Separately in `Reviewed` Column)
 
@@ -57,7 +57,7 @@
 | PRE-14 | #63744 (`46aefe3da3`)<br>fix(app): hide zero session cost for OpenCode Go | 2026-11-13 | **gui-plugins**<br>`packages/gui-plugins/src/context/indicator.tsx`, `packages/gui-plugins/src/context/tab.tsx` | Hide the $0.00 cost line in the session header indicator and omit the Total Cost row in the Context tab when spend is zero on an OpenCode Go model. | S | **have it** |  | Ported in opencode-rune #243 (4b5175ef): plugins/context/indicator.luau and plugins/context/tab.luau hide $0.00 cost for opencode-go and pad odd 2-column grid rows. (PR #243) | none | none | none |  |
 | PRE-15 | #63739 (`f352f5e875`)<br>fix(ui): switch submenus without blinking and keep them open on the way in | 2026-11-13 | **ui, app**<br>`patches/@kobalte%2Fcore@0.13.13.patch`, `packages/app/src/shell/titlebar/sidebar-view-menu.tsx` | Keep submenus open along the pointer aim corridor and avoid flashing when moving between sibling submenu triggers. | S | **have it** |  | Ported in opencode-rune #271 (08f28f82): explicit submenu pointer-corridor aiming + 150 ms leave delay machine in crates/opencode-ui/src/popup/submenu.rs. (PR #271) | none | none | none |  |
 
-## Post-14 Nov Rows (`f6e0c2d083..98bc686252`)
+## Post-14 Nov Rows (`f6e0c2d083..8815bc9d47`)
 
 | ID | PR / Commit | Date | Packages & Main Files | What User Sees / Client Must Do | Size | Status | Reviewed | Evidence in `opencode-rune` | Depends On | Risks | Stream | Open PR Note |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -337,3 +337,4 @@
 | UP-268 | #66789 (`0a4e0109b5`)<br>feat(ui): taller tooltip lines and colored tooltip text | 2026-11-27 | **ui**<br>`packages/ui/src/overlays/tooltip/tooltip.css`, `packages/ui/src/overlays/tooltip/tooltip.tsx` | Updates tooltip line-height for readability and adds tone/colored tooltip text styling. | XS | **have it** | `crates/opencode-ui/src/tooltip.rs`, `crates/opencode-ui/src/lib.rs`, `apps/desktop/src/shell/view/mod.rs` | Merged in #1401 (dev 26ad040cab, CI run 46009928636 green): adds opencode_ui::tooltip (COMPACT_PADDING 4px 6px, COMPACT_LINE_HEIGHT 16px, TooltipTextVariant base/muted/faint/accent/warning, tooltip_text) and applies compact tooltip padding and line-height on HelpLook. Post-merge verified headless on Windows x64 PR build (run 46009928636, peak <= 0.54 GiB, exit 0): compact tooltip renders cleanly with COMPACT_PADDING/COMPACT_LINE_HEIGHT and opencode_ui::tooltip exported. Not run: real window, macOS, Linux. | none | none | UPSTREAM | #1401 |
 | UP-269 | #66608 (`b7a7135bb9`)<br>feat(app): choose a model from a searchable list after connecting a provider | 2026-11-27 | **app**<br>`packages/app/src/providers/connect/connected-models.tsx`, `packages/app/src/providers/connect/dialog.tsx`, `packages/app/src/providers/connect/dialog-machine.ts`, `packages/app/src/providers/connect/controller.ts`, `packages/app/src/providers/connect/remote.tsx` | Replaces the post-connect provider models grid with a searchable model list allowing direct model selection after connecting a provider. | M | **missing** |  | Open PR #1400 (head cba2de894b, CI run 46009596535 green): replaces post-connect models grid with searchable model list. | none | none | UPSTREAM | #1400 |
 | UP-270 | #66818 (`98bc686252`)<br>feat(app): browser address bar and recent pages in the side panel New tab | 2026-11-27 | **app, gui-plugins, plugin**<br>`packages/app/src/runtime/plugin/new-tab-machine.ts`, `packages/app/src/runtime/plugin/side-region.tsx`, `packages/gui-plugins/src/browser/address-field.tsx`, `packages/gui-plugins/src/browser/new-tab.tsx`, `packages/plugin/src/gui/builtin.ts` | Adds the browser address bar and recent pages list directly inside the side panel New tab view so users can type/pick a URL or reopen recent pages without opening a blank browser tab first. | M | **missing** |  | In progress. Official: packages/app/src/runtime/plugin/{new-tab-machine,panels,side-region}.*, packages/gui-plugins/src/browser/{address-field,address-machine,model,new-tab,panel,renderer}.*, packages/plugin/src/gui/builtin.ts. | none | none | UPSTREAM |  |
+| UP-271 | #66823 (`8815bc9d47`)<br>feat(session-ui): show quotes inline in user messages in every build | 2026-11-27 | **app, session-ui**<br>`packages/app/src/session/timeline/inline-quotes.ts`, `packages/session-ui/src/message/message-content.tsx` | Removes the local/dev build-channel gate so inline quotes render inside user message bubbles in every build channel. | XS | **missing** |  | Open PR #1413 (head d5d7594bd0, CI running): enables TimelineHost::inline_quotes by default in session-view and removes the build_channel gate in desktop host. | none | none | UPSTREAM | #1413 |
