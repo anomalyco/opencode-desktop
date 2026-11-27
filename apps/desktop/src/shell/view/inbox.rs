@@ -221,6 +221,20 @@ fn end_key(s: &App, last: bool) -> Option<(String, String)> {
         items.iter().find_map(reach).or_else(|| shelf.first().map(shelved))
     }
 }
+/// Scrolls the inbox's row of the session keyed `key` (`Entry::key`) into view, just far enough
+/// (`inbox.tsx` `navigate`'s `reveal`: `scrollIntoView({ block: "nearest" })`): a row of the
+/// list by the list's own key for it, built or not, else the card on the Working shelf.
+pub(crate) fn reveal(s: &App, key: &str, tx: &mut Tx) {
+    let order = s.inbox_order();
+    let drafts = draft_ids(s);
+    let ui = s.kernel.slots.get(&crate::restore::RESTORE).inbox;
+    let items = items(&order, ui, drafts.len());
+    let epoch = epoch(&items, &order);
+    let card = format!("ib-{key}");
+    let row = items.iter().find(|l| matches!(l, Line::Card { at, .. } if order.rows[*at].key == card)).map(|l| l.key(&order, &drafts, &epoch));
+    tx.scroll_into_view(row.unwrap_or(card));
+}
+
 /// The room above row `i`, as the groups' gaps and padding laid it out.
 fn space_above(items: &[Line], i: usize) -> f32 {
     let Some(prev) = i.checked_sub(1).map(|j| items[j]) else { return 0.0 };
@@ -388,7 +402,6 @@ fn toggle_header(s: &App, p: &Pal, g: Group, open: bool, shimmer: bool) -> El {
         .gap(6.0)
         .center_y()
         .radius(6.0)
-        .cursor(rune::Cursor::Pointer)
         .focus_inset(p)
         .hover_group()
         .child(label)
@@ -414,7 +427,6 @@ fn ghost_button(p: &Pal, key: &str, label: &str) -> El {
         .gap(6.0)
         .center_y()
         .radius(6.0)
-        .cursor(rune::Cursor::Pointer)
         .focus_inset(p)
         .hover(p.hover)
         .press(p.pressed)
@@ -479,7 +491,6 @@ fn card(s: &App, p: &Pal, e: &Entry<'_>) -> El {
         .padding(8.0)
         .gap(6.0)
         .radius(6.0)
-        .cursor(rune::Cursor::Pointer)
         .focus_inset(p)
         .focusable(true)
         .focus_selected(selected)
@@ -511,7 +522,9 @@ fn card(s: &App, p: &Pal, e: &Entry<'_>) -> El {
     } else {
         card = card.hover(p.hover);
     }
-    if archived && !selected {
+    // An archived session is dimmed, but not while it waits on a person: it stands in Needs
+    // attention then (`inbox.tsx` `InboxSessionCard`, opencode#66327).
+    if archived && !selected && !e.waiting() {
         card = card.opacity(0.5);
     }
     card
@@ -528,14 +541,20 @@ fn open_menu(s: &mut App, key: &str, archived: bool, at: rune::PointerPress, tx:
         crate::session_menu::Line::Item(i) if matches!(i.id, "read" | "unread") => Some(Item::new(i.id, i.title)),
         _ => None,
     })).flatten();
-    // `inbox.tsx` `rows`: Pin or Unpin, Rename, Export…, the read mark, then Archive and Delete….
-    let menu = Menu::new(t!("command.category.session"))
-        .item(Item::new("pin", if pinned { t!("sidebar.recent.unpin") } else { t!("sidebar.recent.pin") }))
+    // `inbox.tsx:830-845,989-998` (opencode#66576): Rename, Pin/Unpin, Mark read/unread, ---, Copy >, Export…, ---, Archive/Unarchive, Delete….
+    let copy_sub = crate::servers::runtime::with_server(s, &server, |s| crate::session_menu::copy::submenu(s, &server, &id)).flatten();
+    let mut menu = Menu::new(t!("command.category.session"))
         .item(Item::new("rename", t!("common.rename")))
+        .item(Item::new("pin", if pinned { t!("sidebar.recent.unpin") } else { t!("sidebar.recent.pin") }))
+        .items(read)
+        .separator();
+    if let Some(crate::session_menu::Line::Sub { id: sub_id, title, menu: sub }) = copy_sub {
+        menu = menu.submenu(sub_id, title, sub);
+    }
+    let menu = menu
         .item(Item::new("export", format!("{}\u{2026}", t!("common.export"))).enabled(!s.exporting(&server, &id)))
-        .items(read).separator()
-        .item(if archived { Item::new("unarchive", t!("sidebar.inbox.unarchive")) } else { Item::new("archive", t!("common.archive")) })
         .separator()
+        .item(if archived { Item::new("unarchive", t!("sidebar.inbox.unarchive")) } else { Item::new("archive", t!("common.archive")) })
         .item(Item::new("delete", format!("{}…", t!("common.delete"))));
     let key = key.to_owned();
     tx.instant();
@@ -546,6 +565,7 @@ fn open_menu(s: &mut App, key: &str, archived: bool, at: rune::PointerPress, tx:
             Some("pin") => pins::update(s, |doc| if pinned { doc.unpin(&pin) } else { doc.pin(pin) }),
             Some("rename") => s.open_rename_dialog(&target),
             Some(action @ ("export" | "read" | "unread")) => crate::session_menu::run(s, &target, action, tx),
+            Some(action) if action.starts_with("copy:") => crate::session_menu::run(s, &target, action, tx),
             Some("archive") => s.on_inbox_row(&key, |s, id| s.archive_session(id, tx)),
             Some("unarchive") => s.on_inbox_row(&key, |s, id| s.unarchive_session(id)),
             Some("delete") => {
@@ -587,7 +607,6 @@ fn draft_card(s: &App, p: &Pal, tab: &crate::tabs::Tab) -> El {
         .padding(8.0)
         .gap(6.0)
         .radius(6.0)
-        .cursor(rune::Cursor::Pointer)
         .focus_inset(p)
         .focusable(true)
         .focus_selected(selected)

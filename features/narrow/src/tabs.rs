@@ -3,7 +3,14 @@
 //! count, which opens a drawer of every tab, New session, Home, Settings and Help.
 
 use opencode_i18n::t;
-use rune::{El, PointerPress, TextStyle, Tx, col, el, icon, row, text};
+use rune::{El, Icon, PointerPress, TextStyle, Tx, col, el, icon, row, text};
+
+/// `sessions-stack` (`packages/ui/src/icons/catalog.ts:393`, `titlebar.tsx:796,879`, `opencode#66594`).
+static SESSIONS_STACK: Icon = Icon {
+    name: "sessions-stack",
+    view: 16.0,
+    body: r#"<path d="M3.5 3.5H12.5M1.5 5.5V12.5H14.5V5.5H12.5H3.5H1.5Z" stroke-linecap="round" stroke-linejoin="round" stroke="currentColor"/>"#,
+};
 use rune_theme_opencode::icons as ic;
 use opencode_ui::focus::FocusExt;
 use opencode_ui::palette::{Pal, kit};
@@ -67,7 +74,7 @@ pub fn trigger<H: NarrowHost + 'static>(s: &H, p: &Pal) -> El {
     let current = s.current_tab_uid();
     let tab = current.as_deref().and_then(|uid| s.narrow_tab(uid));
     let lead = match &tab {
-        None => icon(&ic::GRID_PLUS, 16.0).color(p.icon),
+        None => icon(&SESSIONS_STACK, 16.0).color(p.icon),
         Some(t) if t.is_draft => icon(&ic::EDIT, 16.0).color(p.icon),
         Some(t) => s.tab_avatar(p, &t.uid),
     };
@@ -90,7 +97,6 @@ pub fn trigger<H: NarrowHost + 'static>(s: &H, p: &Pal) -> El {
         .gap(8.0)
         .center_y()
         .radius(6.0)
-        .cursor(rune::Cursor::Pointer)
         .focus_inset(p)
         .no_window_drag()
         .on_press_tx(|s: &mut H, tx: &mut Tx| toggle_tabs_drawer(s, tx))
@@ -120,7 +126,7 @@ pub fn drawer<H: NarrowHost + 'static>(s: &H, p: &Pal) -> El {
     let mut home_row = button(
         "narrow-tabs-home",
         home.then_some(p.pressed),
-        &ic::GRID_PLUS,
+        &SESSIONS_STACK,
         16.0,
         t!("home.title"),
         if home { p.text } else { p.faint },
@@ -176,7 +182,6 @@ fn button(key: &str, washed: Option<rune::Color>, glyph: &'static rune::Icon, si
         .gap(8.0)
         .center_y()
         .radius(6.0)
-        .cursor(rune::Cursor::Pointer)
         .hover_motion(INSTANT, INSTANT)
         .children(washed.map(|c| wash(c, 6.0)))
         .child(row().size(16.0, 16.0).center().child(icon(glyph, size).color(glyph_ink)))
@@ -205,7 +210,6 @@ fn tab_row<H: NarrowHost + 'static>(s: &H, p: &Pal, t: &NarrowTab, current: Opti
         .gap(6.0)
         .center_y()
         .radius(6.0)
-        .cursor(rune::Cursor::Pointer)
         .focus_inset(p)
         // A middle click closes it, as the titlebar's tabs do (`TabNavItem`'s `auxclick`).
         .closable_tab(move |s: &mut H, tx: &mut Tx| close_tab(s, &middle, tx))
@@ -231,7 +235,6 @@ fn tab_row<H: NarrowHost + 'static>(s: &H, p: &Pal, t: &NarrowTab, current: Opti
                 .label_static(t!("common.close"))
                 .size(44.0, 44.0)
                 .radius(4.0)
-                .cursor(rune::Cursor::Pointer)
                 .focus_inset(p)
                 .center()
                 .pin(None, Some(0.0), Some(0.0), None)

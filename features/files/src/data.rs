@@ -9,7 +9,7 @@ use serde_json::Value;
 
 #[allow(unused_imports)]
 pub use opencode_search::file_rank::{
-    OPEN_TAB_ID, OPEN_TAB_KEY, file_tab_id, file_tab_key, file_tab_path, normalize_path,
+    OPEN_TAB_ID, OPEN_TAB_KEY, document_path, file_tab_id, file_tab_key, file_tab_path, normalize_path,
     parse_path_and_line,
 };
 
@@ -39,7 +39,59 @@ pub enum FilePayload {
     Failed(opencode_kit::wire_error::WireError),
 }
 
+/// A skill's file that is no file on a disk (`isVirtualSkill`, official
+/// `packages/app/src/workspaces/files/model.tsx:245`): `skill://<id>/<file>`, or a built-in
+/// skill's older `/builtin/<file>`.
+pub fn is_virtual_skill(path: &str) -> bool {
+    skill_file(path).is_some() || path.starts_with("/builtin/")
+}
+
+/// The `<id>/<file>` of a `skill://<id>/<file>` path.
+fn skill_file(path: &str) -> Option<&str> {
+    path.get(..8).filter(|scheme| scheme.eq_ignore_ascii_case("skill://")).map(|_| &path[8..])
+}
+
+/// Whether `path` is no file of the session's folder: one outside it by its absolute path, or a
+/// skill's virtual file. Such a file is in no tree, is not watched and opens in no app.
+pub fn is_outside(path: &str) -> bool {
+    is_virtual_skill(path) || opencode_kit::path::is_absolute(path)
+}
+
+/// A skill's virtual file (`readBuiltin`, `model.tsx:257-269`, anomalyco/opencode#66201):
+/// `skill://<id>/<file>` is read through the server, which loads what a skill serves on demand
+/// (an MCP server's); a `/builtin/` path, and a `skill://` one on a server from before that
+/// endpoint (it answers 404), has its body inline in the skills list, where official read both
+/// until that change.
+fn fetch_skill_file(server: &Server, directory: &str, path: &str) -> FilePayload {
+    let location = format!("location%5Bdirectory%5D={}", percent_encode(directory));
+    if let Some(rest) = skill_file(path) {
+        let (id, file) = rest.split_once('/').unwrap_or((rest, ""));
+        match server.get_bytes(&format!("/api/experimental/skill/{}/file/{}?{location}", percent_encode(id), encode_fs_path(file))) {
+            Ok(bytes) => return payload(path, bytes),
+            Err(e) if e.status() == Some(404) => {}
+            Err(e) => return FilePayload::Failed(e),
+        }
+    }
+    let list = match server.get_bytes(&format!("/api/skill?{location}")) {
+        Ok(bytes) => serde_json::from_slice::<Value>(&bytes).unwrap_or_default(),
+        Err(e) if e.status() == Some(404) => return FilePayload::Missing,
+        Err(e) => return FilePayload::Failed(e),
+    };
+    let body = list["data"]
+        .as_array()
+        .or_else(|| list.as_array())
+        .into_iter()
+        .flatten()
+        .find(|skill| skill["path"].as_str() == Some(path))
+        .and_then(|skill| skill["content"].as_str())
+        .filter(|content| !content.is_empty());
+    body.map_or(FilePayload::Missing, |content| payload(path, content.as_bytes().to_vec()))
+}
+
 pub fn fetch_live_file_payload(server: &Server, directory: &str, path: &str) -> FilePayload {
+    if is_virtual_skill(path) {
+        return fetch_skill_file(server, directory, path);
+    }
     // A file outside the session's folder is read with its own folder as the Location and its
     // name as the path, as Desktop reads it (`/api/fs/read/todo.md?location[directory]=<folder>`).
     let (directory, path) = if opencode_kit::path::is_absolute(path) {
@@ -54,25 +106,30 @@ pub fn fetch_live_file_payload(server: &Server, directory: &str, path: &str) -> 
         percent_encode(directory)
     );
     match server.get_bytes(&url) {
-        Ok(bytes) if super::image::is_image(path) => FilePayload::Image(bytes),
-        Ok(bytes) => {
-            if bytes.contains(&0) {
-                FilePayload::Binary(bytes.len())
-            } else {
-                match String::from_utf8(bytes) {
-                    Ok(s) => match super::delimited::Table::parse(path, &s) {
-                        Some(document) => FilePayload::Table { source: s, document: document.into() },
-                        None => match super::html::Page::parse(path, &s) {
-                            Some(document) => FilePayload::Html { source: s, document },
-                            None => FilePayload::Text(s),
-                        },
-                    },
-                    Err(e) => FilePayload::Binary(e.into_bytes().len()),
-                }
-            }
-        }
+        Ok(bytes) => payload(path, bytes),
         Err(e) if e.status() == Some(404) => FilePayload::Missing,
         Err(e) => FilePayload::Failed(e),
+    }
+}
+
+/// What the viewer shows of file `path`'s `bytes`: a picture, a table, a page, text, or a
+/// binary file's size.
+fn payload(path: &str, bytes: Vec<u8>) -> FilePayload {
+    if super::image::is_image(path) {
+        return FilePayload::Image(bytes);
+    }
+    if bytes.contains(&0) {
+        return FilePayload::Binary(bytes.len());
+    }
+    match String::from_utf8(bytes) {
+        Ok(s) => match super::delimited::Table::parse(path, &s) {
+            Some(document) => FilePayload::Table { source: s, document: document.into() },
+            None => match super::html::Page::parse(path, &s) {
+                Some(document) => FilePayload::Html { source: s, document },
+                None => FilePayload::Text(s),
+            },
+        },
+        Err(e) => FilePayload::Binary(e.into_bytes().len()),
     }
 }
 
@@ -171,9 +228,13 @@ pub fn load_fixture_workspace(fixture: &Value) -> (BTreeSet<String>, HashMap<Str
     let mut contents = HashMap::new();
     if let Some(obj) = fixture["file_contents"].as_object() {
         for (k, v) in obj {
-            let norm = normalize_path(k);
+            let norm = document_path(k);
             if !norm.is_empty() {
-                files.insert(norm.clone());
+                // A file outside the folder (an absolute path) and a skill's virtual file have a
+                // body and are no row of the tree.
+                if !is_outside(&norm) {
+                    files.insert(norm.clone());
+                }
                 if let Some(s) = v.as_str() {
                     contents.insert(norm, s.to_owned());
                 }

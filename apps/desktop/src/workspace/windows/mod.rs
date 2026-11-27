@@ -81,13 +81,8 @@ impl Window {
 /// that writes (`--harness-writes`) reads and writes the rows the app's first window keeps
 /// (`opencode.window.<id>.dat`): its tabs, page and drafts.
 pub fn first_saved() -> Window {
-    let saved = store::saved_ids();
-    let mut ids = saved.clone().unwrap_or_default();
-    if ids.is_empty() {
-        ids.push(store::new_id());
-        store::save_ids(&ids);
-    }
-    Window::new(ids.swap_remove(0), saved.is_none())
+    let (mut ids, fresh) = store::launch_ids();
+    Window::new(ids.swap_remove(0), fresh)
 }
 
 /// An open window: its handles, where its strip is, and its life.
@@ -108,13 +103,14 @@ struct Open {
     /// Every `(server, session_id)` this window holds in its tabs or active route, so another
     /// window resting (`App::rest`) never evicts a session still open here.
     shown: Vec<(opencode_kit::servers::ServerKey, String)>,
-    /// Weak handle to this window's per-window `Pages` prefetch cache so another window's
-    /// `App::rest` never prunes process-global user-message metadata for pages cached here.
-    pages: Option<crate::session_pages::CacheRef>,
+    /// Weak handles to every `Pages` prefetch cache in this window (active and parked servers)
+    /// so another window's `App::rest` never prunes user-message metadata for pages cached here.
+    pages: Vec<crate::session_pages::CacheRef>,
 }
 
 thread_local! {
-    /// Every open window, in the order they opened (the UI thread's, which all windows share).
+    /// Every open window, in the order they opened (the UI thread's, which all windows share),
+    /// and a window kept at its close while the app ends.
     static OPEN: RefCell<Vec<Open>> = const { RefCell::new(Vec::new()) };
     /// Counts windows coming to the front.
     static FOCUSES: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
@@ -178,7 +174,7 @@ pub fn register(id: &str, handle: WindowHandle, app: AppHandle<App>, life: life:
     OPEN.with(|o| {
         let mut o = o.borrow_mut();
         o.retain(|w| w.id != id);
-        o.push(Open { id: id.to_owned(), handle, app, strip: None, life, focused: 0, reported: false, shown_stamp: 0, shown: Vec::new(), pages: None });
+        o.push(Open { id: id.to_owned(), handle, app, strip: None, life, focused: 0, reported: false, shown_stamp: 0, shown: Vec::new(), pages: Vec::new() });
     });
     focused(id);
 }
@@ -199,8 +195,8 @@ pub fn sync_shown(s: &App) {
         let mut o = o.borrow_mut();
         let Some(w) = o.iter_mut().find(|w| w.id == s.window.id) else { return };
         w.reported = true;
-        if !w.pages.as_ref().is_some_and(|c| s.pages.same_pool(c)) {
-            w.pages = s.pages.cache_ref();
+        if !crate::servers::runtime::same_cache_refs(s, &w.pages) {
+            w.pages = crate::servers::runtime::all_cache_refs(s);
         }
         if w.shown_stamp == stamp {
             return;
@@ -241,7 +237,7 @@ pub fn other_windows_cached_user_messages(exclude_id: &str) -> Vec<String> {
         o.borrow()
             .iter()
             .filter(|w| w.id != exclude_id)
-            .filter_map(|w| w.pages.as_ref())
+            .flat_map(|w| w.pages.iter())
             .flat_map(crate::session_pages::CacheRef::user_message_ids)
             .collect()
     })
@@ -278,14 +274,17 @@ pub fn life(id: &str, event: life::LifeEvent) -> life::LifeEffect {
     effect
 }
 
-/// The windows that open again next launch: the open ones, in the order they opened.
+/// The windows that open again next launch, in the order they opened: the open ones, and one
+/// kept at its close (`Life::Kept`: the last window's close button or Alt+F4, which the app's
+/// quit follows).
 fn saved_ids() -> Vec<String> {
-    OPEN.with(|o| o.borrow().iter().filter(|w| w.life.saved()).map(|w| w.id.clone()).collect())
+    OPEN.with(|o| o.borrow().iter().filter(|w| w.life.listed()).map(|w| w.id.clone()).collect())
 }
 
-/// Window `id`'s native handle, while it's open.
+/// Window `id`'s native handle, while it's open (a kept window has closed: its frame was saved
+/// as it did).
 pub fn handle(id: &str) -> Option<WindowHandle> {
-    OPEN.with(|o| o.borrow().iter().find(|w| w.id == id).map(|w| w.handle.clone()))
+    OPEN.with(|o| o.borrow().iter().find(|w| w.id == id && w.life != life::Life::Kept).map(|w| w.handle.clone()))
 }
 
 /// Window `s`'s view scale (`device_scale`) before or outside `view`: its live OS window's

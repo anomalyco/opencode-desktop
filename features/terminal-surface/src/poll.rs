@@ -108,6 +108,7 @@ pub fn poll_terminal(host: &mut dyn TerminalSurfaceHost, tx: &mut Tx) -> bool {
     if stored_tabs
         && let Some(wk) = ops::active_terminal_workspace_key(host)
         && !host.terminal().workspaces.contains_key(&wk)
+        && !host.active_session_id().is_some_and(|id| ops::waits_for_folder(host, id))
     {
         persist::ensure_terminal_workspace_hydrated(host, &wk);
         return true;

@@ -62,7 +62,6 @@ fn wordmark_parts(s: &dyn EggHost, p: &Pal, width: f32, top: Option<f32>, dark: 
     let grip = wordmark::grip(state);
     let grip = (grip != Grip::None).then(|| {
         let (gx, gy, gw, gh) = if grip == Grip::Hidden { (213.0, 8.0, 18.0, 14.0) } else { (234.0, 18.0, 24.0, 24.0) };
-        let held = matches!(state, State::Drag | State::Carry { .. });
         let el = el()
             .key("egg-grip")
             .absolute(at[0] + gx as f32 * k, at[1] + gy as f32 * k)
@@ -75,7 +74,13 @@ fn wordmark_parts(s: &dyn EggHost, p: &Pal, width: f32, top: Option<f32>, dark: 
             // A pull with the pointer leaves the composer focused, as Desktop's grip (its
             // `pointerdown` prevents the default) doesn't take focus.
             .preserve_focus_on_press(true)
-            .cursor(if held { Cursor::Grabbing } else { Cursor::Grab })
+            // Desktop's grip is inside the panel that hears the pointer (`wordmark.tsx:1177-1179`):
+            // over it the eyes still follow, and the pointer hasn't left. Here it's a layer over
+            // the "e"'s reach and the panel's surface: hover passes through it to them, and it
+            // sends on the moves it takes (`wordmark`).
+            .hover_passes_below()
+            // No `.cursor`: the arrow stays over the grip and through a pull, by the owner's word
+            // (25 Nov). Desktop shows a hand (`cursor-grab active:cursor-grabbing`, `wordmark.tsx:295`).
             // `touch-none` (`wordmark.tsx:295`): a finger pulls the lodger from where it lands.
             .touch_drags_at_once();
         (el, [gx, gy])
@@ -103,16 +108,24 @@ pub fn wordmark<H: EggHost + 'static>(s: &H, p: &Pal, width: f32, top: Option<f3
         );
     }
     if let Some((grip, [gx, gy])) = grip {
+        let at = move |x: f32, y: f32| (stage.x + gx * stage.k + f64::from(x), stage.y + gy * stage.k + f64::from(y));
         boxed = boxed.child(
-            grip.on_key(|s: &mut H, ev, tx| super::grip_key(s, ev, tx)).on_drag(move |s: &mut H, d, tx| {
-                let (x, y) = (stage.x + gx * stage.k + f64::from(d.x), stage.y + gy * stage.k + f64::from(d.y));
-                match d.phase {
-                    rune::Phase::Down if tx.button() == rune::PointerButton::Primary => super::grab_at(s, geo, x, y, tx),
-                    rune::Phase::Down => {}
-                    rune::Phase::Move => super::pointer_move_at(s, geo, x, y, tx),
-                    rune::Phase::Up => super::release(s, tx),
-                }
-            }),
+            grip.on_key(|s: &mut H, ev, tx| super::grip_key(s, ev, tx))
+                // A pointer over the grip is over the "e"'s reach (or the panel) too: the eyes
+                // keep looking at it.
+                .on_pointer_move_local(move |s: &mut H, e: PointerEvent, tx: &mut Tx| {
+                    let (x, y) = at(e.x, e.y);
+                    super::pointer_move_at(s, geo, x, y, tx);
+                })
+                .on_drag(move |s: &mut H, d, tx| {
+                    let (x, y) = at(d.x, d.y);
+                    match d.phase {
+                        rune::Phase::Down if tx.button() == rune::PointerButton::Primary => super::grab_at(s, geo, x, y, tx),
+                        rune::Phase::Down => {}
+                        rune::Phase::Move => super::pointer_move_at(s, geo, x, y, tx),
+                        rune::Phase::Up => super::release(s, tx),
+                    }
+                }),
         );
     }
     wordmark_row(boxed, lifted)

@@ -53,7 +53,8 @@ impl SlashHost for App {
                     title: c.title.into(),
                     description: c.description.into(),
                     keys,
-                    args: false,
+                    // `/rename` takes a title (`message-timeline.tsx:306-307`).
+                    args: self.kernel.commands.get(c.id).is_some_and(|e| e.words.is_some()),
                 })
             })
             .collect();
@@ -77,6 +78,10 @@ impl SlashHost for App {
     }
 
     fn run_slash_command(&mut self, id: &str, args: &str, tx: &mut Tx) {
+        // An app command that takes words, else a plugin's.
+        if let Some(words) = self.kernel.commands.get(id).copied().filter(|e| e.is_enabled(self)).and_then(|e| e.words) {
+            return words(self, args, tx);
+        }
         crate::plugin_host::run_slash(self, id, args, tx);
     }
 

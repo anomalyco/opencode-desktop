@@ -37,7 +37,6 @@ pub fn face<S: DockHost>(s: &S, p: &crate::palette::Pal) -> Option<Vec<rune::El>
     if classic(s) { classic::face(s, p) } else { face::face(s, p) }
 }
 
-pub(super) const LINE: f32 = 20.0;
 /// The footer's height: its padding and the 32 pt buttons.
 const FOOTER_H: f32 = 47.0;
 /// How far the answers fade under the header and footer, and how clear of them a revealed one stops.
@@ -157,13 +156,72 @@ pub(super) fn focus_in_dock(focused: Option<&str>) -> bool {
 /// header/footer button like Dismiss, Back, Next/Submit, Minimize, or progress segments).
 pub(super) fn focus_in_options(focused: Option<&str>) -> bool {
     match focused {
-        None | Some("q-custom" | "q-input") => true,
+        None | Some("q-custom" | "q-custom-mark" | "q-input") => true,
         Some(k) => k.starts_with("q-opt-"),
     }
 }
 
+/// The answer index a focused option key names, so Tab + Enter acts on the focused row.
+pub(super) fn focused_option(focused: Option<&str>, n: usize, has_custom: bool) -> Option<usize> {
+    match focused {
+        Some("q-custom" | "q-custom-mark") if has_custom => Some(n),
+        Some(k) => k.strip_prefix("q-opt-").and_then(|s| s.parse::<usize>().ok()).filter(|&i| i < n),
+        None => None,
+    }
+}
+
+/// The typed answer's line (`question-custom-input`: `line-height: 18px`).
+pub(super) const FIELD_LINE: f32 = 18.0;
+/// The typed answer grows to six lines, then scrolls inside itself (`question-prompt.css:398-409`
+/// and `question-prompt-experimental.css`: `max-block-size: 118px` with 5 over and under, and
+/// `overflow-y: auto`).
+pub(super) const FIELD_MAX_H: f32 = 6.0 * FIELD_LINE;
+
+/// The key that moves the dock on, or submits it on the last question: Enter, or ⌘↵ / Ctrl+↵
+/// (`QuestionSubmitKey`, `question-keys.ts:24`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum SubmitKey {
+    #[default]
+    Enter,
+    ModEnter,
+}
+
+/// What an Enter does in the dock: `Submit` moves on; `Select` picks the highlighted answer, or
+/// in the typed answer starts a new line.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Enter {
+    Submit,
+    Select,
+}
+
+/// Desktop's `questionEnter` (`question-keys.ts:29-37`): ⌘↵ / Ctrl+↵ always submits. With Enter
+/// submitting, Shift+Enter selects; with ⌘↵ submitting, Enter selects with or without Shift.
+pub fn enter(ev: &KeyEvent, submit: SubmitKey) -> Option<Enter> {
+    let m = ev.mods;
+    if ev.key != Key::Enter || m.alt {
+        return None;
+    }
+    if m.cmd || m.ctrl {
+        return Some(Enter::Submit);
+    }
+    if submit == SubmitKey::ModEnter {
+        return Some(Enter::Select);
+    }
+    Some(if m.shift { Enter::Select } else { Enter::Submit })
+}
+
+/// How the Next and Submit buttons show the submit key (`questionSubmitShortcuts`,
+/// `question-submit.ts:4-8`): ⏎ alone, or ⌘⏎ on a Mac and Ctrl+⏎ elsewhere.
+pub(super) fn submit_hint(submit: SubmitKey) -> String {
+    match submit {
+        SubmitKey::Enter => "⏎".to_owned(),
+        SubmitKey::ModEnter if cfg!(target_os = "macos") => "⌘⏎".to_owned(),
+        SubmitKey::ModEnter => format!("{}+⏎", opencode_i18n::t!("common.key.ctrl")),
+    }
+}
+
 /// Desktop's `questionKey`: `count` answers including the typed one.
-pub fn intent(ev: &KeyEvent, zone: Zone, count: usize) -> Intent {
+pub fn intent(ev: &KeyEvent, zone: Zone, count: usize, submit: SubmitKey) -> Intent {
     let m = ev.mods;
     match &ev.key {
         Key::Escape => return Intent::Dismiss,
@@ -212,7 +270,13 @@ pub fn intent(ev: &KeyEvent, zone: Zone, count: usize) -> Intent {
         Key::Home => Intent::First,
         Key::End => Intent::Last,
         Key::Text(s) if s == " " => Intent::Activate,
-        Key::Enter if !m.shift => Intent::Commit,
+        // The submit key commits the highlighted answer and moves on; the other Enter marks it
+        // (`question-keys.ts:95-101`).
+        Key::Enter => match enter(ev, submit) {
+            Some(Enter::Submit) => Intent::Commit,
+            Some(Enter::Select) => Intent::Activate,
+            None => Intent::None,
+        },
         _ => Intent::None,
     }
 }
@@ -480,6 +544,7 @@ pub fn key<S: DockHost>(s: &mut S, ev: &KeyEvent, tx: &mut Tx) -> bool {
     }
     let field = &f.fields[tab];
     let n = rows(field).len();
+    let focus = focused_option(tx.focused(), n, has_custom(field)).unwrap_or(focus);
     let zone = if editing_here {
         Zone::Input
     } else if !focus_in_options(tx.focused()) {
@@ -489,7 +554,7 @@ pub fn key<S: DockHost>(s: &mut S, ev: &KeyEvent, tx: &mut Tx) -> bool {
     } else {
         Zone::Option
     };
-    let intent = intent(ev, zone, count(field));
+    let intent = intent(ev, zone, count(field), s.dock_question_submit());
     // A reply on its way: the dock's keys do nothing (Desktop's `nav` while `sending`).
     if busy(s, &f) {
         return intent != Intent::None;
@@ -512,7 +577,12 @@ pub fn key<S: DockHost>(s: &mut S, ev: &KeyEvent, tx: &mut Tx) -> bool {
                 jump(s, &f, tab - 1, tx);
             }
         }
-        Intent::Commit => commit(s, &f, tx),
+        Intent::Commit => {
+            if !tx.key_repeat() {
+                dock(s, &f).focus = focus;
+                commit(s, &f, tx);
+            }
+        }
         Intent::Type(c) => {
             tx.instant();
             let t = s.dock_mut().typed_mut(&f.id, &field.key);
@@ -529,8 +599,10 @@ pub fn key<S: DockHost>(s: &mut S, ev: &KeyEvent, tx: &mut Tx) -> bool {
             }
         }
         Intent::Activate => {
-            tx.instant();
-            if focus >= n { toggle_custom(s, &f, tab) } else { select(s, &f, tab, focus) }
+            if !tx.key_repeat() {
+                tx.instant();
+                if focus >= n { toggle_custom(s, &f, tab) } else { select(s, &f, tab, focus) }
+            }
         }
         Intent::Move(step) => {
             tx.instant();
@@ -545,8 +617,22 @@ pub fn key<S: DockHost>(s: &mut S, ev: &KeyEvent, tx: &mut Tx) -> bool {
     true
 }
 
+/// Inserts a newline into the typed answer's field when plain Enter is the non-submitting Enter
+/// (`SubmitKey::ModEnter`): in Rune a multi-line `text_input` inserts `\n` natively only on
+/// Shift+Return, so plain Enter goes through here (`rune::el::input`).
+pub(super) fn insert_typed_newline<S: DockHost>(s: &mut S, f: &Form, tab: usize) {
+    let k = f.key(tab);
+    let d = s.dock_mut();
+    let _ = d.typed.entry(k.clone()).or_insert_with(|| TextEdit::new("")).insert("\n");
+    d.custom.insert(k.clone());
+    if !f.multi(tab) {
+        d.picks.remove(&k);
+    }
+}
+
 /// Keys in "Type your own answer": Esc leaves the field, ↑ on its first line goes to the answer
-/// above, ↵ moves on, ⌘↵ and ⌘[ as anywhere. Everything else types.
+/// above, the submit key moves on, ⌘↵ and ⌘[ as anywhere. Everything else types: the other
+/// Enter starts a new line (`session-question-dock-experimental.tsx:1363-1369`).
 fn typed_key<S: DockHost>(s: &mut S, ev: &KeyEvent, tx: &mut Tx) -> bool {
     let Some(f) = asking(s) else { return false };
     let (tab, _) = place(s, &f);
@@ -567,12 +653,19 @@ fn typed_key<S: DockHost>(s: &mut S, ev: &KeyEvent, tx: &mut Tx) -> bool {
             reveal_focus(s, tx);
             true
         }
-        Key::Enter if !ev.mods.shift && !ev.mods.cmd && !ev.mods.ctrl => {
-            if answered(s, &f, tab) {
-                next(s, &f, tx);
+        Key::Enter if !m.cmd && !m.ctrl => match enter(ev, s.dock_question_submit()) {
+            Some(Enter::Submit) => {
+                if !tx.key_repeat() && answered(s, &f, tab) {
+                    next(s, &f, tx);
+                }
+                true
             }
-            true
-        }
+            Some(Enter::Select) if !m.shift => {
+                insert_typed_newline(s, &f, tab);
+                true
+            }
+            _ => false,
+        },
         _ => key(s, ev, tx) || s.dock_shortcut(ev, tx),
     }
 }

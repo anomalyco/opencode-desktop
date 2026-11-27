@@ -144,7 +144,10 @@ fn echoes() -> bool {
 /// The milestones `--launch-marks` prints.
 /// `content.rows` is the first frame with the open session's messages (the saved copy's, on a
 /// later launch), `sessions.rows` the first with sessions to list, `session.read.received` the
-/// server's answer with the open session's newest page.
+/// server's answer with the open session's newest page. `server.answered` is the first reads
+/// landing from a server that answered them; when no server could be reached or read, its place
+/// in the list prints `server.failed` instead (`launch::first_reads`), and `content.live` never
+/// follows while the window shows the server as away.
 const MILESTONES: [&str; 11] = [
     "main.entered",
     "window.created",
@@ -178,8 +181,12 @@ fn echo() {
         if done & (1 << i) != 0 {
             continue;
         }
-        let found = marks.iter().find(|(n, _)| n == name).map(|(_, t)| *t).or_else(|| if *name == "pixels.stable" { STABLE.get().copied() } else { None });
-        let Some(t) = found else { continue };
+        let found = marks
+            .iter()
+            .find(|(n, _)| n == name || (*name == "server.answered" && *n == "server.failed"))
+            .map(|(n, t)| (*n, *t))
+            .or_else(|| if *name == "pixels.stable" { STABLE.get().map(|t| (*name, *t)) } else { None });
+        let Some((name, t)) = found else { continue };
         let at = ns(t);
         // Epoch microseconds of the mark, printed as ms with three decimals for strobe's milestone
         // `at` group: FILETIME is 100 ns since 1601.

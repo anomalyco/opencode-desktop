@@ -102,6 +102,11 @@ if ($Payload) {
         $reported = (& $exe --version | Out-String).Trim()
         if ($reported -ne "opencode-rune $version ($channel)") { throw "opencode-desktop --version reported '$reported', expected 'opencode-rune $version ($channel)'" }
     }
+    if ($env:OPENCODE_RUNE_BUNDLE_CLI -ne '0') {
+        $js = if (Get-Command bun -ErrorAction SilentlyContinue) { 'bun' } elseif (Get-Command node -ErrorAction SilentlyContinue) { 'node' } else { throw 'Need bun or node on PATH to fetch bundled opencode-cli.' }
+        & $js (Join-Path $root 'scripts/fetch-cli.mjs') --target "windows-$Arch" --dest $stage --channel $channel
+        if ($LASTEXITCODE -ne 0) { throw 'fetching bundled opencode-cli failed' }
+    }
     Copy-Item (Join-Path $root 'apps/desktop/assets/icon/art-512.png') (Join-Path $stage 'notification-icon.png')
     Copy-Item (Join-Path $root 'LICENSE') (Join-Path $stage 'LICENSE')
     Copy-Item (Join-Path $root 'THIRD_PARTY_NOTICES.md') (Join-Path $stage 'THIRD_PARTY_NOTICES.md')

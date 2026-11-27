@@ -15,7 +15,8 @@ use rune::{Cx, El, TextEdit, Tx, col, row, spacer, text};
 use rune_kit::{ButtonVariant, TextInput};
 use opencode_ui::palette::{Elevate as _, Pal, kit};
 
-use crate::host::{SessionMenuHost, on_server};
+use crate::host::{Offered, SessionMenuHost, on_server};
+use crate::rename::Why;
 use crate::{RENAME_OVERLAY_ID, Target};
 
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -124,25 +125,25 @@ pub fn open(host: &mut dyn SessionMenuHost, t: &Target) {
         return;
     };
     crate::finish_rename(host, true);
-    dispatch(host, Event::Open { target: t.clone(), title }, "");
+    dispatch(host, Event::Open { target: t.clone(), title }, Why::Unsaid);
 }
 
 /// Submits the rename dialog's current draft.
 pub fn submit(host: &mut dyn SessionMenuHost) {
     let draft = host.menus().dialog_edit.text.clone();
     let now = host.clock();
-    dispatch(host, Event::Submitted { draft: &draft, now }, "");
+    dispatch(host, Event::Submitted { draft: &draft, now }, Why::Unsaid);
 }
 
 /// Cancels and closes the rename dialog (Cancel button, Escape, outside press, or overlay dismiss).
 pub fn cancel(host: &mut dyn SessionMenuHost, tx: &mut Tx) {
     tx.instant();
-    dispatch(host, Event::Cancelled, "");
+    dispatch(host, Event::Cancelled, Why::Unsaid);
 }
 
-/// Runs `event` through the dialog's machine and carries out what it asks. `why` is a
-/// failure's own words, already said where it arrived.
-pub fn dispatch(host: &mut dyn SessionMenuHost, event: Event<'_>, why: &str) {
+/// Runs `event` through the dialog's machine and carries out what it asks. `why` is what a
+/// failure in `event` has to say.
+pub(crate) fn dispatch(host: &mut dyn SessionMenuHost, event: Event<'_>, why: Why) {
     let effects = {
         let m = host.menus_mut();
         step(&mut m.seq, &mut m.dialog, event)
@@ -164,20 +165,32 @@ pub fn dispatch(host: &mut dyn SessionMenuHost, event: Event<'_>, why: &str) {
                 host.on_overlay_closed(RENAME_OVERLAY_ID);
             }
             Effect::Save { target, title } => {
-                let sent = on_server(host, &target.server, |h| h.write_server(Write::Rename { session: target.id.clone(), title: title.clone() })).unwrap_or(false);
+                // The write says nothing itself when it can't go: this machine's one toast does.
+                let offered = on_server(host, &target.server, |h| h.write_server_quiet(Write::Rename { session: target.id.clone(), title: title.clone() }))
+                    .unwrap_or(Offered::NoWriter);
+                let sent = offered == Offered::Sent;
                 // A story's write goes nowhere and a build that can't write sends none: each
                 // answers at once.
                 if host.stage_active() || !sent {
                     let draft = host.menus().dialog_edit.text.clone();
-                    let why = if sent { why } else { t!("rune.send.disconnected") };
+                    let why = match offered {
+                        Offered::Sent => why,
+                        Offered::NoWriter => Why::NotSent,
+                        Offered::ReadOnly => Why::ReadOnly,
+                    };
                     return dispatch(host, Event::Replied { session: &target.id, server: &target.server, title: &title, ok: sent, draft: &draft }, why);
                 }
             }
             Effect::WakeAt(_) => {}
-            // A refusal in the server's words has its own toast (`session_write_replied`).
-            Effect::Failed if why.is_empty() => host.toast_fail(t!("common.requestFailed"), t!("common.requestFailed")),
-            Effect::Failed if why == t!("rune.send.disconnected") => host.toast_fail(t!("common.requestFailed"), why),
-            Effect::Failed => {}
+            // One toast for a failed save (`project-session-row.tsx:276-280`: `common.requestFailed`,
+            // error's words under it, or `common.requestFailed` after a time-out). A server's
+            // refusal has its toast in `session_write_replied`.
+            Effect::Failed => match why {
+                Why::Unsaid => host.toast_fail(t!("common.requestFailed"), t!("common.requestFailed")),
+                Why::NotSent => host.toast_fail(t!("common.requestFailed"), t!("rune.send.disconnected")),
+                Why::ReadOnly => host.toast_fail(t!("rune.send.nothingSent"), t!("rune.jobs.readOnly")),
+                Why::Refused => {}
+            },
         }
     }
 }
@@ -191,7 +204,7 @@ pub fn poll(host: &mut dyn SessionMenuHost, now: f64, tx: &mut Tx) -> bool {
         tx.wake_at(due);
         return false;
     }
-    dispatch(host, Event::Tick { now }, "");
+    dispatch(host, Event::Tick { now }, Why::Unsaid);
     true
 }
 
@@ -224,11 +237,11 @@ pub fn view<H: SessionMenuHost + 'static>(s: &H, p: &Pal, cx: &Cx<H>) -> Vec<El>
         .build(k)
         .key("rename-dialog-cancel");
     let can_submit = !saving && !s.menus().dialog_edit.text.trim().is_empty();
-    let save_btn = button(t!("common.save"), if saving { ButtonVariant::Loading } else { ButtonVariant::Contrast })
+    let save_btn = opencode_ui::widgets::not_allowed(button(t!("common.save"), if saving { ButtonVariant::Loading } else { ButtonVariant::Contrast })
         .disabled(!can_submit)
         .on_press_tx(|s: &mut H, tx: &mut Tx| submit_from_ui(s, tx))
         .build(k)
-        .key("rename-dialog-save");
+        .key("rename-dialog-save"), !can_submit && !saving);
     let card = col()
         .key("rename-dialog")
         .role("dialog")

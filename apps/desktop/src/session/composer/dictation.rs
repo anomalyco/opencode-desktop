@@ -64,6 +64,7 @@ pub(crate) fn submit_mode(s: &mut App, mode: crate::send::SubmitMode) -> bool {
         crate::send::SubmitMode::Default => SubmitKind::Default,
         crate::send::SubmitMode::Alternate => SubmitKind::Alternate,
         crate::send::SubmitMode::QueueFirst => SubmitKind::QueueFirst,
+        crate::send::SubmitMode::InPlace => SubmitKind::InPlace,
     };
     submit(s, kind)
 }
@@ -111,6 +112,7 @@ impl DictationHost for App {
             SubmitKind::Default => crate::send::SubmitMode::Default,
             SubmitKind::Alternate => crate::send::SubmitMode::Alternate,
             SubmitKind::QueueFirst => crate::send::SubmitMode::QueueFirst,
+            SubmitKind::InPlace => crate::send::SubmitMode::InPlace,
         };
         App::submit_mode(self, mode, tx);
     }

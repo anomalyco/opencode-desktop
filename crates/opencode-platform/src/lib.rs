@@ -1,4 +1,4 @@
-//! Shared host platform utilities for Rune apps (`rune-desktop` and other embedder shells).
+//! Shared host platform utilities for Rune apps (`opencode-desktop` and other embedder shells).
 //!
 //! Collects platform-facing primitives so feature crates depend on value types and standalone
 //! helpers rather than reaching into `apps/desktop` globals:

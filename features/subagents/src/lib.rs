@@ -47,6 +47,15 @@ pub struct Running {
     pub started: i64,
 }
 
+/// Display labels for a subagent's model in `SubagentBar`
+/// (`packages/app/src/session/composer/subagent-bar.tsx:16`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SubagentModel {
+    pub provider: Option<String>,
+    pub name: String,
+    pub variant: Option<String>,
+}
+
 /// Object-safe host boundary for the subagents activity capsule, background shells, shell output
 /// followers, and subagent reply bar.
 pub trait SubagentsHost: opencode_kernel::AppEnv + opencode_kernel::AppFeedback {
@@ -96,6 +105,11 @@ pub trait SubagentsHost: opencode_kernel::AppEnv + opencode_kernel::AppFeedback 
     /// on the subagent status bar.
     fn shows_esc_keycap(&self) -> bool {
         true
+    }
+    /// Resolved provider, model name, and optional variant for subagent `id`
+    /// (`packages/app/src/session/composer/region.tsx:565-583`).
+    fn subagent_model(&self, _id: &str) -> Option<SubagentModel> {
+        None
     }
     /// Whether shell call `call`'s timeline console is currently open (and thus follows its
     /// shell's live output).
@@ -322,7 +336,6 @@ pub fn chip_with_knobs(knobs: &Knobs, p: &Pal, key: &str, label: String, open: b
         .role("button")
         .label(label)
         .expanded(open)
-        .cursor(rune::Cursor::Pointer)
         .focus_default(p)
         .h(session_view::jump::chip_height())
         .px(10.0)
@@ -438,7 +451,6 @@ fn build_subagent_row_shell(p: &Pal, it: &Running, name: String, agent_w: f32, e
         .gap(6.0)
         .center_y()
         .radius(4.0)
-        .cursor(rune::Cursor::Pointer)
         .focus_default(p)
         .hover(p.hover)
         .hover_motion(INSTANT, INSTANT)

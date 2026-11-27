@@ -38,6 +38,7 @@ pub(crate) fn poll(s: &mut App, tx: &mut Tx) -> bool {
                 if e.ty == "session.deleted" && let Some(id) = e.data["sessionID"].as_str() {
                     crate::session_menu::unread::set(s, &crate::servers::runtime::current(), id, false);
                     crate::session_menu::preferences::forget(s, &crate::servers::runtime::current(), id);
+                    crate::pickers::saved::forget(s, id);
                 }
                 if gone && let Some(id) = e.data["sessionID"].as_str() { crate::session_state::missing(s, id, tx); }
                 s.react_live(e) | gone
@@ -128,6 +129,7 @@ fn settled(s: &mut App, ticket: Ticket, result: Result<Option<SessionInfo>, open
         TicketKind::Fork => fork::settled(s, attempt, result, tx),
         TicketKind::Inbox => s.queue_settled(session, attempt, result.map(|_| ()).map_err(Some)),
         TicketKind::View => crate::session_viewed::settled(s, session, attempt, result),
+        TicketKind::TakeBack => crate::rewind::take_back::settled(s, session, attempt, result.is_ok()),
     }
 }
 
@@ -234,6 +236,7 @@ fn reply(s: &mut App, m: Incoming, tx: &mut Tx) -> bool {
         Incoming::Branches { directory, search, result } => return s.branches_listed(&directory, &search, result.ok()),
         Incoming::InterruptAcknowledged { session, interrupted } => {
             if !interrupted { stop::confirmed(s, &session); }
+            crate::rewind::take_back::acknowledged(s, &session, interrupted);
         }
         Incoming::WorktreeCreated { project } => s.worktree_updated(&project),
         Incoming::RequestReplied(id) => s.reply_answered(&id, Ok(())),
@@ -292,6 +295,7 @@ fn reply(s: &mut App, m: Incoming, tx: &mut Tx) -> bool {
         // Only the stream sends this in the app (`windows::peer::heard`); a test's or the fuzz
         // link's inbox gets the same resync.
         Incoming::Reconnected => {
+            crate::session::meta::flags::reset_server(s);
             s.resync_shared();
             return message(s, Incoming::Reconnected, tx);
         }
@@ -326,6 +330,7 @@ fn reply(s: &mut App, m: Incoming, tx: &mut Tx) -> bool {
             s.list_unlisted_worktrees();
         }
         Incoming::DefaultDirectory(directory) => crate::start_location::answered(s, directory),
+        Incoming::Flags { directory, flags } => crate::session::meta::flags::answered(s, directory, flags),
         Incoming::ProjectOpened { location, projects, session } => {
             s.apply_project_opened(location, projects, session, tx);
         }
@@ -341,7 +346,11 @@ fn reply(s: &mut App, m: Incoming, tx: &mut Tx) -> bool {
         Incoming::Created(info) => {
             let id = info.id.clone();
             // A command sent from a draft started it: the draft's tab becomes its tab.
-            s.promote_draft(&id, &info.directory);
+            if let Some(draft) = s.promote_draft(&id, &info.directory) {
+                s.composer_ext.pickers.promote_draft(&draft, &id);
+                crate::pickers::saved::save(s, &draft);
+                crate::pickers::saved::save(s, &id);
+            }
             if s.session(&id).is_none() {
                 s.sessions.insert(0, info);
             }

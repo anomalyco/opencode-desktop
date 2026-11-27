@@ -41,16 +41,6 @@ impl Pickers {
         self.model(key).and_then(|m| m.speed.as_ref().map(|s| format!("{}:{}", m.provider, s.base))).unwrap_or_else(|| key.to_owned())
     }
 
-    /// The effort saved for the model `key` (`models.tsx` `getVariant`): a model's speeds share
-    /// its effort, saved under the standard model. Preferences saved before they did may name
-    /// one of its speeds instead (opencode#65982), so the model itself and then its speeds are
-    /// read after it.
-    pub(crate) fn saved_effort(&self, key: &str) -> Option<String> {
-        let base = self.standard_key(key);
-        let speeds = self.speeds(&base).into_iter().map(|(_, model)| model);
-        [base.clone(), key.to_owned()].into_iter().chain(speeds).find_map(|k| self.prefs.variant(&k).map(str::to_owned))
-    }
-
     /// `m` at its standard speed, with its effort.
     pub fn standard_ref(&self, m: &ModelRef) -> ModelRef {
         match self.model(&m.key()).and_then(|x| x.speed.as_ref()) {

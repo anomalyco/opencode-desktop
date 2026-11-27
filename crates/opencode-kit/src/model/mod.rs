@@ -198,6 +198,32 @@ pub struct SessionInfo {
     pub archived: Option<i64>,
     /// The session's `metadata`, which the server copies onto every child it starts.
     pub metadata: Value,
+    /// Whether a desktop holds the session's browser.
+    pub browser: BrowserGrant,
+}
+
+/// Whether a desktop holds a session's browser: the server writes a grant into the session's
+/// `permissions` (`browser` `*` `allow`) while a desktop is attached to it and revokes it when
+/// that attachment ends (`packages/plugin-browser/src/connection.ts`; event `session.permissions`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum BrowserGrant {
+    /// Details this window has not read from the server (a saved row, a placeholder): they say
+    /// nothing about a grant (`packages/gui-plugins/src/browser/prompt-gate.ts` `unheld`).
+    #[default]
+    Unread,
+    /// A desktop is attached: this window or another.
+    Held,
+    /// No desktop is attached.
+    Free,
+}
+
+impl BrowserGrant {
+    /// What a session's `permissions`, as the server sends them, say: it leaves them out of a
+    /// session that has none.
+    pub fn of(permissions: &Value) -> Self {
+        let grant = |rule: &Value| rule["action"] == "browser" && rule["resource"] == "*" && rule["effect"] == "allow";
+        if permissions.as_array().is_some_and(|rules| rules.iter().any(grant)) { Self::Held } else { Self::Free }
+    }
 }
 
 impl SessionInfo {
@@ -258,12 +284,20 @@ fn user_created_store() -> &'static Mutex<HashMap<String, i64>> {
 /// path attachments, comments), kept only for the messages `keep` names: an app that lets go of a
 /// transcript calls it, so those go too. A message parsed again fills them again.
 pub fn retain_user_messages(keep: &dyn Fn(&str) -> bool) {
-    attachment::retain_user_files(keep);
-    user_created_store().lock().unwrap_or_else(PoisonError::into_inner).retain(|id, _| keep(id));
+    let mut dropped = attachment::retain_user_files(keep);
+    {
+        let mut created = user_created_store().lock().unwrap_or_else(PoisonError::into_inner);
+        let before = created.len();
+        created.retain(|id, _| keep(id));
+        dropped |= created.len() != before;
+    }
     crate::mention::retain_user_messages(keep);
     crate::quote::retain_user_comments(keep);
-    // What was let go of a projection may have read: it projects again.
-    extras_changed();
+    dropped |= inbox::retain_inbox_payloads(keep);
+    if dropped {
+        // What was let go of a projection may have read: it projects again.
+        extras_changed();
+    }
 }
 
 /// When user message `id` was sent (ms), once known: a reply's duration runs from it.

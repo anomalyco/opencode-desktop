@@ -55,7 +55,7 @@ pub struct Snapshot {
     pub progress: Option<Progress>,
     /// The running build's version, as the feed names releases.
     pub version: String,
-    /// The feed channel (`dev`, `stable`).
+    /// The feed channel (`dev`, the only one).
     pub channel: String,
 }
 
@@ -212,9 +212,9 @@ impl UpdaterService {
         self.revision != before || self.quit
     }
 
-    /// The app quits: on platforms that install on quit (macOS, `platform.ts:30`), a ready update
-    /// not already installing goes in on the way out on a thread of its own (`super::finish_quit`
-    /// waits for it before the process exits).
+    /// The app quits: when opt-in install-on-quit is enabled (`opencode#66501`, `platform.ts`), a
+    /// ready update not already installing goes in on the way out on a thread of its own
+    /// (`super::finish_quit` waits for it before the process exits).
     pub fn quitting(&mut self) {
         if matches!(self.state, State::Ready { ref refresh, .. } if !matches!(refresh, Some(machine::Refresh::Staging { .. })))
             && let Some(platform) = self.platform.get().filter(|p| p.installs_on_quit()).cloned()

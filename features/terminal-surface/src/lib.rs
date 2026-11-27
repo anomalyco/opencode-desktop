@@ -4,6 +4,7 @@
 
 #![forbid(unsafe_code)]
 
+pub mod calls;
 pub mod draw;
 pub mod find;
 pub mod grid;
@@ -30,7 +31,7 @@ use std::sync::atomic::AtomicBool;
 use std::time::Duration;
 
 use opencode_kit::client::Server;
-use opencode_kit::persistent_pty::PersistentPtyInfo;
+use opencode_kit::persistent_pty::{PersistentPtyInfo, TerminalCreate};
 use rune::machine::{Attempt, Effects};
 use rune::{Drag, KeyEvent, PointerPress, TextEdit, TextStyle, Tx};
 use rune_knobs::{Group, Knob, Knobs};
@@ -67,15 +68,15 @@ pub const TAB_UI: TextStyle = opencode_ui::style::UI.features("\"tnum\"");
 
 pub const TERM_FONT: Knob = Knob::choice(
     "Terminal font",
-    &["Commit Mono", "IBM Plex Mono", "SF Mono", "JetBrains Mono"],
+    &["Commit Mono", "IBM Plex Mono", "SF Mono", "OpenMono"],
     3,
 )
 .about("Monospace font family in the terminal")
 .hints(&[
     "Kit's Ghostty Commit Mono face",
-    "OpenCode bundled IBM Plex Mono",
+    "System IBM Plex Mono face (falls back to OpenMono)",
     "macOS SF Mono system face",
-    "Desktop's JetBrainsMono Nerd Font Mono",
+    "Desktop's bundled OpenMono with Nerd Fonts icons",
 ]);
 
 pub const TERM_SIZE: Knob = Knob::new("Font size", 11.0, 18.0, 14.0)
@@ -126,6 +127,10 @@ pub enum TerminalJob {
     Remove {
         pty_id: String,
     },
+    /// Lists `session`'s terminals (`GET /api/experimental/session/:id/terminal`) for workspace `ws`.
+    List { ws: String, session: String, order: Vec<String>, active: Option<String> },
+    /// Starts a terminal for `session` (`POST /api/experimental/session/:id/terminal`).
+    Create { ws: String, session: String, create: TerminalCreate, launch: calls::Launch, after: calls::After },
 }
 
 /// Result of a [`TerminalJob`], delivered back on the UI thread via [`apply_reply`].
@@ -140,6 +145,8 @@ pub enum TerminalReply {
     Removed {
         pty_id: String,
     },
+    Listed { ws: String, order: Vec<String>, active: Option<String>, result: Result<Vec<PersistentPtyInfo>, String> },
+    Created { ws: String, plain: bool, shell: Option<Option<String>>, after: calls::After, result: Result<PersistentPtyInfo, String> },
 }
 
 /// Link hover state on a terminal grid cell, replacing `Option<(u16, u16, bool)>`.
@@ -388,6 +395,8 @@ pub struct TerminalTab {
     /// The cell under the pointer and whether the follow modifier (Ctrl, ⌘ on macOS) was held:
     /// the link there (`links::span`) is underlined, and followable with the modifier.
     pub hover: HoverLink,
+    /// Where the quote last taken with its comment editor came from (`grid::quote`).
+    pub(crate) quote_source: Cell<Option<grid::QuoteSource>>,
 }
 
 impl TerminalTab {
@@ -418,6 +427,8 @@ pub struct TerminalWorkspace {
     pub tabs: Vec<TerminalTab>,
     /// Why the server's terminals couldn't be listed or started; shown instead of a shell.
     pub failure: Option<String>,
+    /// The server call these terminals wait for (`calls`).
+    pub call: calls::Call,
 }
 
 impl TerminalWorkspace {
@@ -461,6 +472,8 @@ pub struct TerminalPane {
     /// The terminal took the keyboard (opened, toggled, clicked): keyboard focus goes to its
     /// viewport on the next poll, so Tab and F6 there are the viewport's and never trapped.
     pub focus_claim: FocusClaim,
+    /// A terminal asked for before the server listed its session (`side_ops::Asked`).
+    pub asked: Option<side_ops::Asked>,
     /// A paste waiting for the user to say it may run (`paste`).
     pub pending_paste: Option<paste::Pending>,
     /// An OSC 8 hyperlink click waiting for target confirmation (`osc8`).
@@ -487,6 +500,7 @@ impl Default for TerminalPane {
             connections: 0,
             spare_field: TextEdit::default(),
             focus_claim: FocusClaim::default(),
+            asked: None,
             pending_paste: None,
             pending_osc8: None,
             server_shells: RefCell::new(HashMap::new()),
@@ -668,9 +682,10 @@ pub trait TerminalSurfaceHost: opencode_kernel::AppEnv + opencode_kernel::AppFee
         let _ = selected;
         false
     }
-    /// Adds `selected` terminal text to the composer as a quote.
-    fn quote_terminal_selection(&mut self, selected: &str, tx: &mut Tx) {
-        let _ = (selected, tx);
+    /// Adds `selected` terminal text to the composer as a quote; with `comment`, its comment
+    /// editor opens, beside the rows the quote came from.
+    fn quote_terminal_selection(&mut self, selected: &str, comment: Option<grid::QuotePlace>, tx: &mut Tx) {
+        let _ = (selected, comment, tx);
     }
     /// Notifies assistive speech tracking that a key/IME went to terminal `(ws_key, tab_id)`.
     fn speech_terminal_key(&mut self, ws_key: &str, tab_id: &str) {

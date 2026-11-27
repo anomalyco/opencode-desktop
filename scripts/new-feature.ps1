@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-  Zero-thought feature scaffolder for rune-desktop (Lane A Luau plugin or Lane B Rust feature).
+  Zero-thought feature scaffolder for anomalyco/opencode-rune (Lane A Luau plugin or Lane B Rust feature).
 
 .DESCRIPTION
   Creates a ready-to-run Lane A Luau plugin under plugins/<id>/ (default) or a decoupled

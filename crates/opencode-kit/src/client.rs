@@ -566,12 +566,6 @@ impl Server {
         self.write_within("DELETE", "/api/worktree", Some(body), Duration::from_secs(120)).map(|_| ())
     }
 
-    /// Moves `session` to `directory` (`POST /api/session/:id/move`), waiting up to 30 s
-    /// (Desktop's `WORKSPACE_MOVE_TIMEOUT_MS`).
-    pub fn move_session(&self, session: &str, directory: &str) -> Result<(), WireError> {
-        self.write_within("POST", &format!("/api/session/{session}/move"), Some(serde_json::json!({ "directory": directory })), Duration::from_secs(30)).map(|_| ())
-    }
-
     /// `StartInNewWorktree`: the worktree, then `start_as` in it.
     #[allow(clippy::too_many_arguments)]
     pub fn start_in_new_worktree(&self, id: &str, project: &str, from: &str, branch: Option<&str>, prompt: &Prompt, made: impl FnOnce(), after_create: impl FnOnce(&SessionInfo)) -> Result<SessionInfo, WireError> {
@@ -599,6 +593,8 @@ impl Server {
     pub fn projects(&self) -> Result<Vec<model::Project>, WireError> {
         self.get("/api/project").map(|v| model::parse_projects(&v))
     }
+
+
 
     /// Every direct subagent session of `session`, newest first, in pages of 200 (Desktop's
     /// `listChildren`).
@@ -725,7 +721,11 @@ impl Server {
                 stream_step(state, StreamEvent::Closed);
                 return Ok(());
             }
+            let shrink = line.len() <= 64 * 1024 && line.capacity() > 256 * 1024;
             line.clear();
+            if shrink {
+                line.shrink_to(64 * 1024);
+            }
             let limit = 32 << 20;
             let read = (&mut reader).take(limit + 1).read_line(&mut line).map_err(|e| down(read_failure(e)))?;
             if read == 0 { break; }
@@ -773,12 +773,12 @@ impl Server {
 /// heartbeat, a comment or a line it can't read.
 fn event_line(line: &str) -> Option<Incoming> {
     let data = line.strip_prefix("data:")?;
-    let v = serde_json::from_str::<Value>(data.trim()).ok()?;
+    let mut v = serde_json::from_str::<Value>(data.trim()).ok()?;
     let ty = v["type"].as_str().unwrap_or("").to_owned();
     if ty.is_empty() || ty == "server.heartbeat" {
         return None;
     }
-    let mut data = v["data"].clone();
+    let mut data = v["data"].take();
     // A compaction message, and a notice's, takes its id from the event that started it.
     if (ty.starts_with("session.compaction.") || crate::model::is_notice_event(&ty))
         && let Some(id) = v["id"].as_str()

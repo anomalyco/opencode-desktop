@@ -1,0 +1,149 @@
+name: OpenCode (Rune) Linux Build
+
+# Builds the Linux desktop packages (AppImage, deb, rpm) of a branch or commit the way release.yml's
+# build-linux does (`cargo build --profile release-quick`, then package-linux.sh), unsigned, and
+# keeps them as a workflow artifact for 7 days. It publishes nothing: no environment, no secrets,
+# no release, no channel.
+#
+# - workflow_dispatch: any branch, tag or commit, with or without a pull request (`ref`); x64, and
+#   arm64 when asked.
+#   gh workflow run opencode-rune-linux-build.yml -R anomalyco/opencode-rune -f ref=<branch>
+# - workflow_call: opencode-rune-pr-build.yml's Linux x64 leg.
+#
+# The browser engine pin (OPENCODE_BROWSER_ENGINE_TRUST) comes from the live index when it serves
+# this commit's engine version; otherwise the build has no pin and its browser reports
+# NotPublished, which the job summary says.
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Branch, tag or commit to build
+        required: true
+        type: string
+      arm64:
+        description: Also build linux-arm64
+        type: boolean
+        default: false
+  workflow_call:
+    inputs:
+      ref:
+        required: true
+        type: string
+      version:
+        required: true
+        type: string
+      channel:
+        required: true
+        type: string
+      artifact:
+        description: Artifact name prefix; the arch is appended
+        required: true
+        type: string
+    outputs:
+      digest:
+        description: SHA-256 of the x64 artifact's SHA256SUMS
+        value: ${{ jobs.build.outputs.digest-x64 }}
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  CARGO_INCREMENTAL: "0"
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { arch: x64, host: blacksmith-4vcpu-ubuntu-2404, wanted: true }
+          - { arch: arm64, host: blacksmith-4vcpu-ubuntu-2404-arm, wanted: "${{ inputs.arm64 == true }}" }
+    runs-on: ${{ matrix.host }}
+    timeout-minutes: 120
+    env:
+      OPENCODE_RUNE_VERSION: ${{ inputs.version || format('0.0.0-branch-{0}', github.run_number) }}
+      OPENCODE_RUNE_BUILD_CHANNEL: ${{ inputs.channel || 'branch' }}
+      ARTIFACT: ${{ inputs.artifact || 'build-opencode-rune-branch-linux' }}-${{ matrix.arch }}
+      WANTED: ${{ matrix.wanted }}
+    outputs:
+      digest-x64: ${{ steps.digest.outputs.digest-x64 }}
+    steps:
+      - name: Skip arm64 unless asked
+        if: env.WANTED != 'true'
+        run: echo "linux-${{ matrix.arch }} not asked for." >> "$GITHUB_STEP_SUMMARY"
+      - if: env.WANTED == 'true'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.ref }}
+          persist-credentials: false
+      - if: env.WANTED == 'true'
+        name: Install native build and packaging dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends clang cmake pkg-config nasm libfontconfig1-dev libxkbcommon-dev libwayland-dev libx11-dev libxcb1-dev libdbus-1-dev libudev-dev libssl-dev rpm squashfs-tools
+      - if: env.WANTED == 'true'
+        name: Rust toolchain
+        run: rustup toolchain install
+      # Reads dev's caches (release.yml saves them); this workflow saves none.
+      - if: env.WANTED == 'true'
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          key: linux-${{ matrix.arch }}
+          save-if: false
+      - if: env.WANTED == 'true'
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/seer/ghostty-vt
+          key: ghostty-vt-linux-${{ matrix.arch }}-${{ hashFiles('crates/terminal/build.rs', 'crates/terminal/build_support.rs') }}
+      - if: env.WANTED == 'true'
+        id: zig
+        name: Zig version
+        run: |
+          version=$(sed -n 's/^pub const ZIG_VERSION: &str = "\(.*\)";$/\1/p' crates/terminal/build_support.rs)
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "::error::Could not read ZIG_VERSION from crates/terminal/build_support.rs." >&2; exit 1; }
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+      - if: env.WANTED == 'true'
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/seer/ghostty-vt/zig-*-${{ steps.zig.outputs.version }}
+          key: zig-${{ runner.os }}-${{ runner.arch }}-${{ steps.zig.outputs.version }}
+      - if: env.WANTED == 'true'
+        id: engine
+        name: Browser engine pin from the live index
+        run: |
+          cef=$(grep -A1 '^name = "cef-dll-sys"$' apps/browser-engine/Cargo.lock |
+            sed -n 's/^version = "[^"]*+\([0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\)"$/\1/p')
+          revision=$(sed -n 's/^pub const ENGINE_REVISION: u32 = \([0-9][0-9]*\);$/\1/p' crates/browser-pane/src/installer.rs)
+          state=$(bash .github/release/opencode-rune-check-engine.sh --plan-state --version "$cef-$revision")
+          sha=$(sed -n "s/^linux_${{ matrix.arch }}_sha256=//p" <<< "$state")
+          if [[ "$sha" =~ ^[0-9a-f]{64}$ ]]; then
+            echo "trust=sha256:$sha" >> "$GITHUB_OUTPUT"
+            echo "Browser engine $cef-$revision pinned from the live index." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "::warning::The live index has no linux-${{ matrix.arch }} engine $cef-$revision; this build's browser reports NotPublished."
+            echo "No live browser engine $cef-$revision for linux-${{ matrix.arch }}: the browser is off in this build." >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - if: env.WANTED == 'true'
+        name: Build and package desktop
+        env:
+          OPENCODE_BROWSER_ENGINE_TRUST: ${{ steps.engine.outputs.trust }}
+        run: |
+          apps/desktop/scripts/set-crate-version.sh "$PWD" "$OPENCODE_RUNE_VERSION"
+          cargo build --locked -p opencode-desktop --profile release-quick
+          bash apps/desktop/scripts/package-linux.sh target/release-quick/opencode-desktop "$RUNNER_TEMP/linux"
+          echo "Built $(git rev-parse --short=9 HEAD) as $OPENCODE_RUNE_VERSION ($OPENCODE_RUNE_BUILD_CHANNEL): artifact \`$ARTIFACT\`." >> "$GITHUB_STEP_SUMMARY"
+      - if: env.WANTED == 'true'
+        id: upload
+        uses: ./.github/release/upload
+        with:
+          name: ${{ env.ARTIFACT }}
+          path: ${{ runner.temp }}/linux
+          retention-days: "7"
+      - if: env.WANTED == 'true'
+        id: digest
+        run: echo "digest-${{ matrix.arch }}=${{ steps.upload.outputs.digest }}" >> "$GITHUB_OUTPUT"

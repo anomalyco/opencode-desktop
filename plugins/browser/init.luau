@@ -824,6 +824,10 @@ return plugin.defineWindow(function(ctx)
             device.toggle(tab)
         elseif what == "edit" then
             edit(tab)
+        elseif what == "focus" then
+            -- A press on the edited field's own box: the input takes the keyboard again, its text and
+            -- selection as they are (`panel.tsx:1000-1006`; `edit` would select the whole address).
+            editor:Focus()
         elseif what == "go" then
             dispatch({ type = "navigated", tab = tab.Id, url = arg :: string, epoch = epoch(tab) })
         elseif what == "forget" then
@@ -1567,29 +1571,30 @@ return plugin.defineWindow(function(ctx)
     -- Browsers are listed only when asked (never at startup), by the host off the UI thread, again once a
     -- listing is a few seconds old, so a visit sees browsers installed since the last one.
     local importSources: { settings.ImportBrowser } = {}
-    -- The profile the import dialog is for, what its last import said, and each row's last outcome.
-    local importTarget: { browser: string, name: string, profile: string, label: string }? = nil
+    -- The profile the import dialog is for (`badge`: its name, for a browser that has several), what
+    -- its last import said, and each row's last outcome.
+    local importTarget: { browser: string, name: string, profile: string, label: string, badge: string? }? = nil
     -- Set while the dialog was opened from the pane's offer: its import is then the offer's, which says
     -- how it went and loads the pane's page again (`import-prompt.tsx:87-92`).
     local importOffer: { tab: BrowserTab? }? = nil
     -- An import of the offer's runs on when its dialog is closed, and the offer waits for it.
     local offerImporting = false
-    -- Set while the dialog was opened by a page's passkey notice (`site-chooser.tsx:35-39`): the page's
+    -- Set while the dialog was opened by a page's passkey notice (`site-chooser.tsx:43-47`): the page's
     -- site, chosen already only in a tab of the person's; the tab, which loads again once cookies came
     -- in; and whether the dialog still moves on through the profiles for one that lists the site.
+    -- A notice that names no site opens the whole dialog (`panel.tsx:607`).
     local importSite: { name: string?, choose: boolean, tab: string, seeking: boolean }? = nil
     local importFailure: settings.ImportMessage? = nil
-    -- What the dialog brings, both until unticked; each opening starts from both (`site-chooser.tsx:80-81`).
+    -- What the dialog brings, both until unticked; each opening starts from both (`site-chooser.tsx:86-87`).
     local importBoxes: settings.ImportBoxes = { signins = true, history = true }
     local importRunning = false
-    -- "Choose sites" (`site-chooser.tsx:52-125`): each profile's list, read once while the dialog is open
-    -- (a failure is not kept, so Try again reads again); the choice is one profile's, and until the
-    -- person changes it every site comes over. Revealed, the dialog is the large `import-sites`.
-    local importSitesHandle: Contribution? = nil
+    -- The dialog's sites (`site-chooser.tsx:60-131`): each profile's list, read once while the dialog is
+    -- open (a failure is not kept, so Try again reads again); `scope` is "All sites" or "Only sites
+    -- I choose", under which the ticked sites are one profile's and start with none.
     local siteLists: { [string]: { settings.ProfileSite } } = {}
     local siteFailures: { [string]: string } = {}
     local siteLoading: { [string]: boolean } = {}
-    local siteChoice = { revealed = false, custom = false, profile = "", chosen = {} :: { [string]: boolean }, query = "", version = 0 }
+    local siteChoice = { scope = "all", profile = "", chosen = {} :: { [string]: boolean }, query = "", version = 0 }
     local siteSearch = ctx:CreateEditor("")
     -- Set below, once the outcome text it needs is defined.
     local runDialogImport: () -> () = function() end
@@ -1602,26 +1607,29 @@ return plugin.defineWindow(function(ctx)
         selectedKey = nil,
         candidates = {},
         candidatesLoaded = false,
-        devOpen = false,
         review = nil,
         showAllSites = false,
         approving = false,
         message = nil,
     }
 
+    -- Whether the host's first listing is in: before it, the page says nothing of other browsers
+    -- (`settings.tsx:151`, `jobs.ts:313` `sourcesLoaded`).
+    local importSourcesLoaded = false
+
     local function listImportSources(): { settings.ImportBrowser }
         -- The host lists them off the UI thread and keeps the last listing, so asking is cheap.
         local bAny = Browser :: any
-        importSources = if type(bAny.HistoryImportSources) == "function" then (bAny:HistoryImportSources() :: any) or {} else {}
+        -- Nothing until the first listing is in; a host without the method has none to list.
+        local listed: any = if type(bAny.HistoryImportSources) == "function" then bAny:HistoryImportSources() else {}
+        importSourcesLoaded = listed ~= nil
+        importSources = listed or {}
         return importSources
     end
 
     local function refreshImportDialog()
         if importDialogHandle then
             importDialogHandle:Refresh()
-        end
-        if importSitesHandle then
-            importSitesHandle:Refresh()
         end
     end
 
@@ -1632,7 +1640,7 @@ return plugin.defineWindow(function(ctx)
     -- Set below: the passkey dialog's move to the next profile once a profile's list came in.
     local seekSite: (target: { browser: string, profile: string }, list: { settings.ProfileSite }?) -> () = function() end
 
-    -- Reads the profile's sites off the UI thread, once while the dialog is open (`site-chooser.tsx:99-112`).
+    -- Reads the profile's sites off the UI thread, once while the dialog is open (`site-chooser.tsx:105-118`).
     local function readSites(target: { browser: string, profile: string })
         local key = profileKey(target)
         local bAny = Browser :: any
@@ -1643,7 +1651,7 @@ return plugin.defineWindow(function(ctx)
         siteFailures[key] = nil
         -- The read belongs to this opening of the dialog: closing or reopening it replaces the three
         -- tables, so a read still running from before lands in the old ones and never fills the new
-        -- dialog (official aborts it: `site-chooser.tsx:101-108`).
+        -- dialog (official aborts it: `site-chooser.tsx:107-114`).
         local lists, failures, loading = siteLists, siteFailures, siteLoading
         task.spawn(function()
             local ok, res = pcall(function()
@@ -1669,12 +1677,12 @@ return plugin.defineWindow(function(ctx)
 
     -- Moves the dialog to another browser profile, as its profile menu does.
     local function setImportTarget(choice: signins.Choice)
-        importTarget = { browser = choice.sourceId, name = choice.sourceName, profile = choice.profileId, label = choice.label }
+        importTarget = { browser = choice.sourceId, name = choice.sourceName, profile = choice.profileId, label = choice.label, badge = choice.profileName }
     end
 
     -- Opened for a site, the dialog moves on to the next browser profile until one lists exactly that
     -- site, and back to the first if none does; there the site is chosen already where the person
-    -- asked (`site-chooser.tsx:205-217`, `site-search.ts` `exactSite`).
+    -- asked (`site-chooser.tsx:215-229`, `site-search.ts` `exactSite`).
     seekSite = function(target: { browser: string, profile: string }, list: { settings.ProfileSite }?)
         local site = importSite
         if site == nil or site.name == nil then
@@ -1684,7 +1692,7 @@ return plugin.defineWindow(function(ctx)
         for _, item in list or {} do
             if item.site == name then
                 site.seeking = false
-                siteChoice.custom = true
+                siteChoice.scope = "some"
                 siteChoice.profile = profileKey(target)
                 siteChoice.chosen = if site.choose then { [name] = true } else {}
                 return
@@ -1733,7 +1741,7 @@ return plugin.defineWindow(function(ctx)
         return out
     end
 
-    -- The open dialog's sites (`site-chooser.tsx:90-155`, `canImport` at `:231-236`).
+    -- The open dialog's sites (`site-chooser.tsx:96-163`, `canImport` at `:243-248`).
     local function siteChooserFor(target: { browser: string, name: string, profile: string }, busy: boolean): settings.SiteChooser?
         local bAny = Browser :: any
         if type(bAny.ListSourceSitesAsync) ~= "function" then
@@ -1742,11 +1750,12 @@ return plugin.defineWindow(function(ctx)
         local key = profileKey(target)
         local list = siteLists[key]
         local all = list or {}
-        -- Changed, the choice is one profile's: under another profile nothing is chosen until the person
-        -- chooses there (`site-chooser.tsx:90-94`).
-        local custom = siteChoice.custom
+        -- "All sites" brings every one. Under "Only sites I choose" the ticked sites are one
+        -- profile's: under another profile nothing is chosen until the person chooses there
+        -- (`site-chooser.tsx:96-100`).
+        local some = siteChoice.scope == "some"
         local function isChosen(site: string): boolean
-            return not custom or (siteChoice.profile == key and siteChoice.chosen[site] == true)
+            return not some or (siteChoice.profile == key and siteChoice.chosen[site] == true)
         end
         local chosen = 0
         for _, item in all do
@@ -1763,7 +1772,7 @@ return plugin.defineWindow(function(ctx)
         end
         local failure = siteFailures[key]
         -- Searched for the passkey page's site, which this profile has no cookies for: the list says so,
-        -- and chooses nothing (`site-chooser.tsx:132-138`).
+        -- and chooses nothing (`site-chooser.tsx:138-145`).
         local missing: string? = nil
         local siteName = if importSite ~= nil then importSite.name else nil
         if siteName ~= nil and list ~= nil and string.lower(string.match(siteChoice.query, "^%s*(.-)%s*$") or "") == siteName then
@@ -1792,16 +1801,19 @@ return plugin.defineWindow(function(ctx)
         elseif #shown == 0 then
             status = { text = missing or I18n:T("sites.unmatched"), error = false }
         end
+        -- The "From" picker only where the dialog has several profiles to offer, as the pane's offer
+        -- and a passkey notice do; a Settings row has picked its profile already
+        -- (`settings.tsx:72` `choices={[choice]}`, `site-chooser.tsx:380`).
         local choices = signins.choices(importSources)
         local profiles: { { value: string, label: string } }? = nil
-        if #choices > 1 then
+        if #choices > 1 and (importOffer ~= nil or importSite ~= nil) then
             local options = {}
             for _, choice in choices do
                 table.insert(options, { value = `{choice.sourceId}\n{choice.profileId}`, label = choice.label })
             end
             profiles = options
         end
-        -- Changes the dialog's ticked sites, which from then on are this profile's own.
+        -- Changes the dialog's ticked sites, which are this profile's own (`site-chooser.tsx:231-235`).
         local function choose(change: ({ [string]: boolean }) -> ())
             local next: { [string]: boolean } = {}
             for _, item in all do
@@ -1810,15 +1822,14 @@ return plugin.defineWindow(function(ctx)
                 end
             end
             change(next)
-            siteChoice.custom = true
             siteChoice.profile = key
             siteChoice.chosen = next
             siteChoice.version += 1
             refreshImportDialog()
         end
         return {
-            revealed = siteChoice.revealed,
-            everything = not custom or (#all > 0 and chosen == #all),
+            scope = siteChoice.scope,
+            everything = not some or (#all > 0 and chosen == #all),
             chosen = chosen,
             total = #all,
             shown = shown,
@@ -1832,11 +1843,16 @@ return plugin.defineWindow(function(ctx)
             profile = key,
             version = `{key}:{siteChoice.version}`,
             -- Importing everything needs no list: it works while the list is still being read.
-            canImport = if custom then chosen > 0 else (list == nil or #all > 0),
+            canImport = if some then chosen > 0 else (list == nil or #all > 0),
             Menu = Menu,
-            onReveal = function()
-                siteChoice.revealed = not siteChoice.revealed
-                Dialog:Open(if siteChoice.revealed then "import-sites" else "import-history")
+            -- `site-chooser.tsx:454`: the ticked sites stay as they are while "All sites" is picked.
+            onScope = function(scope: string)
+                if busy then
+                    return
+                end
+                siteChoice.scope = if scope == "some" then "some" else "all"
+                siteChoice.version += 1
+                refreshImportDialog()
             end,
             onToggle = function(site: string)
                 if busy then
@@ -1866,17 +1882,17 @@ return plugin.defineWindow(function(ctx)
                 readSites(target)
                 refreshImportDialog()
             end,
-            single = importSite ~= nil,
+            single = importSite ~= nil and importSite.name ~= nil,
             missing = missing,
             onProfile = function(value: string)
                 for _, choice in choices do
                     if `{choice.sourceId}\n{choice.profileId}` == value then
-                        importTarget = { browser = choice.sourceId, name = choice.sourceName, profile = choice.profileId, label = choice.label }
-                        -- The person's pick ends the passkey dialog's own search through the profiles.
+                        setImportTarget(choice)
+                        -- The person's pick ends the passkey dialog's own search through the profiles
+                        -- (`site-chooser.tsx:208-211`); the choice between all and some stays.
                         if importSite ~= nil then
                             importSite.seeking = false
                         end
-                        siteChoice.custom = false
                         siteChoice.version += 1
                         readSites(importTarget :: any)
                         refreshImportDialog()
@@ -1892,7 +1908,7 @@ return plugin.defineWindow(function(ctx)
         siteChoice.version += 1
         refreshImportDialog()
     end)
-    -- With text in it, Escape clears the search; once empty, it closes the dialog (`site-chooser.tsx:404-421`).
+    -- With text in it, Escape clears the search; once empty, it closes the dialog (`site-chooser.tsx:488-505`).
     siteSearch.KeyPressed:Connect(function(key: string)
         if key == "Escape" and siteSearch:Text() ~= "" then
             siteSearch:SetText("")
@@ -1982,9 +1998,15 @@ return plugin.defineWindow(function(ctx)
     end
 
     local function openAddExtensionDialog()
-        local bAny = Browser :: any
-        local rawSources = if type(bAny.ExtBrowserSources) == "function" then bAny:ExtBrowserSources() else {}
-        local sources: { extensions.BrowserSource } = if type(rawSources) == "table" then rawSources :: any else {}
+        -- The browsers and profiles of the page's import rows, the one used last first, the
+        -- Chromium ones only (`settings.tsx:90`, `:474`; `profile/sources.ts:149-165`): the page
+        -- that opens the dialog already lists them. A profile without extensions says so.
+        local sources: { extensions.BrowserSource } = {}
+        for _, browser in listImportSources() do
+            if browser.engine == "chromium" then
+                table.insert(sources, { id = browser.id, name = browser.name, profiles = browser.profiles })
+            end
+        end
         local choices = extensions.flattenChoices(sources)
         extDialogState = {
             busy = nil,
@@ -1993,7 +2015,6 @@ return plugin.defineWindow(function(ctx)
             selectedKey = if #choices > 0 then extensions.choiceKey(choices[1]) else nil,
             candidates = {},
             candidatesLoaded = false,
-            devOpen = false,
             review = nil,
             showAllSites = false,
             approving = false,
@@ -2165,16 +2186,15 @@ return plugin.defineWindow(function(ctx)
                     Popover:Toggle({
                         id = "ext-browser-profile",
                         anchorKey = "ext-browser-profile-btn",
+                        -- `settings.tsx:692` `placement="bottom-start"`; the select's gutter is 6
+                        -- (`runtime/plugin/ui.tsx:208`).
                         side = "bottom",
-                        align = "end",
-                        gap = 4,
+                        align = "start",
+                        gap = 6,
                     })
                 end,
                 onAddFromBrowser = startBrowserInstall,
-                onToggleDev = function()
-                    extDialogState.devOpen = not extDialogState.devOpen
-                    refreshExtDialog()
-                end,
+
                 onPickFolder = startFolderInstall,
                 onToggleSites = function()
                     extDialogState.showAllSites = not extDialogState.showAllSites
@@ -2263,7 +2283,13 @@ return plugin.defineWindow(function(ctx)
         if target == nil then
             return nil
         end
-        return settings.renderImportDialog(I18n, view, target.label, importFailure, importBoxes, importRunning, function(which: string, on: boolean)
+        local chooser = siteChooserFor(target, importRunning)
+        -- `site-chooser.tsx:358-373`: with a profile picker, which names the browser, the title does
+        -- not repeat it; else the browser, and its profile as a badge when it has several.
+        local title: settings.ImportTitle = if chooser ~= nil and chooser.profiles ~= nil
+            then { text = I18n:T("settings.import.title") }
+            else { text = I18n:T("signins.import", { browser = target.name }), badge = target.badge }
+        return settings.renderImportDialog(I18n, view, title, importFailure, importBoxes, importRunning, function(which: string, on: boolean)
             importBoxes = if which == "signins"
                 then { signins = on, history = importBoxes.history }
                 else { signins = importBoxes.signins, history = on }
@@ -2272,9 +2298,9 @@ return plugin.defineWindow(function(ctx)
             runDialogImport()
         end, function()
             Dialog:Close()
-        end, siteChooserFor(target, importRunning))
+        end, chooser)
     end
-    -- Lists and the choice last only while the dialog is open (`site-chooser.tsx:29-31`).
+    -- Lists and the choice last only while the dialog is open (`site-chooser.tsx:38-39`).
     local function dismissImport()
         importTarget = nil
         importOffer = nil
@@ -2283,27 +2309,23 @@ return plugin.defineWindow(function(ctx)
         siteLists = {}
         siteFailures = {}
         siteLoading = {}
-        siteChoice = { revealed = false, custom = false, profile = "", chosen = {}, query = "", version = siteChoice.version + 1 }
+        siteChoice = { scope = "all", profile = "", chosen = {}, query = "", version = siteChoice.version + 1 }
         if siteSearch:Text() ~= "" then
             siteSearch:SetText("")
         end
     end
-    -- "Choose sites" shows the list in the large dialog; without it the dialog fits its boxes.
+    -- One dialog, `tall` (`site-chooser.tsx:356`): its top edge stays where it is, and "Only sites I
+    -- choose" grows it downward.
     importDialogHandle = ctx:AddDialog({
         id = "import-history",
         title = I18n:T("settings.import.title"),
+        size = "tall",
         render = renderImport,
         onDismiss = dismissImport,
     })
-    importSitesHandle = ctx:AddDialog({
-        id = "import-sites",
-        title = I18n:T("settings.import.title"),
-        size = "large",
-        render = renderImport,
-        onDismiss = dismissImport,
-    })
-    -- Opens the dialog for one browser profile: from Settings > Browser with the list hidden, from
-    -- the pane's offer with it shown (`import-prompt.tsx:90-93` `reveal`).
+    -- Opens the dialog for one browser profile: from Settings > Browser on "All sites", for that
+    -- profile alone; from the pane's offer on "Only sites I choose" with the list shown, and every
+    -- profile to pick from (`import-prompt.tsx:90-93` `reveal`).
     local function openImport(browserId: string, profileId: string, offer: { tab: BrowserTab? }?)
         local reveal = offer ~= nil
         for _, browser in importSources do
@@ -2316,21 +2338,22 @@ return plugin.defineWindow(function(ctx)
                             name = browser.name,
                             profile = profileId,
                             label = if #browser.profiles > 1 then `{browser.name} · {prof.name}` else browser.name,
+                            badge = if #browser.profiles > 1 then prof.name else nil,
                         }
                         importOffer = offer
                         importSite = nil
                         importFailure = nil
                         importBoxes = { signins = true, history = true }
-                        -- Each opening starts from every site and reads the lists again.
+                        -- Each opening starts with nothing ticked and reads the lists again.
                         siteLists = {}
                         siteFailures = {}
                         siteLoading = {}
-                        siteChoice = { revealed = reveal, custom = false, profile = "", chosen = {}, query = "", version = siteChoice.version + 1 }
+                        siteChoice = { scope = if reveal then "some" else "all", profile = "", chosen = {}, query = "", version = siteChoice.version + 1 }
                         if siteSearch:Text() ~= "" then
                             siteSearch:SetText("")
                         end
                         readSites(importTarget :: any)
-                        Dialog:Open(if reveal then "import-sites" else "import-history")
+                        Dialog:Open("import-history")
                         return
                     end
                 end
@@ -2338,13 +2361,14 @@ return plugin.defineWindow(function(ctx)
         end
     end
 
-    -- A page's passkey notice (`panel.tsx:603-618`, `SiteChooserDialog`): the dialog opens on the first
+    -- A page's passkey notice (`panel.tsx:603-615`, `SiteChooserDialog`): the dialog opens on the first
     -- browser profile with the list shown and searched for the page's site, and moves on to the first
-    -- profile that lists exactly that site; it brings that site's sign-in only. Without another
-    -- browser, Settings > Browser says so.
+    -- profile that lists exactly that site; it brings that site's sign-in only. A notice that names
+    -- no site opens the whole dialog, on "All sites" with both boxes (`panel.tsx:607`: no `site`).
+    -- Without another browser, Settings > Browser says so.
     local function openImportSite(name: string?, choose: boolean, tab: string)
         -- The host lists the browsers off the UI thread, and the first ask in a run only starts that:
-        -- the dialog waits for the listing as official's does (`site-chooser.tsx:643`), up to 5 s.
+        -- the dialog waits for the listing as official's does (`site-chooser.tsx:758`), up to 5 s.
         local choices = signins.choices(listImportSources())
         for _ = 1, 50 do
             if choices[1] ~= nil then
@@ -2362,17 +2386,18 @@ return plugin.defineWindow(function(ctx)
         importOffer = nil
         importSite = { name = name, choose = choose, tab = tab, seeking = name ~= nil }
         importFailure = nil
-        importBoxes = { signins = true, history = false }
+        importBoxes = { signins = true, history = name == nil }
         siteLists = {}
         siteFailures = {}
         siteLoading = {}
-        -- Nothing is chosen until the site is found where the person asked.
-        siteChoice = { revealed = true, custom = name ~= nil, profile = profileKey(importTarget :: any), chosen = {}, query = name or "", version = siteChoice.version + 1 }
+        -- For a site: the list, with nothing chosen until the site is found where the person asked
+        -- (`site-chooser.tsx:85`).
+        siteChoice = { scope = if name ~= nil then "some" else "all", profile = profileKey(importTarget :: any), chosen = {}, query = name or "", version = siteChoice.version + 1 }
         if siteSearch:Text() ~= (name or "") then
             siteSearch:SetText(name or "")
         end
         readSites(importTarget :: any)
-        Dialog:Open("import-sites")
+        Dialog:Open("import-history")
     end
     local importSiteSignal = (Browser :: any).ImportSite
     if importSiteSignal ~= nil then
@@ -2424,6 +2449,9 @@ return plugin.defineWindow(function(ctx)
             Dialog:Open("clear-data")
         end,
         importSources = listImportSources,
+        importSourcesLoaded = function(): boolean
+            return importSourcesLoaded
+        end,
         importIcon = importIcon,
         importMessage = function(browserId: string, profileId: string): settings.ImportMessage?
             return importResults[`{browserId}\n{profileId}`]
@@ -2609,19 +2637,21 @@ return plugin.defineWindow(function(ctx)
         end
     end
 
-    -- The dialog's Import (`site-chooser.tsx:238-254`): the ticked parts, sign-ins then history, as one
+    -- The dialog's Import (`site-chooser.tsx:250-266`): the ticked parts, sign-ins then history, as one
     -- job. A clean import closes the dialog and its row says so; a partial or failed one stays open
     -- and says why (`:164-198`). Cookies that came in end the pane's offer (`jobs.ts:114-115`).
     runDialogImport = function()
         local target = importTarget
         local site = importSite
-        if target == nil or importRunning or not (site ~= nil or importBoxes.signins or importBoxes.history) then
+        -- Opened for a page's site (`single`), the import is that site's sign-in and no history
+        -- (`site-chooser.tsx:259-261`).
+        local single = site ~= nil and site.name ~= nil
+        if target == nil or importRunning or not (single or importBoxes.signins or importBoxes.history) then
             return
         end
         local offer = importOffer
-        -- Opened for a page's site, the import is that site's sign-in and no history (`site-chooser.tsx:247-249`).
-        local boxes = if site ~= nil then { signins = true, history = false } else importBoxes
-        -- Every site unless the person changed the choice; then the ticked ones, in the list's order.
+        local boxes = if single then { signins = true, history = false } else importBoxes
+        -- Every site under "All sites", or with every one ticked; else the ticked ones, in the list's order.
         local chooser = siteChooserFor(target, false)
         if chooser and not chooser.canImport then
             return

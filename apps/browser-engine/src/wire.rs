@@ -166,6 +166,7 @@ pub enum HostMsg {
     Stop { tab_id: u64 },
     SetZoom { tab_id: u64, factor: f64 },
     SetColorScheme { dark: bool },
+    SetFrameRate { fps: u32 },
     Resize { tab_id: u64, width_pt: f32, height_pt: f32, scale: f32 },
     Emulate { tab_id: u64, device: Option<device::Device>, scale: f32 },
     MouseMove { tab_id: u64, x: f32, y: f32, mods: u8, leave: bool },

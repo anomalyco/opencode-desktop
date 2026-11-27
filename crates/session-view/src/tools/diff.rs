@@ -239,8 +239,11 @@ fn expand_tabs(line: &str, spans: Vec<Span>) -> (String, Vec<Span>) {
 }
 
 /// `content`'s lines numbered, coloured as `lang`, as Pierre's file view shows a text in a dialog:
-/// numbers 12 pt in, right-aligned in `digits` characters, with 4 pt above and below.
-pub fn code(p: &Pal, content: &str, lang: Option<&str>, digits: usize) -> El {
+/// numbers 12 pt in, right-aligned in `digits` characters, with 4 pt above and below. `ink`
+/// colours every line's text in place of the syntax colours (`--opencode-diffs-fg`, as a host
+/// tints plain lines such as error output). A line doesn't light under the pointer
+/// (`lineHoverHighlight="disabled"`, opencode#66295).
+pub fn code(p: &Pal, content: &str, lang: Option<&str>, digits: usize, ink: Option<rune::Color>) -> El {
     let theme = syntax(p);
     let font = CODE.lh(ROW);
     let ch = rune::text::measure("0", &[], font, None).0;
@@ -249,15 +252,13 @@ pub fn code(p: &Pal, content: &str, lang: Option<&str>, digits: usize) -> El {
     let mut out = col().key("code").dir(rune::Direction::Ltr).w_full().py(4.0).fill(p.code_bg);
     let mut at = 0;
     for (n, l) in content.split('\n').enumerate() {
-        let spans = theme.spans(&paint.within(at..at + l.len()), 0);
+        let spans = if ink.is_some() { Vec::new() } else { theme.spans(&paint.within(at..at + l.len()), 0) };
         at += l.len() + 1;
         let (shown, spans) = expand_tabs(l, spans);
         out = out.child(
             row().key(format!("l-{n}")).w_full().min_h(ROW).items_start()
-                .hover(p.diff.hover)
-                .hover_motion(INSTANT, INSTANT)
                 .child(row().key("n").w(numbers).h(ROW).justify_end().center_y().child(text((n + 1).to_string()).font(font).color(p.faint)))
-                .child(readable(p, text(shown).font(font).color(p.syntax.parameter).spans(spans).wrap_anywhere()).grow(1.0).min_w(0.0).pl(2.0 * ch).pr(ch)),
+                .child(readable(p, text(shown).font(font).color(ink.unwrap_or(p.syntax.parameter)).spans(spans).wrap_anywhere()).grow(1.0).min_w(0.0).pl(2.0 * ch).pr(ch)),
         );
     }
     out

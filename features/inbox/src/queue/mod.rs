@@ -39,6 +39,17 @@ pub struct EditWire {
 /// Object-safe host boundary for the session prompt queue strip, edit-in-composer workflow,
 /// drag-to-reorder, and inbox SSE/listing reconciliation.
 ///
+/// What became of a write offered quietly (`QueueHost::write_quiet`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Offered {
+    /// Handed to the server's writer.
+    Sent,
+    /// The window has no writer for it.
+    NoWriter,
+    /// The build may not send.
+    ReadOnly,
+}
+
 /// Every state transition, timer poll, key handler, and inbox event handler operates on
 /// `&dyn QueueHost` / `&mut dyn QueueHost`. Generic `H: QueueHost + 'static` bounds appear
 /// strictly on `rune::El` view wrappers in [`view`].
@@ -74,8 +85,17 @@ pub trait QueueHost: opencode_kernel::AppEnv + opencode_kernel::AppFeedback {
     }
     /// Whether this window may mutate live server state (live + `allow_send` + no storybook stage).
     fn can_write(&self) -> bool;
+    /// Whether this live window is read-only (`--read-only` or unattended).
+    fn is_read_only(&self) -> bool {
+        false
+    }
     /// Sends a server write; returns `false` when the write could not be queued.
     fn write(&mut self, write: Write) -> bool;
+    /// [`Self::write`] without the host's own toast when the write can't go: the queue machine
+    /// says so itself, once.
+    fn write_quiet(&mut self, write: Write) -> Offered {
+        if self.write(write) { Offered::Sent } else { Offered::NoWriter }
+    }
     /// Builds the write used to send `prompt` to `session` (`Send`).
     fn send_write(&self, session: &str, prompt: Prompt) -> Write {
         Write::Send { session: session.to_owned(), prompt }
@@ -336,7 +356,11 @@ pub fn step_queue(host: &mut dyn QueueHost, session: &str, event: Event) {
             Effect::Run { attempt, operation } => run::run_queue_op(host, session, attempt, operation),
             Effect::Abort { attempt } => host.queue_runs().abort(session, attempt),
             Effect::Failed(Some(e)) => host.toast_failed_wire(opencode_i18n::t!("rune.queue.changeFailed"), &e),
-            // Never sent: this window has no connection to write through.
+            // Never sent: read-only keeps our read-only words; no writer says not connected.
+            Effect::Failed(None) if host.is_read_only() => host.toast_fail(
+                opencode_i18n::t!("rune.send.nothingSent").into(),
+                opencode_i18n::t!("rune.jobs.readOnly").into(),
+            ),
             Effect::Failed(None) => host.toast_fail(
                 opencode_i18n::t!("rune.queue.changeFailed").into(),
                 opencode_i18n::t!("rune.send.disconnected").into(),

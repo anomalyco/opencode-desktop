@@ -85,6 +85,7 @@ impl App {
             && self.kernel.slots.get(&crate::mcp::MCP).open.is_none()
             && !self.plugins.dialog_open()
             && !self.timeline_fx.diagram.is_open()
+            && !crate::deep_links::asking(self)
             && !self.question_shown()
             && !self.dock_shown()
     }

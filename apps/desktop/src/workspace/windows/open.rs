@@ -159,22 +159,14 @@ pub fn open_rest(s: &App) -> Option<std::time::Duration> {
 /// Opens the first window saved at the last quit, or one for a new profile, where it was, and
 /// leaves the other saved windows to [`open_rest`]. The list and the frames come from the boot
 /// packet, taken once the event loop is up (so the storage's read runs under it); a list that
-/// didn't change isn't written again. Returns when the app quits, unless it ends at once
-/// (`rune::fast_exit`).
+/// didn't change isn't written again (`store::launch_ids`). Returns when the app quits, unless
+/// it ends at once (`rune::fast_exit`).
 #[cfg(not(target_arch = "wasm32"))]
 pub fn launch(diagnostics: crate::diagnostics::Diagnostics) {
     rune::run_windows(move |displays: &[Display]| {
         *DISPLAYS.lock().unwrap_or_else(|e| e.into_inner()) = displays.to_vec();
-        let saved = store::saved_ids();
-        let mut ids = saved.clone().unwrap_or_default();
-        if ids.is_empty() {
-            ids.push(store::new_id());
-        }
-        if saved.as_ref() != Some(&ids) {
-            store::save_ids(&ids);
-        }
+        let (ids, fresh) = store::launch_ids();
         OPENED.store(ids.len(), std::sync::atomic::Ordering::Relaxed);
-        let fresh = saved.is_none();
         // Nothing saved (a new profile): where Desktop's first window opens.
         let frame = |id: &str| store::load_frame(id).and_then(|f| super::placement::fit(f, displays)).or_else(|| super::placement::first(displays));
         *REST.lock().unwrap_or_else(|e| e.into_inner()) = ids.iter().skip(1).map(|id| (id.clone(), frame(id))).collect();
@@ -226,6 +218,8 @@ fn window(mut w: Window, frame: Option<Frame>, diagnostics: &crate::diagnostics:
     let ready = handle.clone();
     let mut motion_log = crate::motion_log::Log::default();
     let (encoded, drawn) = (diagnostics.clone(), diagnostics);
+    let display_hz = std::rc::Rc::new(std::cell::Cell::new(None::<f64>));
+    let display_hz_enc = display_hz.clone();
     // The first frame draws with the appearance the last run saw; the portal's answer follows.
     #[cfg(target_os = "linux")]
     rune::last_appearance(store::load_appearance(), store::save_appearance);
@@ -250,11 +244,13 @@ fn window(mut w: Window, frame: Option<Frame>, diagnostics: &crate::diagnostics:
             })
         })
         .on_frame_encoded(move |f| {
+            if let Some(hz) = f.refresh_hz() { display_hz_enc.set(Some(hz)); }
             encoded.encoded(f);
             crate::telemetry::encoded(f);
             crate::files::trace::frame(f);
         })
         .on_frame_drawn(move |rt| {
+            if let Some(hz) = display_hz.get() { rt.state.workspace_panes.browser.host.set_display_hz(hz); }
             drawn.drawn(rt);
             if let Some((sid, msgs)) = rt.state.painted_session()
                 && msgs > 0
@@ -283,6 +279,9 @@ fn window(mut w: Window, frame: Option<Frame>, diagnostics: &crate::diagnostics:
         // Quitting (File > Quit, the Quit command) installs a ready update on the way out too, as
         // closing the last window does; the second call of the two does nothing.
         .on_quit(|s, _| {
+            // Before the state is saved: the engine's download has that long to leave its write.
+            #[cfg(not(target_arch = "wasm32"))]
+            browser_pane::installer::quit();
             s.plugins.restarts.cancel_all();
             let scheduler = s.kernel.scheduler.clone();
             scheduler.run_close(s);

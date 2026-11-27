@@ -152,6 +152,8 @@ pub struct VtCore {
     pub(crate) finding: bool,
     /// Finished commands, from the shell's OSC 133 marks (`marks.rs`).
     pub(crate) marks: crate::marks::Marks,
+    /// Bytes fed so far: a program's output, a restored screen, a clear.
+    pub(crate) written: u64,
 }
 
 impl VtCore {
@@ -348,6 +350,7 @@ impl VtCore {
             search: std::ptr::null_mut(),
             finding: false,
             marks: Default::default(),
+            written: 0,
         };
         core.apply_theme_colors(&theme);
         Ok(core)
@@ -440,6 +443,7 @@ impl VtCore {
 
     /// Feeds a program's output, stopping at each OSC 133 mark to note it where the cursor is.
     pub fn feed(&mut self, bytes: &[u8]) {
+        self.written += bytes.len() as u64;
         let mut rest = bytes;
         while let Some((end, body)) = self.marks.next(rest) {
             self.feed_vt(&rest[..end]);

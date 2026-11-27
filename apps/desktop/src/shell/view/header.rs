@@ -54,7 +54,8 @@ pub(super) fn header(s: &App, p: &Pal, info: Option<&SessionInfo>, t: Option<&Tr
         info.map(|i| {
             let dir = s.queue.starts.directory(&i.id).unwrap_or(&i.directory);
             let trail: Vec<_> = ancestors(s, i).into_iter().map(|a| (a.id.clone(), a.title.clone())).collect();
-            (i.id.clone(), i.title.clone(), dir.to_owned(), i.project.clone(), trail, crate::plugin_host::services::session_version(s, &i.id))
+            let generating = s.kernel.slots.get(&crate::session_menu::MENUS).generating(crate::servers::runtime::active(s), &i.id);
+            (i.id.clone(), i.parent.clone(), i.title.clone(), dir.to_owned(), i.project.clone(), trail, crate::plugin_host::services::session_version(s, &i.id), generating)
         }),
         crate::plugin_host::surfaces_version(s),
     );
@@ -105,7 +106,6 @@ pub(crate) fn header_in(s: &App, p: &Pal, info: Option<&SessionInfo>, _t: Option
                         .shrink()
                         .min_w(0.0)
                         .center_y()
-                        .cursor(rune::Cursor::Pointer)
                         .hover(p.hover)
                         .focus_fill(p.hover)
                         .no_focus_ring()
@@ -246,19 +246,24 @@ fn header_title(s: &App, p: &Pal, info: &SessionInfo) -> Vec<El> {
             // The title in its own direction (`session-identity-header.tsx:263`): the `h1` holds a
             // button that renames, a Tab stop with the shared ring (`message-timeline.tsx`,
             // `.session-title-rename > button`).
-            let b = row().key("title-button").role("button").dir(rune::Direction::Auto).label(title_of(info)).h(28.0).px(4.0).center_y().min_w(0.0).shrink().radius(6.0).cursor(rune::Cursor::Pointer).focus_default(p).hover(p.hover).press(p.pressed).hover_motion(INSTANT, INSTANT)
+            let b = row().key("title-button").role("button").dir(rune::Direction::Auto).label(title_of(info)).h(28.0).px(4.0).center_y().min_w(0.0).shrink().radius(6.0).focus_default(p).hover(p.hover).press(p.pressed).hover_motion(INSTANT, INSTANT)
                 .on_press_tx(move |s: &mut App, tx: &mut Tx| {
                     tx.instant();
                     s.begin_rename(&begin);
                 })
-                .child(crate::title_change::title(&s.diag.knobs, &format!("title-{}", info.id), title_of(info), CRUMB, p.text));
+                // While the server generates a new title the present one shimmers (`message-timeline.tsx:702-704`).
+                .child(if s.kernel.slots.get(&crate::session_menu::MENUS).generating(crate::servers::runtime::active(s), &info.id) {
+                    session_view::working::shimmer(s, p, &title_of(info), CRUMB, 0.0).key("title-generating")
+                } else {
+                    crate::title_change::title(&s.diag.knobs, &format!("title-{}", info.id), title_of(info), CRUMB, p.text)
+                });
             let t = row().key("title").dir(rune::Direction::Auto).role("heading").level(1).label(title_of(info)).min_w(0.0).shrink().child(b);
             crate::session_menu::on(t, target)
         }
     };
     // While its menu is open the `…` keeps its pressed wash and base ink (`[data-expanded]`,
     // `icon-button.css`), dropping hover; the title takes none.
-    let dots = el().key("header-more").role("button").label_static(t!("common.moreOptions")).expanded(marked).size(28.0, 28.0).radius(6.0).center().cursor(rune::Cursor::Pointer).focus_default(p).hover_motion(INSTANT, INSTANT)
+    let dots = el().key("header-more").role("button").label_static(t!("common.moreOptions")).expanded(marked).size(28.0, 28.0).radius(6.0).center().focus_default(p).hover_motion(INSTANT, INSTANT)
         .menu_button("header-more", move |s: &mut App, tx: &mut Tx| crate::session_menu::open(s, dots_target.clone(), "header-more", tx))
         .child(icon(&ic::OUTLINE_DOTS, 16.0).color(if marked { p.icon } else { p.icon_muted }));
     let dots = if marked { dots.fill(p.pressed) } else { dots.hover(p.hover).press(p.pressed) };

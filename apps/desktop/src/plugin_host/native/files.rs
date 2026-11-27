@@ -35,7 +35,10 @@ pub fn build(lua: &Lua, t: &Table) -> mlua::Result<()> {
     method(lua, t, "OpenDocument", |lua, path: String| {
         let (sid, path) = with_app("Workspace:OpenDocument", |app| {
             let sid = app.active_session_id().ok_or_else(|| mlua::Error::runtime("Workspace:OpenDocument: no session is open"))?.to_owned();
-            let path = crate::review::data::normalize_path(&path);
+            // The path the file's tab carries (`plugins/file/panel.luau` `panel.path`): a file
+            // outside the folder keeps the `/` its absolute path starts at, and a skill's virtual
+            // file its `skill://<id>/<file>` whole.
+            let path = crate::files::data::document_path(&path);
             // A file not read yet, one still loading with no read running (its session's folder
             // wasn't known), or one a failed refresh left stale, reads as it shows.
             let files = app.kernel.slots.get(&crate::files::FILES);
@@ -251,9 +254,16 @@ fn document(lua: &Lua) -> mlua::Result<Table> {
 /// The session a tree of `directory` reads: the routed one when it's there (or no folder is
 /// given), else the first session open in it.
 fn session_for(app: &App, directory: &str) -> Option<String> {
-    let routed = app.active_session_id().and_then(|id| app.session(id));
+    let page = app.active_session_id();
+    let routed = page.and_then(|id| app.session(id));
     if let Some(s) = routed.filter(|s| directory.is_empty() || s.directory == directory) {
         return Some(s.id.clone());
+    }
+    // The page's session before the server has listed it (a launch on a subagent's page, a slow or
+    // absent server): its panel is drawn with no folder yet. The tree is that session's, and
+    // lists once its folder is known.
+    if routed.is_none() && directory.is_empty() {
+        return page.map(str::to_owned);
     }
     app.tabs.iter().filter_map(|t| app.session(&t.id)).find(|s| s.directory == directory).map(|s| s.id.clone())
 }

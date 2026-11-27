@@ -39,7 +39,6 @@ pub fn trigger(s: &App, p: &Pal, project: Option<&opencode_kit::model::Project>,
         .gap(8.0)
         .center_y()
         .radius(6.0)
-        .cursor(rune::Cursor::Pointer)
         .focus_default(p)
         .shrink()
         .min_w(0.0)

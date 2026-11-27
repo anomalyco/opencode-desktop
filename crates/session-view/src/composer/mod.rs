@@ -55,6 +55,13 @@ pub fn land<S: TimelineHost>(s: &mut S, session: &str, local: &str, from: &str, 
     }
 }
 
+/// Like [`land`], but keeps a scrolled-up timeline where it is instead of jumping to the end.
+pub fn land_in_place<S: TimelineHost>(s: &mut S, session: &str, local: &str, from: &str, tx: &mut Tx) {
+    if s.ends().at_end(session) && shows_whole_prompt() {
+        tx.launch(from, format!("u-{local}/bubble"));
+    }
+}
+
 /// The composer box's corner radius: Desktop's form is `rounded-xl`, 10 px (`editor.tsx:254`).
 /// The new-session Easter egg's paddle grows out of the composer from this radius.
 pub use opencode_ui::style::COMPOSER_RADIUS as RADIUS;
@@ -107,7 +114,6 @@ pub fn ghost_with(p: &Pal, key: &str, label: El, chevron: bool, open: bool) -> E
         .gap(4.0)
         .center_y()
         .radius(6.0)
-        .cursor(rune::Cursor::Pointer)
         .hover(p.hover)
         .press(p.pressed)
         .focus_inset(p)
@@ -137,7 +143,6 @@ pub fn attach_button<S: ComposerHost>(p: &Pal) -> El {
         .mr(2.0)
         .radius(6.0)
         .center()
-        .cursor(rune::Cursor::Pointer)
         .hover(p.hover)
         .press(p.pressed)
         .focus_inset(p)
@@ -228,6 +233,12 @@ pub trait ComposerHost: TimelineHost {
         self.active_session_id().is_some_and(|id| self.is_session_live(id))
     }
     fn composer_send(&mut self, tx: &mut Tx);
+    fn composer_send_in_place(&mut self, tx: &mut Tx) {
+        self.composer_send(tx);
+    }
+    fn composer_shift_held(&self) -> bool {
+        false
+    }
     fn composer_stop(&mut self, tx: &mut Tx);
 
     fn composer_attachments(&self) -> &[Attachment] {
@@ -387,11 +398,12 @@ pub fn submit_surface(base: El, p: &Pal, live: bool) -> El {
         .motion(Spring::NONE)
         .motion_intent(MotionIntent::CUT);
     if !live {
-        // Disabled, so neither clickable nor a Tab stop (`editor.tsx:1548`).
-        return b.opacity(0.4).disabled(true).focusable(false);
+        // Disabled, so neither clickable nor a Tab stop (`editor.tsx:1548`), under the not-allowed cursor
+        // (`packages/ui/src/actions/submit.css:79`; Desktop's cursor reset leaves `:disabled` alone).
+        return b.opacity(0.4).disabled(true).focusable(false).hit().cursor(rune::Cursor::NotAllowed);
     }
     let (hover, pressed) = if p.dark { (black.alpha(0.08), black.alpha(0.4)) } else { (white.alpha(0.12), white.alpha(0.24)) };
-    b.cursor(rune::Cursor::Pointer).hover(hover).press(pressed).focus_default(p)
+    b.hover(hover).press(pressed).focus_default(p)
 }
 
 /// Renders the shared composer (`key("composer")`).
@@ -402,6 +414,26 @@ const SCROLLBAR: f32 = 8.0;
 /// its lines its own (`unicode-bidi: plaintext`); a shell command runs left to right.
 fn prompt_dir(field: El, shell: bool) -> El {
     if shell { field.dir(rune::Direction::Ltr) } else { field.dir(rune::Direction::Auto).dir_by_paragraph() }
+}
+
+/// Renders only an active request dock (question or permission) without the prompt composer,
+/// used on child/subagent sessions where no composer is shown
+/// (`packages/app/src/session/composer/session-composer-region.tsx:66-98`).
+pub fn request_dock<S: ComposerHost>(s: &S, p: &Pal) -> Option<El> {
+    let face = s.composer_face(p)?;
+    let box_el = col()
+        .key("composer")
+        .role("form")
+        .w_full()
+        .max_w(crate::style::dock_w())
+        .corners([RADIUS; 4]);
+    let box_el = if s.composer_face_bare() {
+        box_el
+    } else {
+        let underlay = if s.composer_border_underlay() { box_el.box_shadow(Pal::ring_out(p.bg_base)) } else { box_el };
+        underlay.fill(composer_fill(p)).elevate(p.raised).clip_soft(0.0)
+    };
+    Some(box_el.children(face))
 }
 
 pub fn composer<S: ComposerHost>(s: &S, p: &Pal) -> El {
@@ -436,6 +468,8 @@ pub fn composer_in<S: ComposerHost>(s: &S, p: &Pal, scope: &str) -> El {
             b.help(label).help_above().on_press_tx(move |s: &mut S, tx: &mut Tx| {
                 if stop {
                     s.composer_stop(tx);
+                } else if s.composer_shift_held() {
+                    s.composer_send_in_place(tx);
                 } else {
                     s.composer_send(tx);
                 }

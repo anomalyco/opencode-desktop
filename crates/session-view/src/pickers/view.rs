@@ -109,7 +109,6 @@ pub fn agent_icon<S: PickerHost>(s: &S, p: &Pal, name: &str) -> El {
         .size(28.0, 28.0)
         .radius(6.0)
         .center()
-        .cursor(rune::Cursor::Pointer)
         .motion(Spring::NONE)
         .focus_inset(p)
         .child(icon(&ic::BRAIN, 16.0).color(if open_here { p.icon } else { p.icon_muted }))

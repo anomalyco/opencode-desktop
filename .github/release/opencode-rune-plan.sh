@@ -3,15 +3,13 @@
 # event, the ref, the repository's tags, and the live browser-engine index alone.
 #
 #   dev     the schedule (or a dispatch from dev): 0.0.0-dev-<run + 400> on the release
-#           service's dev channel. Every release contains the full desktop matrix. A scheduled
-#           run builds nothing when dev hasn't changed an app or engine file since the last
-#           successful run and the live browser-engine index already serves this commit's engines.
+#           service's dev channel, then tagged v0.0.0-dev-<run + 400> with a GitHub release of the
+#           same files. Every release contains the full desktop matrix. A scheduled run builds
+#           nothing when dev hasn't changed an app or engine file since the last successful run
+#           and the live browser-engine index already serves this commit's engines.
 #   check   a dispatch from dev: builds, signs and verifies all desktop targets and all six
 #           browser engines, published nowhere. Its last job pushes and deletes a throwaway
 #           v0.0.0-test-<run> tag to prove it can tag.
-#   stable  a dispatch from dev with BUMP (patch, minor or major): the latest vX.Y.Z tag (0.0.0
-#           when there is none) bumped, on the stable channel, every platform. Tags start nothing:
-#           the workflow tags v<version> and creates the GitHub release only after publishing.
 #   engine  a dispatch from dev: builds, signs, verifies and publishes the six browser engines
 #           without building desktop; refuses if this commit's engine version is already complete
 #           in the live index (bump ENGINE_REVISION or CEF to publish a new engine).
@@ -19,7 +17,9 @@
 # A run releases the commit it runs on: SHA (the checked-out commit) must be GITHUB_SHA, so every
 # job checks out github.sha.
 #
-# Environment: EVENT, REF_NAME, CHANNEL, BUMP, SHA, GITHUB_SHA, GITHUB_RUN_NUMBER,
+# There is no stable channel: dev is the only desktop channel.
+#
+# Environment: EVENT, REF_NAME, CHANNEL, SHA, GITHUB_SHA, GITHUB_RUN_NUMBER,
 # GITHUB_RUN_ID, GITHUB_REPOSITORY, GH_TOKEN.
 . "$(dirname "$0")/lib.sh"
 
@@ -34,26 +34,10 @@ tag=""
 number=$((GITHUB_RUN_NUMBER + 400))
 
 case "$CHANNEL" in
-  stable)
-    [ "$EVENT" = workflow_dispatch ] || die "Stable releases are dispatched from dev."
-    latest=$(gh api "repos/$GITHUB_REPOSITORY/git/matching-refs/tags/v" --paginate --jq '.[].ref' |
-      sed -n 's|^refs/tags/v\([0-9]*\.[0-9]*\.[0-9]*\)$|\1|p' | sort -V | tail -n 1)
-    IFS=. read -r major minor patch <<< "${latest:-0.0.0}"
-    case "${BUMP:-patch}" in
-      major) version="$((major + 1)).0.0" ;;
-      minor) version="$major.$((minor + 1)).0" ;;
-      patch) version="$major.$minor.$((patch + 1))" ;;
-      *) die "Unknown bump $BUMP." ;;
-    esac
-    tag="v$version"
-    refs=$(gh api "repos/$GITHUB_REPOSITORY/git/matching-refs/tags/$tag" --jq '.[].ref')
-    if grep -Fxq "refs/tags/$tag" <<< "$refs"; then die "$tag is already tagged."; fi
-    release_channel=stable release_version=$version
-    notes="https://github.com/$GITHUB_REPOSITORY/releases/tag/$tag"
-    ;;
   dev)
     release_channel=dev release_version="0.0.0-dev-$number"
-    notes="https://github.com/$GITHUB_REPOSITORY/commit/$SHA"
+    tag="v$release_version"
+    notes="https://github.com/$GITHUB_REPOSITORY/releases/tag/$tag"
     ;;
   check)
     release_channel=dev release_version="0.0.0-dev-$number"
@@ -124,7 +108,7 @@ case "$CHANNEL" in
     fi
     build_engine=true
     ;;
-  dev | stable)
+  dev)
     if [ "$engine_complete" = false ]; then
       build_engine=true
       # A new Linux engine changes its archive hash, so desktop must rebuild to pin it.

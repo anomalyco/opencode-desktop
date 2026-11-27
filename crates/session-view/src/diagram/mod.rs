@@ -12,7 +12,7 @@ use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 use std::rc::Rc;
 
-use rune::{Cursor, El, Icon, Key, KeyEvent, Tx, el, icon};
+use rune::{El, Icon, Key, KeyEvent, Tx, el, icon};
 use rune_kit::{DiagramFrame, MarkdownStyle};
 
 use crate::TimelineHost;
@@ -88,6 +88,7 @@ thread_local! {
 /// Called at the top of each view, before the timeline builds.
 pub fn prepare<S: TimelineHost>(s: &S) {
     SHOWN.set(s.diagrams().open.as_ref().map(|o| o.id));
+    s.media_store().begin_frame();
 }
 
 fn id_of(source: &str) -> u64 {
@@ -105,6 +106,12 @@ impl Diagrams {
     /// hides and comes back.
     pub fn hidden_in(&self, body: &str) -> Option<u64> {
         self.open.as_ref().filter(|o| body.contains(&*o.seen.source)).map(|o| o.id)
+    }
+
+    /// Releases cached diagram snapshots; visible cards re-register on the next view pass.
+    pub fn rest(&mut self) {
+        let open_id = self.open.as_ref().map(|o| o.id);
+        self.seen.retain(|id, _| open_id == Some(*id));
     }
 }
 
@@ -210,7 +217,6 @@ fn button<S: TimelineHost>(p: &Pal, id: u64) -> El {
             .size(25.0, 25.0)
             .radius(5.0)
             .center()
-            .cursor(Cursor::Pointer)
             .focus_default(p)
             .fill(p.bg_base)
             .border(0.5, p.border_muted)

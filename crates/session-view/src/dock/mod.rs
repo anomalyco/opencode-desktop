@@ -36,6 +36,11 @@ pub trait DockHost: ComposerHost {
     fn dock_new_question_ui(&self) -> bool {
         false
     }
+    /// The key that moves the question dock on, or submits it on the last question (Desktop's
+    /// Settings › General › Submit question answers with, `general.questionSubmitKey`).
+    fn dock_question_submit(&self) -> question::SubmitKey {
+        question::SubmitKey::Enter
+    }
     /// Answers permission `id` with `decision` (`once`, `always`, `reject`).
     fn dock_reply_permission(&mut self, id: &str, decision: &str);
     /// Sends form `id`'s answer (`Dock::answer`).
@@ -147,7 +152,7 @@ pub fn button(p: &Pal, key: &str, label: &str, variant: Variant, hint: Option<&s
         Variant::Submit | Variant::Contrast => (p.v2.contrast_hover, p.v2.contrast_pressed),
         Variant::Ghost | Variant::GhostMuted | Variant::Neutral => (p.hover, p.pressed),
     };
-    b = if live { b.cursor(rune::Cursor::Pointer).focus_default(p).hover(hover).press(pressed) } else { b.opacity(dim).disabled(true).focusable(false) };
+    b = if live { b.focus_default(p).hover(hover).press(pressed) } else { b.opacity(dim).disabled(true).focusable(false).hit().cursor(rune::Cursor::NotAllowed) };
     match variant {
         Variant::Ghost | Variant::GhostMuted => {}
         Variant::Neutral => b = b.elevate(opencode_ui::toast::neutral_lift(p)),

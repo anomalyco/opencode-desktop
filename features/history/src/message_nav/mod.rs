@@ -358,7 +358,9 @@ pub fn poll(host: &mut dyn MessageNavHost, tx: &mut Tx) -> bool {
             tx.scroll_key_to(format!("{row}/bubble"), inset);
         } else {
             let top = if host.is_narrow() { 0.0 } else { session_view::style::HEADER_H + session_view::style::timeline_top() };
-            tx.scroll_key_to(row, top);
+            // A prompt's pictures stand 16 under the row above, which holds that room
+            // (`session_view::timeline::rhythm`): they land where they did with it over them.
+            tx.scroll_key_to(row, top + 16.0);
         }
         changed = true;
     }

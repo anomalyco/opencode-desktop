@@ -10,7 +10,7 @@ pub use opencode_feature_open_in::*;
 #[cfg(not(target_arch = "wasm32"))]
 use opencode_kernel::{Feature, KernelBuilder, Slot};
 #[cfg(not(target_arch = "wasm32"))]
-use rune::{Align, Anim, Cursor, PointerPress, el, icon, row};
+use rune::{Align, Anim, PointerPress, el, icon, row};
 use rune::{El, Tx};
 #[cfg(not(target_arch = "wasm32"))]
 use rune_kit::Loader;
@@ -324,7 +324,12 @@ pub fn button(s: &App, p: &Pal, key: &'static str, rel: &str) -> Option<El> {
     }
     #[cfg(not(target_arch = "wasm32"))]
     {
-        if !s.can_open_in() {
+        // No app is handed a file outside the session's folder (#294, #855), here as on the
+        // file's own toolbar (`features/files/src/viewer/toolbar.rs` `open_in_button`). Official
+        // offers Open in for such a file, but not for a skill's virtual file, which is on no disk
+        // (`packages/gui-plugins/src/file/open-in-app.tsx:101-107`): the first is ours' difference
+        // since #294, not a new one.
+        if !s.can_open_in() || crate::files::data::is_outside(rel) {
             return None;
         }
         let label = s.kernel.slots.get(&OPEN_IN).current_label();
@@ -341,7 +346,6 @@ pub fn button(s: &App, p: &Pal, key: &'static str, rel: &str) -> Option<El> {
             .key(format!("{key}-run"))
             .size(28.0, 28.0)
             .center()
-            .cursor(Cursor::Pointer)
             .hover(p.hover)
             .press(p.pressed)
             .hover_motion(Anim::INSTANT, Anim::INSTANT)
@@ -361,7 +365,6 @@ pub fn button(s: &App, p: &Pal, key: &'static str, rel: &str) -> Option<El> {
             .key(chevron_key)
             .size(20.0, 28.0)
             .center()
-            .cursor(Cursor::Pointer)
             .fill(if open { p.pressed } else { rune::Color::TRANSPARENT })
             .hover(if open { rune::Color::TRANSPARENT } else { p.hover })
             .press(if open { rune::Color::TRANSPARENT } else { p.pressed })

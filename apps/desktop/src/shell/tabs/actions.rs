@@ -206,6 +206,10 @@ impl App {
     /// page.
     pub fn select_tab(&mut self, key: &str, tx: &mut Tx) {
         let Some(tab) = self.tab(key).cloned() else { return self.open(key, tx) };
+        let changing = self.current_tab().as_deref() != Some(tab.uid().as_str());
+        if changing && (tab.is_draft() || tab.server != *crate::servers::runtime::active(self)) {
+            crate::shell::memory_reclaim::on_tab_switched(self);
+        }
         // The window works against the tab's server from here on (`servers::runtime`).
         crate::servers::runtime::switch(self, &tab.server);
         if !tab.is_draft() {
@@ -261,7 +265,7 @@ impl App {
         let shown = self.current_tab().as_deref() == Some(uid.as_str());
         let next_visible = if shown { crate::tabs::groups::next_visible_after_closing(self, &uid) } else { None };
         let tab = self.tabs.remove(i);
-        let (id, server) = (tab.id.clone(), tab.server.clone());
+        let (id, server, closed_session) = (tab.id.clone(), tab.server.clone(), tab.kind == TabKind::Session);
         match tab.kind {
             TabKind::Session => {
                 // Its history goes where its server's sessions are known: the window's own fields
@@ -307,6 +311,9 @@ impl App {
                 }
             }
         }
+        if closed_session {
+            crate::shell::memory_reclaim::on_tab_closed(self, &server, &id, shown);
+        }
         self.save_tabs();
     }
 
@@ -331,6 +338,15 @@ impl App {
         self.tabs.insert(at, entry.tab);
         // A draft comes back with what it held (its words and the rest stayed parked).
         if draft { self.select_tab(&uid, tx) } else { self.open(&id, tx) }
+        self.save_tabs();
+    }
+
+    /// Puts closed tab `target` back at its old index without showing it: the page stays where
+    /// it is.
+    pub(crate) fn put_back_closed(&mut self, target: &str) {
+        let Some(entry) = self.gestures.closed.take(&self.tabs, Some(target)) else { return };
+        let at = entry.index.min(self.tabs.len());
+        self.tabs.insert(at, entry.tab);
         self.save_tabs();
     }
 
@@ -370,8 +386,10 @@ impl App {
     /// lead, followed by unpinned tabs or visible Recent rows), or in the inbox its rows as shown.
     pub(crate) fn nav_order(&self) -> Vec<String> {
         if self.tab_layout() == crate::layout_state::TabLayout::Inbox {
+            // Each row by its key across servers (`Entry::key`), as `nav_current` names the open
+            // one: on a server that isn't the app's own, a session's id alone isn't its key.
             let ui = self.kernel.slots.get(&crate::restore::RESTORE).inbox;
-            return self.inbox_sections().rows(ui).into_iter().map(|e| e.session.id.clone()).collect();
+            return self.inbox_sections().rows(ui).into_iter().map(|e| e.key()).collect();
         }
         if self.settings.navigation_prototype() {
             let mut order = crate::tabs::pins::visible_uids(self);
@@ -382,8 +400,13 @@ impl App {
                     }
                 }
             } else {
-                for tab in self.tabs.iter().filter(|t| !crate::tabs::pins::holds(self, t)) {
-                    let uid = tab.uid();
+                // Under Settings › Group tabs, the groups' shown tabs in the groups' order: a
+                // collapsed group's hidden tabs take no key (`tab-strip.tsx:715-719`, `:916-917`).
+                let shown: Vec<usize> = match crate::tabs::auto_groups::groups(self) {
+                    Some(groups) => groups.iter().flat_map(|g| g.tabs.iter().copied()).collect(),
+                    None => (0..self.tabs.len()).filter(|&i| !crate::tabs::pins::holds(self, &self.tabs[i])).collect(),
+                };
+                for uid in shown.into_iter().map(|i| self.tabs[i].uid()) {
                     if !order.contains(&uid) {
                         order.push(uid);
                     }
@@ -392,6 +415,9 @@ impl App {
             return order;
         }
         if let Some(order) = crate::tabs::groups::visible_uids(self) {
+            return order;
+        }
+        if let Some(order) = crate::tabs::sections::visible_uids(self) {
             return order;
         }
         self.tabs.iter().map(Tab::uid).collect()
@@ -430,6 +456,11 @@ impl App {
     pub(crate) fn select_nth(&mut self, n: usize, tx: &mut Tx) {
         if let Some(id) = self.nav_order().get(n).cloned() {
             self.nav_select(&id, tx);
+            // A numbered pick scrolls the inbox's row into view; stepping doesn't (`inbox.tsx`
+            // `navigate(key, reveal)`, `tab-strip.tsx` `createSessionRowNavigation`).
+            if self.tab_layout() == crate::layout_state::TabLayout::Inbox {
+                crate::view::inbox::reveal(self, &id, tx);
+            }
         }
     }
 
@@ -450,8 +481,18 @@ impl App {
         let order = self.nav_order();
         let Some(current) = self.nav_current().filter(|c| order.contains(c)) else { return };
         let order: Vec<&str> = order.iter().map(String::as_str).collect();
-        // Another server's inbox row says so as its server last showed it.
-        let dot = |k: &str| matches!(self.tab_status(k), Some(TabStatus::Attention | TabStatus::Unread | TabStatus::Failed)) || self.inbox_row_dotted(k);
+        // In the inbox a row is unread while a result waits to be read: done or failed
+        // (`inbox.tsx` `createSessionRowNavigation`'s `unread`, opencode#66327). One that waits
+        // on a person stands in Needs attention and isn't stepped to.
+        let inbox_unread: Option<Vec<String>> = (self.tab_layout() == crate::layout_state::TabLayout::Inbox).then(|| {
+            let ui = self.kernel.slots.get(&crate::restore::RESTORE).inbox;
+            let unread = |e: &&crate::inbox_model::Entry<'_>| matches!(e.status, crate::inbox_model::InboxStatus::Done | crate::inbox_model::InboxStatus::Failed);
+            self.inbox_sections().rows(ui).into_iter().filter(unread).map(|e| e.key()).collect()
+        });
+        let dot = |k: &str| match &inbox_unread {
+            Some(unread) => unread.iter().any(|u| u == k),
+            None => matches!(self.tab_status(k), Some(TabStatus::Attention | TabStatus::Unread | TabStatus::Failed)),
+        };
         if let Some(id) = shortcuts::adjacent(&order, Some(&current), offset, dot) {
             self.nav_select(&id, tx);
         }

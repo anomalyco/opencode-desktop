@@ -4,6 +4,7 @@
 mod cell;
 mod edge;
 mod pointer;
+mod quote;
 mod rows;
 
 use std::cell::{Cell, RefCell};
@@ -19,6 +20,7 @@ use opencode_ui::style::{UI, UI_SMALL};
 use terminal::{CursorShape, TerminalSnapshot};
 
 pub(crate) use self::pointer::poll_edge_scroll;
+pub use self::quote::{QuotePlace, QuoteSource};
 use self::pointer::{ViewportInput, attach_text_drag, attach_viewport_handlers, render_quote_bar, render_scrollbar};
 use self::rows::{build_rows, cell_fg_color};
 use crate::mount::TextDrag;
@@ -72,7 +74,7 @@ pub fn set_custom_font(name: &str) {
     let list = (!name.is_empty()).then(|| {
         KEPT.with_borrow_mut(|kept| {
             *kept.entry(name.to_owned()).or_insert_with(|| {
-                Box::leak(format!("{}, JetBrainsMono Nerd Font Mono", css_family(name)).into_boxed_str())
+                Box::leak(format!("{}, OpenMono, OpenMono Icons", css_family(name)).into_boxed_str())
             })
         })
     });
@@ -89,10 +91,10 @@ pub fn terminal_font_style(knobs: &Knobs) -> (u8, TextStyle) {
     let family = match choice {
         _ if custom.is_some() => Family::Named(custom.unwrap_or_default()),
         // By name, so the code font (the mono slot) doesn't change the terminal's.
-        1 => Family::Named("IBM Plex Mono"),
+        1 => Family::Named("IBM Plex Mono, OpenMono, OpenMono Icons"),
         2 => Family::SystemMono,
-        3 => Family::Named("JetBrainsMono Nerd Font Mono"),
-        _ => Family::Named("CommitMono"),
+        3 => Family::Named("OpenMono, OpenMono Icons"),
+        _ => Family::Named("CommitMono, OpenMono, OpenMono Icons"),
     };
     let mut st = TextStyle::new(size, 400.0).lh(lh);
     st.family = family;
@@ -137,11 +139,11 @@ fn measure(choice: u8, style: TextStyle, scale: f32) -> (f32, f32, f32) {
         let advance = rune::text::advance("MMMMMMMMMM", style) / 10.0;
         let advance = if advance > 1.0 { advance } else { (style.size * 0.6).max(6.0) };
         let cw = (advance * scale).round().max(1.0) / scale;
-        // JetBrains Mono's font box (hhea 1020 up, 300 down), each side rounded as the canvas
-        // reports it; another face keeps its line height.
+        // OpenMono's font box (hhea 965 up, 220 down at 1000 UPM, `opencode#64797`), each side
+        // rounded as the canvas reports it; another face keeps its line height.
         let ch = if choice == 3 {
             let px = style.size * scale;
-            ((px * 1.02).round() + (px * 0.3).round()).max(1.0) / scale
+            ((px * 0.965).round() + (px * 0.22).round()).max(1.0) / scale
         } else {
             style.line_px().max(style.size.ceil() + 2.0)
         };
@@ -347,9 +349,16 @@ fn render_viewport<H: TerminalSurfaceHost + 'static>(
         let y = if below + 28.0 > avail_h { (f32::from(last) * cell_h - 34.0).max(0.0) } else { below };
         let x = (f32::from(left) * cell_w).min((clip_w - 90.0).max(0.0));
         canvas_layer = canvas_layer.child(
-            el().key("terminal-quote").absolute(x, y).child(render_quote_bar::<H>(p, ws_key, &tab.id)),
+            el().key("terminal-quote").absolute(x, y).child(render_quote_bar::<H>(p, ws_key, &tab.id, (cell_w, cell_h))),
         );
     }
+    // The quote last taken: where its comment editor measures from, while its rows still hold;
+    // once they don't, its source is gone for good (`quote-machine.ts:258-270`).
+    let mark = tab.quote_source.get().and_then(|source| quote::origin(snap, source, cell_h));
+    if mark.is_none() {
+        tab.quote_source.set(None);
+    }
+    canvas_layer = canvas_layer.children(mark);
 
     let outer = row()
         .key(VIEWPORT_KEY)

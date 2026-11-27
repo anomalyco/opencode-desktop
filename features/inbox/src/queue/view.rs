@@ -169,7 +169,6 @@ pub fn alternate_hint<H: QueueHost + 'static>(p: &Pal, room: f32, sm: bool, stee
         .gap(6.0)
         .center_y()
         .radius(4.0)
-        .cursor(rune::Cursor::Pointer)
         .hover(p.hover)
         .press(p.pressed)
         .transition(rune::Transition::opacity())
@@ -323,7 +322,6 @@ fn icon_button<H: QueueHost + 'static>(p: &Pal, key: &str, label: &str, glyph: &
         .size(side, side)
         .center()
         .radius(4.0)
-        .cursor(rune::Cursor::Pointer)
         .hover(p.hover)
         .press(p.pressed)
         // The row it takes away goes at once (rows enter and leave on `SpringPair::NONE`), and the
@@ -369,7 +367,6 @@ fn queue_row<H: QueueHost + 'static>(p: &Pal, session: &str, r: &QueueRow, ids: 
         .gap(2.0)
         .center_y()
         .radius(4.0)
-        .cursor(rune::Cursor::Pointer)
         .hover(p.hover)
         .press(p.pressed)
         .on_press(move |s: &mut H| super::steer_queued(s, &ss, &is))
@@ -395,7 +392,15 @@ fn queue_row<H: QueueHost + 'static>(p: &Pal, session: &str, r: &QueueRow, ids: 
         .on_press_tx(move |s: &mut H, tx: &mut Tx| on_edit_press(s, &se, &ie, tx))
         .child(text(label.clone()).key("label").font(UI).color(color).truncate_fade())
         .child(marker(format!("edit-{}", st.index)));
-    let words = if st.editing || r.pending { words } else { words.hover(p.hover).cursor(rune::Cursor::Text) };
+    // `queue-panel.tsx:228-230`: `cursor-progress` while the message is being sent, `cursor-text`
+    // at rest, neither (the arrow) while it is open in the composer.
+    let words = if r.pending {
+        words.cursor(rune::Cursor::Progress)
+    } else if st.editing {
+        words
+    } else {
+        words.hover(p.hover).cursor(rune::Cursor::Text)
+    };
     // While the actions hide they keep their room, so the words beside them would end short of
     // the row. A copy of the words draws in their place, running to the row's right padding; it
     // takes no input and says nothing to a screen reader, and gives way to the real words (bound
@@ -471,8 +476,8 @@ fn handle<H: QueueHost + 'static>(p: &Pal, session: &str, id: &str, ids: &[Strin
     }
     let (sd, idd, idsd) = (session.to_owned(), id.to_owned(), ids.to_vec());
     let (sk, idk, idsk) = (session.to_owned(), id.to_owned(), ids.to_vec());
-    h.cursor(rune::Cursor::Grab)
-        .focusable(true)
+    // No grab cursor: Desktop forces `.cursor-grab` back to the arrow (`packages/desktop/src/renderer/styles.css:4`).
+    h.focusable(true)
         .on_drag(move |s: &mut H, d: &mut rune::Drag, tx: &mut Tx| on_handle_drag(s, &sd, &idd, &idsd, d, tx))
         .on_key(move |s: &mut H, ev: &KeyEvent, tx: &mut Tx| on_handle_key(s, &sk, &idk, &idsk, ev, tx))
 }

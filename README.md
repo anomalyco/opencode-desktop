@@ -118,8 +118,8 @@ Organized by **progressive disclosure** across four tiers: start at Tier 1 and s
 Add git dependencies from this repository pinned to a commit rev matching your `anomalyco/rune` pin:
 
 ```toml
-opencode-kit = { git = "https://github.com/anomalyco/rune-desktop", rev = "<rev>" }
-session-view = { git = "https://github.com/anomalyco/rune-desktop", rev = "<rev>" }
+opencode-kit = { git = "https://github.com/anomalyco/opencode-rune", rev = "<rev>" }
+session-view = { git = "https://github.com/anomalyco/opencode-rune", rev = "<rev>" }
 ```
 
 Hold a `session_view::ViewState` on your app state (calling `view.setup(waker, headless)` during setup), implement `session_view::TimelineHost` (using `session_view::delegate_view_state!` for the state accessors), drive `session_view::poll(s, now, tx)` each frame, and render `session_view::read_only(s, p, id, transcript)` or `session_view::timeline_area(s, p, id, transcript, pills, header)` alongside `session_view::overlays(s, p, cx)`. See [`crates/session-view/examples/read_only.rs`](crates/session-view/examples/read_only.rs) for a complete minimal host.

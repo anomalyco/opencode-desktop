@@ -3,7 +3,7 @@
 use serde_json::Value;
 
 use super::{
-    Assistant, Compaction, Message, ModelRef, Part, Project, PromptComment, Retry, SessionInfo,
+    Assistant, BrowserGrant, Compaction, Message, ModelRef, Part, Project, Retry, SessionInfo,
     StepError, Tokens, ToolStatus, i, keep_tool_error, keep_tool_output, keep_tool_ran, model_of,
     notice, parse_attachments, s, set_user_comments, set_user_created, set_user_files, strings,
     tool,
@@ -33,6 +33,7 @@ pub fn parse_session(p: &Value) -> SessionInfo {
         revert: p["revert"]["messageID"].as_str().map(str::to_owned),
         archived: p["time"]["archived"].as_i64(),
         metadata: p["metadata"].clone(),
+        browser: BrowserGrant::of(&p["permissions"]),
     }
 }
 
@@ -104,11 +105,17 @@ pub fn parse_message(m: &Value) -> Option<Message> {
                 set_user_files(&id, files);
             }
             let text = s(&m["text"]);
+            // The mentions' offsets count from the user's own words (`request.ts`), which quotes
+            // lead since opencode#66247.
+            let (text, aligned) = quoted_text(&id, text, &m["metadata"]);
             crate::mention::record(&id, &text, m);
+            if !aligned {
+                crate::mention::set_user_mentions(&id, Vec::new());
+            }
             if let Some(at) = m["time"]["created"].as_i64() {
                 set_user_created(&id, at);
             }
-            Message::User { text: quoted_text(&id, text, &m["metadata"]), id }
+            Message::User { text, id }
         }
         "assistant" => {
             let mut parts = Vec::new();
@@ -155,23 +162,21 @@ pub fn parse_message(m: &Value) -> Option<Message> {
 /// A user message's text as its bubble shows it (Desktop's `readPromptPresentation`): without
 /// the `Attached file:` lines and quotes it carries for the model, which show as cards over it
 /// (see `mention::user_path_attachments` and [`super::user_comments`]); the typed text when they
-/// aren't at its end as Desktop puts them (`composer/request.ts`).
-fn quoted_text(id: &str, text: String, metadata: &Value) -> String {
-    let Some((display, comments)) = crate::quote::parse_metadata(metadata) else { return text };
+/// aren't where Desktop puts them (`composer/request.ts`: the quotes before the user's words,
+/// the rest after them; everything after them before opencode#66247). False when it is the
+/// typed text, which the message's mention offsets don't index.
+fn quoted_text(id: &str, text: String, metadata: &Value) -> (String, bool) {
+    let Some((display, comments)) = crate::quote::parse_metadata(metadata) else { return (text, true) };
     let refs = crate::mention::path_attachments(metadata).unwrap_or_default();
     if comments.is_empty() && refs.is_empty() {
-        return text;
+        return (text, true);
     }
-    let tail: Vec<String> = refs.iter().map(|r| format!("Attached file: `{}`", r.path)).chain(comments.iter().map(PromptComment::prompt_text)).collect();
-    let tail = tail.join("\n");
+    let refs: Vec<String> = refs.iter().map(|r| format!("Attached file: `{}`", r.path)).collect();
+    let typed = [false, true].into_iter().find_map(|legacy| crate::quote::typed_text(&text, &refs, &comments, legacy)).map(str::to_owned);
     set_user_comments(id, comments);
-    match text.strip_suffix(tail.as_str()) {
-        Some(head) => head.strip_suffix('\n').unwrap_or(head).to_owned(),
-        None => {
-            // The recorded mention offsets index the raw text, not this one.
-            crate::mention::set_user_mentions(id, Vec::new());
-            display
-        }
+    match typed {
+        Some(typed) => (typed, true),
+        None => (display, false),
     }
 }
 

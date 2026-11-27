@@ -38,8 +38,8 @@ pub enum Incoming {
     /// A prompt write (`Write::Send`, `SendFromRevert`, `StartAs`) that failed,
     /// with the id the prompt was sent under and its error.
     SendFailed { session: String, id: String, error: WireError },
-    /// A rename, delete or restore this window sent (`client.session.write`'s `data`), and its
-    /// error when it failed.
+    /// A rename, delete, archive or restore this window sent (`client.session.write`'s `data`),
+    /// and its error when it failed.
     SessionWrite { data: Value, error: Option<WireError> },
     /// A session's open permission requests and forms, reported separately so a transient HTTP
     /// error on one endpoint never prunes cached items, tagged with the fetch's `epoch` so a
@@ -66,6 +66,8 @@ pub enum Incoming {
     /// The folder the server was started in, its default location (the reply to
     /// `Request::DefaultDirectory`).
     DefaultDirectory(String),
+    /// Resolved UI feature flags for `directory` (the reply to `Request::Flags`).
+    Flags { directory: Option<String>, flags: std::collections::BTreeMap<String, bool> },
     /// A folder resolved and registered as a project (`Write::OpenProject`), with the updated
     /// project list and, when `start_session` was set, the new session opened in it.
     ProjectOpened { location: model::LocationInfo, projects: Vec<model::Project>, session: Option<SessionInfo> },
@@ -101,6 +103,8 @@ pub enum TicketKind {
     Inbox,
     /// `Write::View`, reporting a session viewed.
     View,
+    /// `Write::TakeBack`, after a Stop that came before the model answered.
+    TakeBack,
 }
 
 pub enum Request {
@@ -111,6 +115,9 @@ pub enum Request {
     /// The server's default location (`GET /api/location` with no directory), replied as
     /// `Incoming::DefaultDirectory`; a failed read stays quiet.
     DefaultDirectory,
+    /// Resolved UI feature flags for `directory` (`GET /api/experimental/flag`,
+    /// `packages/protocol/src/groups/flag.ts`), replied as `Incoming::Flags`.
+    Flags { directory: Option<String> },
     /// One session's info (`time.idle`/`time.viewed` after it finishes or someone views it).
     Info(String),
     /// [`Request::Info`] for a session named in a message, which may not exist: replied as
@@ -191,6 +198,9 @@ pub enum Write {
     RevertClear(String),
     /// Commits a staged revert (`POST /api/session/:id/revert/commit`).
     RevertCommit(String),
+    /// Takes the unanswered prompt `message` back after a Stop, as Desktop's `revert.takeBack`
+    /// does: waits for the run to settle, stages the revert without its files, commits it.
+    TakeBack { session: String, message: String },
     /// Sends `prompt` while `session` has a staged revert, committing the revert after the agent
     /// switch and before the model switch and admission, as Desktop's `composer/submit.ts` does.
     SendFromRevert { session: String, prompt: Prompt },
@@ -225,6 +235,7 @@ impl Write {
             | Self::Rename { session, .. } | Self::View { session, .. }
             | Self::Metadata { session, .. } | Self::Background { session, .. }
             | Self::RevertStage { session, .. } | Self::SendFromRevert { session, .. }
+            | Self::TakeBack { session, .. }
             | Self::Fork { session, .. } | Self::StartInNewWorktree { session, .. }
             | Self::Interrupt(session) | Self::Delete(session) | Self::Archive(session)
             | Self::Unarchive(session) | Self::Compact(session) | Self::RevertClear(session)

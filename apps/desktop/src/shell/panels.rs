@@ -293,7 +293,7 @@ impl PanelsHost for App {
     fn on_side_tab_closing(&mut self, session_id: &str, key: &str) {
         if let Some(path) = key.strip_prefix("file:").and_then(crate::files::data::file_tab_path) {
             if let Some(ws) = self.kernel.slots.get_mut(&crate::files::FILES).sessions.get_mut(session_id) {
-                ws.close_preview(&path);
+                ws.close_file(&path);
             }
             crate::files::watch::unwatch(self, session_id, &path);
         }
@@ -392,6 +392,12 @@ impl App {
 
     pub fn shown_new_tab(&self, session_id: &str, pane: SessionPane, pane_active: Option<&str>) -> Option<&NewTabEntry> {
         shown_new_tab(self, session_id, pane, pane_active)
+    }
+
+    /// A New tab page is drawn in place of the side region's active tab: the tab is still the
+    /// strip's active one, but nothing of it shows, so its own keys have nothing to act on.
+    pub fn new_tab_covers_active(&self) -> bool {
+        self.resolve_side_region().is_some_and(|reg| self.shown_new_tab(&reg.session_id, reg.active_pane, reg.active.as_deref()).is_some())
     }
 
     pub fn live_new_tabs<'a>(

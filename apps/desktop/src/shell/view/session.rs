@@ -160,7 +160,7 @@ pub(crate) fn story_header(s: &App, p: &Pal) -> El {
 
 pub(crate) fn story_composer(s: &App, p: &Pal) -> El {
     let Route::Session { id, .. } = &*s.route else { return composer_dock(s, p) };
-    let pills = pills(s, p, id);
+    let pills = if s.session(id).is_some_and(|i| i.parent.is_some()) { Vec::new() } else { pills(s, p, id) };
     col().key("session")
         .w_full()
         .children((!pills.is_empty()).then(|| col().key("activity").w_full().center().px(DOCK_SIDE).pb(8.0)

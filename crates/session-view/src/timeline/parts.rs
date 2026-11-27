@@ -11,12 +11,11 @@ pub use crate::style::{BUBBLE_MAX, markdown_style, markdown_tinted, markdown_wit
 /// Where a prompt's bubble sits in its run (see `user_bubble`), and where it lays out.
 #[derive(Clone, Copy)]
 pub struct Place {
-    pub tight: bool,
     pub above: bool,
     pub below: bool,
-    /// A reply's work sits right above it: the room it stands under it (`rhythm::L`, less a
-    /// footer's room), else 0.
-    pub reply: f32,
+    /// The room over the bubble in its own row: none under a row that holds it (`rhythm`), 8
+    /// where it starts the session.
+    pub top: f32,
     pub fold: Fold,
 }
 
@@ -60,7 +59,7 @@ pub fn default_user_menu<S: TimelineHost>(s: &S, p: &Pal, id: &str, body: &str) 
 /// pressed fill while its menu is `open`, which no hover or press adds to, as
 /// `:not([data-expanded])` keeps Desktop's hover off it. The host adds the glyph and the press.
 pub fn user_menu_button(p: &Pal, key: String, label: &str, open: bool) -> El {
-    let b = row().key(key).role("button").label(label.to_owned()).size(20.0, 20.0).center().radius(4.0).cursor(rune::Cursor::Pointer).focus_inset(p);
+    let b = row().key(key).role("button").label(label.to_owned()).size(20.0, 20.0).center().radius(4.0).focus_inset(p);
     if open { b.fill(p.pressed) } else { b.hover(p.hover).press(p.pressed).hover_motion(INSTANT, INSTANT) }
 }
 
@@ -112,7 +111,7 @@ pub fn prompt_meta<S: TimelineHost>(s: &S, t: &Transcript, message: Option<usize
 /// `message-part.css:1931-1967`), or in its place when it has none.
 #[allow(clippy::too_many_arguments)]
 pub fn user_bubble<S: TimelineHost>(s: &S, p: &Pal, session: &str, id: &str, body: &str, place: Place, glow: f32, pending: bool, quotes: Option<El>, meta: &[(String, bool)]) -> El {
-    let Place { tight, above, below, reply, fold } = place;
+    let Place { above, below, top: over, fold } = place;
     let menu = s.user_menu(p, session, id, body, pending);
     let open = s.user_menu_open_on(id);
     let (top, end) = (if above { 4.0 } else { 10.0 }, if below { 4.0 } else { 10.0 });
@@ -247,7 +246,7 @@ pub fn user_bubble<S: TimelineHost>(s: &S, p: &Pal, session: &str, id: &str, bod
     }
     let c = col()
         .w_full()
-        .pt(if above { 4.0 } else if tight { 8.0 } else if reply > 0.0 { reply } else { 16.0 })
+        .pt(over)
         .child(row().w_full().justify_end().child(row().w_frac(0.82).justify_end().child(face)));
     match status {
         Some(status) => c.child(row().key("actions").w_full().h(20.0).mt(8.0).justify_end().child(status)),
@@ -353,7 +352,7 @@ pub fn turn_footer<S: TimelineHost>(s: &S, p: &Pal, t: &Transcript, message: usi
     let done = crate::copied::is_copied(s, &copy_key);
     let label = if done { opencode_i18n::t!("ui.message.copied") } else { opencode_i18n::t!("ui.message.copyResponse") };
     let button = row().key("copy").role("button").label_static(label).help(label).help_above().help_open(done)
-        .size(COPY, COPY).center().radius(4.0).cursor(rune::Cursor::Pointer).focus_inset(p).hover(p.hover).press(p.pressed).hover_motion(INSTANT, INSTANT)
+        .size(COPY, COPY).center().radius(4.0).focus_inset(p).hover(p.hover).press(p.pressed).hover_motion(INSTANT, INSTANT)
         .on_press_tx(move |s: &mut S, tx: &mut Tx| {
             tx.copy(body.clone());
             crate::copied::mark_copied(s, key.clone(), tx);
@@ -465,7 +464,7 @@ pub fn turn_actions<S: TimelineHost>(s: &S, p: &Pal, busy: bool, _asking: bool, 
         let done = crate::copied::is_copied(s, &copy_key);
         let label = if done { opencode_i18n::t!("ui.message.copied") } else { opencode_i18n::t!("ui.message.copyResponse") };
         button = button.label_static(label).help(label).help_above().help_open(done)
-            .cursor(rune::Cursor::Pointer).focus_inset(p).hover(p.hover).press(p.pressed).hover_motion(INSTANT, INSTANT);
+            .focus_inset(p).hover(p.hover).press(p.pressed).hover_motion(INSTANT, INSTANT);
         let session = session.to_owned();
         let id = message.id().to_owned();
         button = button.on_press_tx(move |s: &mut S, tx: &mut Tx| {

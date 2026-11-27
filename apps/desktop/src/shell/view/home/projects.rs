@@ -30,7 +30,7 @@ pub(super) fn column(s: &App, p: &Pal, selected: Option<&model::Project>, wide: 
     let mut header = row().key("home-projects-header").w_full().h(28.0).pl(6.0).pr(12.0).center_y().child(text(t!("home.projects")).font(HOME_MED).color(p.muted)).child(spacer());
     if s.kernel.slots.get(&crate::projects::HOME_STATE).servers.len() <= 1 {
         let add = el().key("home-add-project").role("button").label_static(t!("home.project.add")).help(t!("home.project.add")).size(28.0, 28.0).radius(6.0).focus_inset(p).center();
-        let add = if failed { add.opacity(0.5).disabled(true) } else { add.cursor(rune::Cursor::Pointer).hover(p.hover).press(p.pressed).on_press_tx(|s: &mut App, tx: &mut Tx| add_project(s, tx)) };
+        let add = if failed { add.opacity(0.5).disabled(true).hit().cursor(rune::Cursor::NotAllowed) } else { add.hover(p.hover).press(p.pressed).on_press_tx(|s: &mut App, tx: &mut Tx| add_project(s, tx)) };
         header = header.child(add.child(icon(&ic::FOLDER_ADD_LEFT, 16.0).color(p.icon_muted)));
     }
     // `pr-3`, rows `gap-1`; a row is as wide as the list leaves it, less the scroll bar's gutter
@@ -43,7 +43,7 @@ pub(super) fn column(s: &App, p: &Pal, selected: Option<&model::Project>, wide: 
         // `HomeProjectEmpty`: Add project, disabled (60%) while the server is down (`view.tsx:619`).
         let add = nav_row(p, "home-add-project-empty", &ic::FOLDER_ADD_LEFT, t!("home.project.add")).w_full();
         rows = rows.child(if failed {
-            add.opacity(0.6).disabled(true).cursor(rune::Cursor::Default)
+            add.opacity(0.6).disabled(true)
         } else {
             add.on_press_tx(|s: &mut App, tx: &mut Tx| add_project(s, tx))
         });
@@ -96,7 +96,6 @@ fn nav_row(p: &Pal, key: &str, glyph: &'static Icon, label: &str) -> El {
         .gap(8.0)
         .center_y()
         .radius(6.0)
-        .cursor(rune::Cursor::Pointer)
         .focus_inset(p)
         .hover_group()
         .hover(p.layer1)
@@ -160,9 +159,9 @@ pub(super) fn project_row(s: &App, p: &Pal, server: &ServerKey, proj: &model::Pr
         .child(crate::icons::badge(s, p, Some(proj), &proj.name))
         .child(text(proj.name.clone()).key("label").font(HOME).color(if active { p.text } else { p.muted }).group_color(p.text).grow(1.0).shrink().truncate().align(text_left()));
     let nav = if failed {
-        nav.opacity(0.6).disabled(true).cursor(rune::Cursor::Default)
+        nav.opacity(0.6).disabled(true)
     } else {
-        nav.cursor(rune::Cursor::Pointer).on_press_tx(move |s: &mut App, tx: &mut Tx| {
+        nav.on_press_tx(move |s: &mut App, tx: &mut Tx| {
             tx.instant();
             crate::projects::home::toggle(s, &server, &dir);
             s.project_state.home_menu_open = false;
@@ -197,7 +196,6 @@ pub(crate) fn icon_button(p: &Pal, key: &str, label: &str, glyph: &'static Icon,
         .size(20.0, 20.0)
         .radius(4.0)
         .center()
-        .cursor(rune::Cursor::Pointer)
         .hover_motion(INSTANT, INSTANT)
         .child(icon(glyph, 16.0).color(if expanded { p.icon } else { p.icon_muted }));
     if expanded { b.fill(p.pressed) } else { b.hover(p.hover).press(p.pressed) }
@@ -302,20 +300,37 @@ impl App {
     }
 }
 
+/// The focused server's name, when the picker names it in place of "All projects": under
+/// Consolidated, with several servers and no project chosen (`scopedServer`, opencode#66265).
+fn scoped_server(s: &App, selected: Option<&model::Project>) -> Option<String> {
+    if selected.is_some() || !s.settings.navigation_prototype() {
+        return None;
+    }
+    let servers = &s.kernel.slots.get(&crate::projects::HOME_STATE).servers;
+    let key = crate::projects::home::server(s);
+    (servers.len() > 1).then(|| servers.iter().find(|v| v.key == key).map(|v| v.label.clone())).flatten()
+}
+
+/// The picker's label (`label()`): the chosen project, else the scoped server, else All projects.
+fn picker_label(selected: Option<&model::Project>, scoped: Option<&str>) -> String {
+    selected.map(|proj| proj.name.as_str()).or(scoped).unwrap_or(t!("home.projects.all")).to_owned()
+}
+
 /// The narrow window's projects dropdown (`home-projects-dropdown`): 40 tall and full width,
 /// `px-1.5 gap-2`, bg-base going to layer-01 hovered; the selected project's avatar (a small
 /// folder for all of them), its name, and a small chevron in icon-muted.
 pub(super) fn dropdown_trigger(s: &App, p: &Pal, selected: Option<&model::Project>) -> El {
     let open = s.project_state.home_menu_open;
+    let scoped = scoped_server(s, selected);
     let lead = match selected {
         Some(proj) => crate::icons::badge(s, p, Some(proj), &proj.name),
-        None => icon(&ic::FOLDER, 16.0).color(p.text),
+        None => icon(if scoped.is_some() { &ic::SERVER } else { &ic::FOLDER }, 16.0).color(p.text),
     };
-    let label = selected.map_or(t!("home.projects.all"), |proj| proj.name.as_str());
+    let label = picker_label(selected, scoped.as_deref());
     // With several servers, the focused one's name under it, muted at 70%
-    // (`leading-[var(--line-height-compact)]`).
-    let name = text(label.to_owned()).key("name").font(UI).color(p.text).truncate().dir(rune::Direction::Auto);
-    let server = (s.kernel.slots.get(&crate::projects::HOME_STATE).servers.len() > 1).then(|| {
+    // (`leading-[var(--line-height-compact)]`); not when the first line already names it.
+    let name = text(label).key("name").font(UI).color(p.text).truncate().dir(rune::Direction::Auto);
+    let server = (scoped.is_none() && s.kernel.slots.get(&crate::projects::HOME_STATE).servers.len() > 1).then(|| {
         let key = crate::projects::home::server(s);
         s.kernel.slots.get(&crate::projects::HOME_STATE).servers.iter().find(|v| v.key == key).map(|v| text(v.label.clone()).key("server").font(UI).color(p.muted).opacity(0.7).truncate().dir(rune::Direction::Auto))
     });
@@ -331,7 +346,6 @@ pub(super) fn dropdown_trigger(s: &App, p: &Pal, selected: Option<&model::Projec
         .gap(8.0)
         .center_y()
         .radius(6.0)
-        .cursor(rune::Cursor::Pointer)
         .focus_inset(p)
         .fill(if open { p.layer1 } else { p.bg_base })
         .hover(p.layer1)
@@ -356,8 +370,12 @@ pub(super) fn dropdown_trigger(s: &App, p: &Pal, selected: Option<&model::Projec
 /// label and exposes `aria-expanded`.
 pub(super) fn scope_trigger(s: &App, p: &Pal, selected: Option<&model::Project>) -> El {
     let open = s.project_state.home_menu_open;
-    let label = selected.map_or(t!("home.projects.all"), |proj| proj.name.as_str());
-    let lead = selected.map(|proj| crate::icons::badge(s, p, Some(proj), &proj.name));
+    let scoped = scoped_server(s, selected);
+    let label = picker_label(selected, scoped.as_deref());
+    let lead = match selected {
+        Some(proj) => Some(crate::icons::badge(s, p, Some(proj), &proj.name)),
+        None => scoped.is_some().then(|| icon(&ic::SERVER, 16.0).color(p.icon_muted)),
+    };
     row()
         .key("home-projects-trigger")
         .role("button")
@@ -373,7 +391,6 @@ pub(super) fn scope_trigger(s: &App, p: &Pal, selected: Option<&model::Project>)
         .gap(6.0)
         .center_y()
         .radius(4.0)
-        .cursor(rune::Cursor::Pointer)
         .preserve_focus_on_press(true)
         .focus_inset(p)
         .fill(if open { p.pressed } else { rune::Color::TRANSPARENT })
@@ -384,7 +401,7 @@ pub(super) fn scope_trigger(s: &App, p: &Pal, selected: Option<&model::Project>)
             s.project_state.home_menu_open = !s.project_state.home_menu_open;
         })
         .children(lead)
-        .child(text(label.to_owned()).key("name").font(UI).color(if open { p.text } else { p.muted }).group_color(p.text).truncate().dir(rune::Direction::Auto))
+        .child(text(label).key("name").font(UI).color(if open { p.text } else { p.muted }).group_color(p.text).truncate().dir(rune::Direction::Auto))
         .child(icon(&ic::CHEVRON_DOWN, 16.0).color(p.icon_muted))
 }
 
@@ -423,7 +440,7 @@ pub(crate) fn home_projects_popover(s: &App, p: &Pal) -> Option<[El; 2]> {
         }
         let add = nav_row(p, "hpm-add", &ic::FOLDER_ADD_LEFT, t!("home.project.add")).w_full().mt(4.0);
         let add = if failed {
-            add.opacity(0.6).disabled(true).cursor(rune::Cursor::Default)
+            add.opacity(0.6).disabled(true)
         } else {
             add.on_press_tx(|s: &mut App, tx: &mut Tx| add_project(s, tx))
         };

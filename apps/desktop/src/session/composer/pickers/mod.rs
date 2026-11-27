@@ -27,21 +27,28 @@ impl PickerHost for App {
         Some(crate::widgets::provider_mark(provider, p.icon))
     }
     fn picker_scope(&self) -> String {
-        match &*self.route { Route::Session { id, .. } => id.clone(), _ => "draft".into() }
+        // Each draft tab has its own picks, as official's drafts do (`composer/persistence.tsx`,
+        // `new-session/route.tsx`: a draft tab's own composer state and providers). Official
+        // keeps a draft's model and effort but shows the first agent again whenever the draft
+        // is shown again; here the draft keeps the agent it was given too, with its model.
+        match &*self.route { Route::Session { id, .. } | Route::Draft(id) => id.clone(), _ => DRAFT.into() }
     }
     fn picker_draft(&self) -> bool {
         !matches!(*self.route, Route::Session { .. })
     }
     fn picker_running(&self) -> Option<Selection> {
         let Route::Session { id, .. } = &*self.route else { return None };
-        self.session(id).map(|i| Selection { model: i.model.clone(), agent: i.agent.clone() })
+        self.session(id).map(|i| Selection { model: i.model.clone(), agent: i.agent.clone(), effort: Effort::Chosen })
     }
     /// Desktop's order, not another session's model: a server with no sessions still names one.
     fn picker_fallback_model(&self) -> Option<ModelRef> {
         self.composer_ext.pickers.fallback_model()
     }
     fn picker_subagent(&self) -> Option<(String, Selection)> {
-        self.subagent_page().map(|i| (i.id.clone(), Selection { model: i.model.clone(), agent: i.agent.clone() }))
+        self.subagent_page().map(|i| (i.id.clone(), Selection { model: i.model.clone(), agent: i.agent.clone(), effort: Effort::Chosen }))
+    }
+    fn picker_changed(&mut self, scope: &str) {
+        saved::save(self, scope);
     }
     fn picker_show_agent(&self) -> bool {
         self.settings.show_agent || self.subagent_page().is_some()
@@ -141,7 +148,7 @@ impl App {
             let s = |v: &Value| v.as_str().unwrap_or("").to_owned();
             info.model = ModelRef { id: s(&m["id"]), provider: s(&m["providerID"]), variant: s(&m["variant"]) };
         }
-        Some(Box::new(Selection { model: info.model.clone(), agent: info.agent.clone() }))
+        Some(Box::new(Selection { model: info.model.clone(), agent: info.agent.clone(), effort: Effort::Chosen }))
     }
 
     /// After `apply_selected`, in each window: a pick it now runs with is forgotten, so the
@@ -151,7 +158,10 @@ impl App {
         let pickers = &self.composer_ext.pickers;
         let agent = pickers.effective_agent(&confirmed.agent);
         let landed = pickers.selections.get(sid).is_some_and(|held| held.agent == agent && held.model == confirmed.model);
-        if landed { self.composer_ext.pickers.selections.remove(sid); }
+        if landed {
+            self.composer_ext.pickers.selections.remove(sid);
+            saved::save(self, sid);
+        }
     }
 
     /// Notes the pick prompt `id` goes out with. A queued prompt is left out: it only records a
@@ -175,8 +185,12 @@ impl App {
         for id in waiting {
             match self.unsent.get(&id).map(|sent| sent.state()) {
                 Some(State::Accepted) => {
-                    if let Some((scope, pick)) = self.kernel.slots.get_or_default(&SENT_PICKS).release(&id) {
-                        landed |= self.composer_ext.pickers.selections.admitted(&scope, &pick);
+                    let released = self.kernel.slots.get_or_default(&SENT_PICKS).release(&id);
+                    if let Some((scope, pick)) = released
+                        && self.composer_ext.pickers.selections.admitted(&scope, &pick)
+                    {
+                        saved::save(self, &scope);
+                        landed = true;
                     }
                 }
                 // A refused send, a story's, or another server's: nothing to release here.
@@ -206,4 +220,5 @@ impl App {
     }
 }
 
+pub(crate) mod saved;
 mod stories;

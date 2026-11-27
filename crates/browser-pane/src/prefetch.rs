@@ -91,6 +91,8 @@ enum Event {
     /// The source lists no engine for this build: the job stays, quietly, to read it again.
     Unlisted,
     Finished,
+    /// The app quits: the job stops at its next step.
+    Quit,
 }
 
 #[derive(Debug, PartialEq)]
@@ -107,9 +109,30 @@ fn step(state: State, event: Event) -> (State, Option<Effect>) {
         (State::Running(_), Event::Start(Mode::Urgent)) => (State::Running(Mode::Urgent), Some(Effect::Nudge)),
         (State::Running(_), Event::Unlisted) => (State::Running(Mode::Launch), None),
         (_, Event::Finished) => (State::Idle, None),
+        (State::Running(_), Event::Quit) => (State::Idle, Some(Effect::Nudge)),
         (other, _) => (other, None),
     }
 }
+
+/// The files a try writes (the partial download, and what it unpacks from it as it arrives).
+///
+/// A process that ends while they are open leaves their close to its own teardown, and Windows
+/// Defender scans a half-written DLL inside that close, at 50 to 70 ms per MiB (the process's
+/// last thread, in `PspRundownSingleProcess`, `ObKillProcess`, `ExSweepHandleTable`,
+/// `IopCloseFile`, `MpPreCleanup`, `MpScanFile`):
+/// with `libcef.dll` half unpacked the old app, already ended, was not released for 2.9 to 6.9 s
+/// at "Install and restart" (four of five real updates with the download running), and the new
+/// window came that much later. Closed by the job itself the same file costs the process
+/// nothing, so the quit waits for `Closed` (`Prefetch::wait_closed`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Files {
+    Closed,
+    Open,
+}
+
+/// How long the quit waits for the job to close its files: past it the process ends as it did
+/// before, and its teardown closes them.
+const QUIT_WAIT: Duration = Duration::from_millis(500);
 
 /// A host whose page waits for the job: it hears every status.
 struct Watcher {
@@ -129,6 +152,8 @@ struct Ctl {
     kicks: u64,
     /// A launch asked: a source that publishes nothing is read again every hour.
     launched: bool,
+    /// Whether a try has the files it writes open.
+    files: Files,
 }
 
 impl Ctl {
@@ -157,12 +182,14 @@ pub(crate) struct Prefetch {
     ctl: Mutex<Ctl>,
     /// Wakes the job's waits early (a page waits now, the network changed).
     nudge: Condvar,
+    /// Wakes the quit's wait when a try has closed its files.
+    closed: Condvar,
 }
 
 impl Default for Prefetch {
     fn default() -> Self {
-        let ctl = Ctl { run: State::Idle, watchers: Vec::new(), hosts: Vec::new(), shown: EngineStatus::NotInstalled, kicks: 0, launched: false };
-        Self { ctl: Mutex::new(ctl), nudge: Condvar::new() }
+        let ctl = Ctl { run: State::Idle, watchers: Vec::new(), hosts: Vec::new(), shown: EngineStatus::NotInstalled, kicks: 0, launched: false, files: Files::Closed };
+        Self { ctl: Mutex::new(ctl), nudge: Condvar::new(), closed: Condvar::new() }
     }
 }
 
@@ -225,6 +252,34 @@ impl Prefetch {
         if let Some(wake) = wake {
             wake();
         }
+    }
+
+    /// The app quits: the job stops at its next step (its partial file stays, and the next run
+    /// goes on from it) and its threads get normal priority back. `wait_closed` then waits for
+    /// its files.
+    pub(crate) fn quit(&self) {
+        let mut ctl = self.lock();
+        let (next, effect) = step(ctl.run, Event::Quit);
+        ctl.run = next;
+        drop(ctl);
+        if effect == Some(Effect::Nudge) {
+            self.nudge.notify_all();
+            background::lift_for_quit();
+        }
+    }
+
+    /// A try opens the files it writes, or has closed them all.
+    fn files(&self, files: Files) {
+        self.lock().files = files;
+        self.closed.notify_all();
+    }
+
+    /// The quit's last step, after `quit`: waits until the job has closed the files it writes,
+    /// `QUIT_WAIT` at most. False when they are still open.
+    pub(crate) fn wait_closed(&self) -> bool {
+        let ctl = self.lock();
+        let (ctl, _) = self.closed.wait_timeout_while(ctl, QUIT_WAIT, |c| c.files == Files::Open).unwrap_or_else(PoisonError::into_inner);
+        ctl.files == Files::Closed
     }
 
     /// The network changed: a job that waits for it tries again now.
@@ -597,7 +652,10 @@ impl Job {
         let staging = root.join(format!(".{}.staging-{}-{}", release.version, std::process::id(), STAGING_SEQ.fetch_add(1, Ordering::Relaxed)));
         std::fs::remove_dir_all(&staging).ok();
         std::fs::create_dir_all(&staging).map_err(|e| Cut::Failed(err_write(&e)))?;
+        self.ctl.files(Files::Open);
         let result = self.fetch_into(release, partial, &staging, low);
+        // `fetch_into` has dropped its reader and its unpacker: nothing the try wrote is open.
+        self.ctl.files(Files::Closed);
         if matches!(result, Err(Cut::Rejected(_))) {
             // Bytes that don't check out never resume: the next try starts over.
             std::fs::remove_file(partial).ok();
@@ -623,7 +681,12 @@ impl Job {
         if done.is_ok() {
             std::fs::remove_file(partial).ok();
         }
-        std::fs::remove_dir_all(&staging).ok();
+        // The app quits (the job was stopped and is no longer running): what the try unpacked stays,
+        // closed, for the next start's `sweep_unpacking`. Removing a half-written 200 MB file takes
+        // hundreds of ms inside one call, and the process can't end while a thread is in it.
+        if !(matches!(done, Err(Cut::Stopped)) && self.ctl.mode().is_none()) {
+            std::fs::remove_dir_all(&staging).ok();
+        }
         done
     }
 

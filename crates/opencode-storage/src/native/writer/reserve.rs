@@ -107,10 +107,14 @@ impl Writer {
         }
     }
 
-    fn rebuild_record(&self) -> rusqlite::Result<()> {
+    /// The record current with the tables in a transaction of its own: it carries the header's
+    /// generation again. The writer's one way to rebuild it.
+    pub(super) fn rebuild_record(&mut self) -> rusqlite::Result<()> {
         let tx = Transaction::new_unchecked(&self.conn, TransactionBehavior::Immediate)?;
         boot_record::rebuild(&tx)?;
-        tx.commit()
+        tx.commit()?;
+        self.stamp = super::Stamp::Carried;
+        Ok(())
     }
 
     /// This run has no journal: the keys go to the database alone, and the next launch reserves

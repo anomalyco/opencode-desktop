@@ -7,7 +7,11 @@ use std::ops::Range;
 
 use crate::WindowFrame;
 
-pub(crate) const MAGIC: &[u8; 4] = b"RNB1";
+/// The record's format. It moves on when a build changes what the record holds, so a record an
+/// older build wrote isn't trusted: it reads as malformed and that launch reads SQLite, which
+/// rebuilds it. `RNB2`: the plugin slice holds the shown sessions' values (`RNB1` never did, and
+/// answered "nothing stored" for them).
+pub(crate) const MAGIC: &[u8; 4] = b"RNB2";
 pub(crate) const HEAD: usize = 24;
 /// A visible draft or session preview larger than this stays out of the record; the app reads
 /// it from the full store after stage B.

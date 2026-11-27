@@ -31,6 +31,10 @@ impl DropzoneHost for App {
 }
 
 pub fn hover(s: &mut App, over: bool, tx: &mut Tx) {
+    if !s.has_composer() {
+        opencode_feature_composer_input::dropzone::hover(s, false, tx);
+        return;
+    }
     opencode_feature_composer_input::dropzone::hover(s, over, tx);
 }
 
@@ -47,6 +51,10 @@ fn take_dragged_tree_file(s: &App, path: &Path) -> Option<String> {
 }
 
 pub fn drop(s: &mut App, paths: &[PathBuf], tx: &mut Tx) {
+    if !s.has_composer() {
+        opencode_feature_composer_input::dropzone::hover(s, false, tx);
+        return;
+    }
     // A workspace file dragged from the Files/Review tree drops as an inline `@<path>` mention pill
     // and focuses the composer (`packages/app/src/composer/attachments/attachments.ts:217-223`).
     if paths.len() == 1

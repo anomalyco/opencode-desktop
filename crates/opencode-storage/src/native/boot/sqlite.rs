@@ -214,6 +214,8 @@ pub(super) fn stage_b(
     if journal::attached() && !owe.recovered.is_empty() {
         let t = Instant::now();
         conn.execute_batch("PRAGMA synchronous = OFF; PRAGMA wal_autocheckpoint = 0")?;
+        // A draft the record shows may change here: the record stops being trusted first.
+        boot_record::unstamp(&conn)?;
         report.journal_written = journal::reconcile(&conn, &std::mem::take(&mut owe.recovered), (config.clock)()).len();
         conn.execute_batch("PRAGMA synchronous = NORMAL; PRAGMA wal_autocheckpoint = 1000")?;
         report.journal_ns += ns(t);

@@ -190,6 +190,8 @@ pub fn error<S: TimelineHost>(s: &S, p: &Pal, a: &Assistant) -> El {
             line = text(full).key("words").font(UI).color(p.muted).wrap().w_full()
                 .spans(vec![Span::new(at, full_len(&words, action)).weight(530.0).color(p.text)])
                 .link(Link::new(at..full_len(&words, action), "switch-model").role("button").label(action).hover(LinkPaint::new().underline(p.text)))
+                // A plain `<button>` (`timeline-next/row.tsx:1536`): the arrow.
+                .cursor(rune::Cursor::Default)
                 .on_link(|s: &mut S, _: &str, tx: &mut Tx| {
                     // A button: a middle click on it does nothing.
                     if tx.button() == rune::PointerButton::Middle {
@@ -230,8 +232,12 @@ fn countdown(r: &Retry, now: i64) -> i64 {
 /// place.
 pub fn retry<S: TimelineHost>(s: &S, p: &Pal, r: &Retry) -> El {
     let (message, info) = retry_copy(r, s.now_ms());
+    // `session-retry.tsx:68-78`: the message line shows the help cursor and, in a tooltip above
+    // it, the whole message (the line itself is cut to its width).
+    let what = row().key("what").w_full().hit().cursor(rune::Cursor::Help).help(r.message.clone()).help_above()
+        .child(titled(p, &message, false).cursor(rune::Cursor::Help));
     let body = col().key("body").grow(1.0).shrink().min_w(0.0)
-        .child(row().key("what").w_full().child(titled(p, &message, false)))
+        .child(what)
         .child(text(info).key("info").font(UI).color(p.faint).pt(4.0));
     row().key("retry").w_full().gap(8.0).role("status").child(mark(p)).child(body)
 }

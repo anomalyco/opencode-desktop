@@ -82,7 +82,6 @@ fn answered<S: TimelineHost>(s: &S, p: &Pal, key: &str, input: &Value, metadata:
         trigger = trigger
             .self_start()
             .radius(4.0)
-            .cursor(rune::Cursor::Pointer)
             .focus_default(p)
             .hover_group_focus()
             .hover_motion(crate::style::HOVER_FADE, crate::style::HOVER_FADE)

@@ -108,6 +108,14 @@ impl RestoreHost for App {
         *self.gestures.home_return_tab = uid;
     }
 
+    fn routed_child(&self) -> Option<(String, String)> {
+        crate::launch::saved::page_tab::routed_child(self)
+    }
+
+    fn set_saved_routed_child(&mut self, session: Option<String>) {
+        crate::launch::saved::page_tab::said(self, session);
+    }
+
     fn tab_key_by_uid(&self, uid: &str) -> Option<TabKey> {
         self.tab(uid).map(crate::tabs::Tab::key)
     }

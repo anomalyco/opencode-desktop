@@ -14,7 +14,7 @@ use sha2::{Digest, Sha256};
 /// revision (`156.0.26.1`). Bump it when the app needs an engine built from newer engine code (a
 /// protocol change); a release of a newer CEF with the same revision is an update for every app
 /// that accepts it.
-pub const ENGINE_REVISION: u32 = 23;
+pub const ENGINE_REVISION: u32 = 24;
 #[cfg(not(any(windows, target_os = "linux")))]
 pub const ENGINE_BUNDLE_NAME: &str = "OpenCode Browser Engine.app";
 #[cfg(not(any(windows, target_os = "linux")))]
@@ -321,6 +321,29 @@ static HOME: std::sync::OnceLock<rune::dirs::AppDirs> = std::sync::OnceLock::new
 #[cfg(feature = "engine")]
 pub fn set_home(dirs: rune::dirs::AppDirs) {
     HOME.set(dirs).ok();
+}
+
+/// The app quits: an engine download that runs in the background stops where it is, its threads
+/// get normal priority back for what they still do, and it closes the files it writes
+/// ([`quit_wait`] waits for that).
+pub fn quit() {
+    #[cfg(feature = "engine")]
+    crate::prefetch::Prefetch::global().quit();
+}
+
+/// The quit's last step, after [`quit`]: waits, half a second at most, until the engine's download
+/// has closed the files it writes, so the process's end has none of them to close (Windows
+/// Defender scans a half-written DLL inside that close, for seconds). False when they are still
+/// open.
+pub fn quit_wait() -> bool {
+    #[cfg(feature = "engine")]
+    {
+        crate::prefetch::Prefetch::global().wait_closed()
+    }
+    #[cfg(not(feature = "engine"))]
+    {
+        true
+    }
 }
 
 #[cfg(feature = "engine")]

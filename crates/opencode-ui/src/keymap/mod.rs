@@ -96,6 +96,7 @@ pub enum Bind {
     Dictate,
     SubmitAlternate,
     SubmitFirst,
+    SubmitInPlace,
     PastePlain,
     SubmitAnswer,
     Stop,
@@ -116,6 +117,7 @@ pub enum Bind {
     DemoPause,
     WindowNew,
     WindowClose,
+    WindowFullScreen,
     McpToggle,
     BranchChoose,
     LocationSelect,
@@ -249,6 +251,7 @@ fn table() -> Vec<Binding> {
         // The composer's own keys, which Desktop's Settings doesn't list.
         unlisted(SubmitAlternate, "prompt.submit.alternate", key!("rune.command.prompt.submitAlternate"), Prompt, on("mod+enter, mod+shift+enter")),
         unlisted(SubmitFirst, "prompt.submit.first", key!("session.queue.first"), Prompt, on("alt+enter")),
+        unlisted(SubmitInPlace, "prompt.submit.inPlace", key!("rune.command.prompt.submitInPlace"), Prompt, on("ctrl+enter").on(Windows, "alt+shift+enter").on(Linux, "alt+shift+enter")),
         // Chromium's paste as plain text, which Desktop's fields get from the browser; Rune leaves
         // Ctrl+Shift+V to the app. ⇧⌘V pasted here on macOS before, and still does.
         hidden(PastePlain, "edit.pastePlain", key!("rune.command.edit.pastePlain"), Prompt, on("mod+shift+v")),
@@ -280,6 +283,10 @@ fn table() -> Vec<Binding> {
         // The app menu's accelerators off macOS (`desktop-menu.ts`), which no command binds.
         hidden(WindowNew, "window.new", key!("desktop.menu.newWindow"), General, on("ctrl+shift+n").on(Mac, "none")),
         hidden(WindowClose, "window.close", key!("desktop.menu.closeWindow"), General, on("ctrl+shift+w").on(Mac, "none")),
+        // Off macOS Desktop sets no menu, so Electron's default one stays in force with its roles'
+        // keys: Toggle Full Screen is F11 (electron 44 `menu-item-roles.ts` `togglefullscreen`;
+        // `native/menu.ts` builds only on macOS, where the View menu's item has Ctrl+Cmd+F).
+        hidden(WindowFullScreen, "window.toggleFullScreen", key!("desktop.menu.toggleFullScreen"), General, on("f11").on(Mac, "none")),
         row(McpToggle, "mcp.toggle", key!("command.mcp.toggle"), Models, on("mod+semicolon")),
         // The new-session page's (`new-session/{workspace/selector,view,commands}.tsx`). Off macOS
         // Ctrl+Alt+B is also the Browser's launcher, which only a session has.

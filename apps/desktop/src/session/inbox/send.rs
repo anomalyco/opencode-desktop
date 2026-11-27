@@ -16,6 +16,9 @@ pub enum SubmitMode {
     /// `Alt+Enter`: queues the prompt at the front of the queue while the session is busy, without
     /// steering, regardless of the follow-up preference (`#63109`).
     QueueFirst,
+    /// `Ctrl+Enter` on macOS (`Alt+Shift+Enter` elsewhere), or `Shift+Click` on Send: submits
+    /// with default delivery without scrolling a scrolled-up timeline back to the bottom.
+    InPlace,
 }
 
 impl App {
@@ -87,7 +90,7 @@ impl App {
         if self.kernel.slots.get(&crate::add_menu::ADD_MENU).shell() {
             return self.submit_shell(alternate, tx);
         }
-        if mode == SubmitMode::Default && self.retry_restored() { return; }
+        if matches!(mode, SubmitMode::Default | SubmitMode::InPlace) && self.retry_restored() { return; }
         let wire = self.mention_wire();
         if wire.text.is_empty() && !self.composer_ext.attach.any() && !self.kernel.slots.get(&crate::quote::QUOTE).any() {
             return;
@@ -113,10 +116,7 @@ impl App {
         let context: Vec<_> = if command.is_none() { commented.chain(crate::add_selection::take(self)).collect() } else { Vec::new() };
         let text = match &command {
             Some((_, args)) => args.clone(),
-            None => {
-                let quoted = quotes.iter().map(opencode_kit::model::PromptComment::prompt_text);
-                std::iter::once(attachments::path_lines(&wire.text, &refs)).filter(|t| !t.is_empty()).chain(quoted).collect::<Vec<_>>().join("\n")
-            }
+            None => opencode_kit::quote::model_text(&attachments::path_lines(&wire.text, &refs), &quotes),
         };
         // A prompt of only quotes leaves from its first quote's chip; any other from its words.
         let from = match self.kernel.slots.get(&crate::quote::QUOTE).items.first() {
@@ -139,6 +139,12 @@ impl App {
             agent,
             model,
         };
+        // The person's prompt goes out from this window, so its session's browser is this
+        // window's (`packages/gui-plugins/src/browser/model.ts` `ready`).
+        #[cfg(not(target_arch = "wasm32"))]
+        if let Route::Session { id, .. } = (*self.route).clone() {
+            crate::surfaces::browser::rpc::person_came(self, &id);
+        }
         if prompt.command.is_some() {
             return self.send_command(prompt, alternate, tx);
         }
@@ -162,6 +168,8 @@ impl App {
                 if crate::view::shows_whole_prompt() {
                     tx.launch("prompt", format!("queued-{local}"));
                 }
+            } else if mode == SubmitMode::InPlace {
+                session_view::composer::land_in_place(self, &id, &local, &from, tx);
             } else {
                 session_view::composer::land(self, &id, &local, &from, tx);
             }
@@ -253,6 +261,7 @@ impl App {
         };
         // A prompt sent while a stop settles runs next, so its Working shows.
         self.stops.forget(&id);
+        crate::rewind::take_back::forget(self, &id);
         opencode_kit::model::set_user_files(&local, std::mem::take(&mut self.composer_ext.attach.files));
         opencode_kit::mention::set_user_path_attachments(&local, refs);
         self.echo_wire_mentions(&local, wire.marks);
@@ -260,7 +269,11 @@ impl App {
         self.kernel.slots.get_mut(&crate::quote::QUOTE).take();
         // Like the TUI, sent comments go with the prompt (`submit.ts:413-417`).
         self.clear_line_comments(&id);
-        session_view::composer::land(self, &id, &local, &from, tx);
+        if mode == SubmitMode::InPlace {
+            session_view::composer::land_in_place(self, &id, &local, &from, tx);
+        } else {
+            session_view::composer::land(self, &id, &local, &from, tx);
+        }
         let t = self.transcripts.entry(id.clone()).or_insert_with(|| Transcript { session: id.clone(), messages: vec![] });
         // As the server's copy will read, so a session mention's badge stays put when it lands.
         t.messages.push(Message::User { id: local, text: wire.text });
@@ -323,24 +336,52 @@ impl App {
         self.session(id).and_then(|i| i.revert.as_ref()).is_none() && self.inbox_for(id).is_some_and(|i| i.steering().next().is_some())
     }
 
-    /// Queues a write to the server; false (with a status line) when this build can't write.
+    /// Queues a write to the server; false (with a toast that says why) when this build can't write.
     pub fn write(&mut self, w: Write) -> bool {
+        match self.offer(w) {
+            Ok(sent) => sent,
+            Err(Unsent::ReadOnly) => {
+                crate::status_toast::fail(self, opencode_i18n::t!("rune.send.nothingSent"), opencode_i18n::t!("rune.jobs.readOnly"));
+                false
+            }
+            Err(Unsent::NoWriter) => {
+                crate::status_toast::fail(self, opencode_i18n::t!("rune.send.disconnected"), opencode_i18n::t!("rune.send.nothingSentSentence"));
+                false
+            }
+        }
+    }
+
+    /// [`Self::write`] that says nothing itself when the write can't go, and hands back why: for
+    /// a write whose own machine says so, once, in its own words.
+    pub(crate) fn write_quiet(&mut self, w: Write) -> Result<bool, Unsent> {
+        self.offer(w)
+    }
+
+    /// Hands `w` to the server's writer: whether it went, or why this window has none to hand it to.
+    fn offer(&mut self, w: Write) -> Result<bool, Unsent> {
         if self.fixture_run.stage.is_some() {
             // A story's answers go nowhere; it acts as if they were sent.
             *self.diag.status = "Storybook: not sent".into();
-            return true;
+            return Ok(true);
         }
         match &*self.source {
-            Source::Live { allow_send: false, .. } => crate::status_toast::fail(self, opencode_i18n::t!("rune.send.nothingSent"), opencode_i18n::t!("rune.jobs.readOnly")),
+            Source::Live { allow_send: false, .. } => Err(Unsent::ReadOnly),
             Source::Live { writes: Some(tx), .. } => {
                 // What a write asks the server for, the window has shown already: the server's
                 // other windows draw it too.
                 let sent = tx.send(w).is_ok();
                 crate::windows::peer::touch(self);
-                return sent;
+                Ok(sent)
             }
-            _ => crate::status_toast::fail(self, opencode_i18n::t!("rune.send.disconnected"), opencode_i18n::t!("rune.send.nothingSentSentence")),
+            _ => Err(Unsent::NoWriter),
         }
-        false
     }
+}
+
+/// Why a write could not be handed to a server.
+pub(crate) enum Unsent {
+    /// The build may not send.
+    ReadOnly,
+    /// The window has no writer: no server, or one whose writer isn't attached yet.
+    NoWriter,
 }

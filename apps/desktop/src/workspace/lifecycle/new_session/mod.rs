@@ -193,6 +193,12 @@ impl App {
     /// session opens; the caller adds the prompt. The draft's id, or None when no draft showed.
     fn show_start(&mut self, id: &str, directory: &str, tx: &mut Tx) -> Option<String> {
         let selection = self.selection();
+        // The models the draft's agents were given go with the session
+        // (`new-session/composer-adapter.ts` `choices: model.remembered()`).
+        let from = self.picker_scope();
+        self.composer_ext.pickers.promote_draft(&from, id);
+        crate::pickers::saved::save(self, &from);
+        crate::pickers::saved::save(self, id);
         let mut info = SessionInfo {
             // Provisional until `started` takes the server's create response.
             created: *self.now_ms,
@@ -388,6 +394,10 @@ impl App {
         self.inboxes.remove(session);
         self.running.remove(session);
         let draft = draft.unwrap_or_else(crate::tabs::draft_id);
+        // The draft's agents get their models back.
+        self.composer_ext.pickers.demote_session(session, &draft);
+        crate::pickers::saved::save(self, session);
+        crate::pickers::saved::save(self, &draft);
         self.demote_session(session, &draft, &directory);
         self.forget_history(|_, id| id == session);
         if self.route == Route::here(session.into()) {

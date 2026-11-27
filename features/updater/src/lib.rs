@@ -6,17 +6,24 @@
 //! - **macOS** (`mac.rs`): team builds (`anomaly.opencode-rune`) download and verify a signed
 //!   bundle (code signature, signing team, Gatekeeper) into a private folder under
 //!   `~/Library/Caches/anomaly.opencode-rune/Updates`, and swap it in atomically on Restart to
-//!   update or on quit (`platform.ts:30`). Local dev bundles and bare `cargo` binaries never update.
+//!   update, or on quit when the opt-in "Install updates on quit" setting is on (`opencode#66501`).
+//!   Local dev bundles and bare `cargo` binaries never update.
 //! - **Windows** (`windows.rs`): a per-user install verifies the download (size, SHA-256,
 //!   Authenticode), stages it beside the install folder, and swaps the folders once the app exits
-//!   (`apply.rs`, the app's own executable as the helper) on Restart to update. Plain quit never
-//!   installs (`platform.ts:30`).
+//!   (`apply.rs`, the app's own executable as the helper) on Restart to update, or without
+//!   relaunching on quit when the opt-in "Install updates on quit" setting is on (`opencode#66501`).
 //! - **Linux** (`linux.rs`): AppImage, `.deb` and `.rpm` builds update in-app from the release
 //!   feed (downloading and verifying size and SHA-256 into a private `0700` staging directory,
 //!   then atomically replacing the AppImage or elevating `dpkg`/`apt`/`zypper`/`dnf`/`yum`/`rpm`
 //!   via `pkexec` and relaunching). Snap, Flatpak and distro packages disable the updater.
 //!
-//! All check ten seconds after launch and every ten minutes. The Updater plugin
+//! All follow the one channel this app ships on, `dev` (`https://anoma.ly/release/opencode/desktop-rune/dev.json`),
+//! and check ten seconds after launch and every ten minutes, also while an update is staged so a
+//! newer release replaces it. Only an install that is ours to replace updates itself (macOS: a
+//! writable, non-translocated team bundle; Windows: the setup's `install.json` receipt); any
+//! other copy keeps checking and links to the download. An administrator's `DisableUpdates`
+//! (macOS defaults key; Windows `SOFTWARE\Policies\Anomaly\OpenCode`) and source builds never
+//! check. The Updater plugin
 //! (`plugins/updater`) draws it, as Desktop's updater plugin does: the titlebar's Update pill while
 //! an update is ready, Settings > Updates, the toasts of a check the user asked for, and What's
 //! new. It reaches the service through the `Updater` Luau service, whose state, checks and
@@ -262,6 +269,21 @@ impl Updater {
     }
 }
 
+/// Opt-in preference: install a downloaded update automatically when the app quits
+/// (`packages/gui-plugins/src/updater/{contract,main,platform,section}.ts`, `opencode#66501`).
+/// Defaults to `false`.
+static INSTALL_ON_QUIT_PREF: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Updates whether a downloaded update installs automatically when the app quits.
+pub fn set_install_on_quit(enabled: bool) {
+    INSTALL_ON_QUIT_PREF.store(enabled, std::sync::atomic::Ordering::Release);
+}
+
+/// Whether the opt-in "Install updates on quit" preference is currently enabled.
+pub fn install_on_quit_enabled() -> bool {
+    INSTALL_ON_QUIT_PREF.load(std::sync::atomic::Ordering::Acquire)
+}
+
 /// The install-on-quit hand-off, started by the last window's quit (`UpdaterService::quitting`).
 static QUIT_INSTALL: std::sync::Mutex<Option<std::thread::JoinHandle<()>>> = std::sync::Mutex::new(None);
 
@@ -397,7 +419,7 @@ fn attach_service(s: &mut dyn UpdaterHost) {
             service
         }
         None => {
-            let service = Rc::new(RefCell::new(UpdaterService::start(Box::new(make_platform), build_version(), feed::feed_channel(build_channel()), waker)));
+            let service = Rc::new(RefCell::new(UpdaterService::start(Box::new(make_platform), build_version(), feed::feed_channel(), waker)));
             SHARED.with(|shared| *shared.borrow_mut() = Some(service.clone()));
             service
         }

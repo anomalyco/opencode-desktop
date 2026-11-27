@@ -17,6 +17,22 @@ pub const CONTROL_EVENT: &str = "rpc.experimental.browser.control";
 /// Protocol version spoken by this client (`Browser.Control` `version: 4`).
 pub const PROTOCOL_VERSION: u32 = 4;
 
+/// Capability advertised in `attached.capabilities` when binary multiplexed WebSocket streaming is enabled
+/// (`packages/plugin-browser/src/tunnel-host.ts:7`).
+pub const STREAM_CAPABILITY: &str = "tunnel.ws.v1";
+
+/// Fixed experimental WebSocket upgrade path (`packages/plugin-browser/src/tunnel-host.ts:8`).
+pub const BROWSER_TUNNEL_PATH: &str = "/api/experimental/browser/tunnel";
+
+/// Binary stream protocol version (`packages/plugin-browser/src/stream-wire.ts:3`).
+pub const STREAM_PROTOCOL_VERSION: u8 = 1;
+
+/// WebSocket close code when the browser attachment is closed normally (`tunnel-host.ts:9`).
+pub const CLOSE_ATTACHMENT_CLOSED: u16 = 4001;
+
+/// WebSocket close code when another desktop window replaced this attachment (`tunnel-host.ts:10`).
+pub const CLOSE_ATTACHMENT_REPLACED: u16 = 4002;
+
 /// Maximum combined bytes for upload/download/capture transfers (`Browser.MAX_FILE_BYTES`, 5 MiB).
 pub const MAX_FILE_BYTES: usize = 5 * 1024 * 1024;
 
@@ -313,7 +329,7 @@ impl Outcome {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ControlFrame {
     Foreign,
-    Attached,
+    Attached { capabilities: Vec<String> },
     Command { request_id: String },
     Cancel { request_id: String },
     Incompatible,
@@ -329,7 +345,17 @@ pub fn decode_control(connection_id: &str, data: &Value) -> ControlFrame {
     match kind {
         Some("attached") => {
             if data.get("version").and_then(Value::as_u64) == Some(u64::from(PROTOCOL_VERSION)) {
-                ControlFrame::Attached
+                let capabilities = data
+                    .get("capabilities")
+                    .and_then(Value::as_array)
+                    .map(|arr| {
+                        arr.iter()
+                            .filter_map(Value::as_str)
+                            .map(str::to_owned)
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                ControlFrame::Attached { capabilities }
             } else {
                 ControlFrame::Incompatible
             }
@@ -374,6 +400,63 @@ impl TunnelTarget {
 pub struct TunnelRead {
     pub data: Vec<u8>,
     pub eof: bool,
+}
+
+/// Short-lived single-use upgrade ticket returned by `experimental.browser/tunnel.ticket`
+/// (`packages/plugin-browser/src/rpc.ts` `TunnelTicket`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TunnelTicket {
+    pub ticket: String,
+    pub expires_in: u64,
+    pub protocol: u8,
+    pub path: String,
+}
+
+/// Explicit non-downgrading failure kind when upgrading or maintaining a binary stream tunnel
+/// (`packages/gui-plugins/src/browser/tunnel-client.ts:18`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TunnelUpgradeFailureKind {
+    Auth,
+    Tls,
+    Blocked,
+    Protocol,
+    Ticket,
+    Transport,
+}
+
+/// Explicit non-downgrading failure raised when a server advertises `tunnel.ws.v1` and the
+/// ticket or WebSocket upgrade fails (`tunnel-client.ts:24-34`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TunnelUpgradeError {
+    pub kind: TunnelUpgradeFailureKind,
+    pub message: String,
+    pub status_code: Option<u16>,
+}
+
+impl TunnelUpgradeError {
+    pub fn new(kind: TunnelUpgradeFailureKind, message: impl Into<String>) -> Self {
+        Self { kind, message: message.into(), status_code: None }
+    }
+
+    pub fn with_status(kind: TunnelUpgradeFailureKind, message: impl Into<String>, status: u16) -> Self {
+        Self { kind, message: message.into(), status_code: Some(status) }
+    }
+}
+
+impl std::fmt::Display for TunnelUpgradeError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.message)
+    }
+}
+
+impl std::error::Error for TunnelUpgradeError {}
+
+/// Terminal closure details of one multiplexed binary WebSocket (`stream-mux.ts:43-47`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct MuxCloseInfo {
+    pub code: u16,
+    pub reason: String,
+    pub replaced: bool,
 }
 
 /// Terminal outcome of one held `experimental.browser/attach` call (`pane-machine.ts:62`).

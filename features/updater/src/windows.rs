@@ -25,6 +25,12 @@
 //! executable into the updates folder (a copy across volumes) and starts it as the helper (`--apply-update`, see
 //! `apply.rs`), which waits for this process to exit, swaps the folders and starts the new
 //! version with the same arguments. Windows never installs on plain quit (`platform.ts:30`).
+//!
+//! Only the setup's install replaces itself: its root carries the setup's receipt
+//! (`install.json`, `win_install::write_receipt`), which the helper's swap carries into each new
+//! version. Any other copy (a zip run in place, a folder this user can't write) keeps checking
+//! and offers the setup's download instead. `DisableUpdates` under
+//! `SOFTWARE\Policies\Anomaly\OpenCode` (machine or user) turns the updater off.
 
 pub(super) mod bundle;
 pub(super) mod receipt;
@@ -74,6 +80,9 @@ pub struct Windows {
     version: String,
     root: PathBuf,
     trust: Trust,
+    /// The setup's receipt (`install.json`) names this install, so it replaces itself; any other
+    /// copy only links to the setup.
+    owned: bool,
     staged: Mutex<Option<Staged>>,
     /// The arguments to start the new version with.
     args: Vec<std::ffi::OsString>,
@@ -93,12 +102,50 @@ pub fn platform(exe: &Path, version: &str, build_channel: &str, updates: PathBuf
         log(&format!("updater: off: refusing insecure feed URL {service}"));
         return None;
     }
+    if updates_disabled_by_policy() {
+        log(&format!(r"updater: off (DisableUpdates is set under {POLICY_KEY})"));
+        return None;
+    }
     let root = exe.parent()?.to_path_buf();
+    let owned = owned(&root, &trust);
     sweep(&root, &updates);
     let _ = receipt::at(&root);
-    let facts = Facts { version: version.to_owned(), channel: feed::feed_channel(build_channel), service, updates };
+    let facts = Facts { version: version.to_owned(), channel: feed::feed_channel(), service, updates };
     let args = rune::tooling::without_relaunch_drops(std::env::args_os().skip(1).collect());
-    Some(Windows { engine: Engine::new(facts), version: version.to_owned(), root, trust, staged: Mutex::new(None), args })
+    Some(Windows { engine: Engine::new(facts), version: version.to_owned(), root, trust, owned, staged: Mutex::new(None), args })
+}
+
+/// `HKEY_LOCAL_MACHINE` (or `HKEY_CURRENT_USER`) `\SOFTWARE\Policies\Anomaly\OpenCode`, value
+/// `DisableUpdates`: an administrator turned updates off, so this install never checks.
+const POLICY_KEY: &str = r"SOFTWARE\Policies\Anomaly\OpenCode";
+
+fn updates_disabled_by_policy() -> bool {
+    [windows_registry::LOCAL_MACHINE, windows_registry::CURRENT_USER]
+        .into_iter()
+        .any(|hive| hive.open(POLICY_KEY).and_then(|key| key.get_u32("DisableUpdates")).is_ok_and(|v| v != 0))
+}
+
+/// Whether this install is the setup's: its receipt names it, or (a setup from before the
+/// receipt) an Apps & features entry of the app does, and then its receipt is written now. A
+/// debug build testing a local feed counts as one.
+fn owned(root: &Path, trust: &Trust) -> bool {
+    if matches!(trust, Trust::Anything) || win_install::has_receipt(root) {
+        return true;
+    }
+    if !win_install::installed_by_setup(root) {
+        log(&format!("updater: {} has no install receipt; updates link to the setup", root.display()));
+        return false;
+    }
+    match win_install::write_receipt(root) {
+        Ok(()) => {
+            log(&format!("updater: wrote the install receipt for {}", root.display()));
+            true
+        }
+        Err(e) => {
+            log(&format!("updater: {e}; updates link to the setup"));
+            false
+        }
+    }
 }
 
 /// Only a build the release's publisher signed reads the release feed. A development build
@@ -131,7 +178,12 @@ impl Platform for Windows {
         {
             return Ok(Some(super::machine::Target::Installed(installed.version)));
         }
-        Ok(self.engine.check()?.map(super::machine::Target::Restart))
+        let Some(version) = self.engine.check()? else { return Ok(None) };
+        // Never overwrite an install that isn't the setup's, or one this user can't replace.
+        if !self.owned || check_replaceable(&self.root).is_err() {
+            return Ok(Some(super::machine::Target::External { version, url: self.download_url() }));
+        }
+        Ok(Some(super::machine::Target::Restart(version)))
     }
 
     fn stage(&self, progress: &dyn Fn(u64, u64)) -> Result<(), String> {
@@ -173,6 +225,7 @@ impl Platform for Windows {
             }
             std::fs::rename(&app, &dest).map_err(|e| format!("could not stage the update: {e}"))?;
             receipt::stage(&dest, &found.version, &found.target.sha256)?;
+            flush(&dest);
             first_start(&dest.join(EXE));
             Ok(Staged { version: found.version, sha256: found.target.sha256, dir: dest })
         })();
@@ -190,13 +243,50 @@ impl Platform for Windows {
         self.hand_off(true)
     }
 
+    /// Opt-in install-on-quit (`packages/gui-plugins/src/updater/platform.ts`, `opencode#66501`).
+    fn installs_on_quit(&self) -> bool {
+        self.owned && super::install_on_quit_enabled()
+    }
+
+    fn install_on_quit(&self) {
+        if let Err(e) = self.hand_off(false) {
+            log(&format!("updater: couldn't install on quit: {e}"));
+        }
+    }
+
     fn take_last_error(&self) -> Option<String> {
         let installed = receipt::at(&self.root).map(|r| r.version);
         receipt::take_apply_failure(&self.engine.facts.updates, &self.version, installed.as_deref())
     }
+
+    fn external(&self) -> bool {
+        true
+    }
+
+    fn external_install(&self, url: &str) -> Result<(), String> {
+        let url = url.trim();
+        if !feed::allowed_update_url(url) || !browser_policy::is_safe_os_external_url(url) {
+            return Err("Refusing unsafe update URL".into());
+        }
+        if harness_log::record("openExternal", &[("url", url)]) {
+            return Ok(());
+        }
+        let system = std::env::var_os("SystemRoot").map_or_else(|| PathBuf::from(r"C:\Windows"), PathBuf::from);
+        match Command::new(system.join("System32").join("rundll32.exe")).arg("url.dll,FileProtocolHandler").arg(url).creation_flags(CREATE_NO_WINDOW).status() {
+            Ok(s) if s.success() => Ok(()),
+            Ok(s) => Err(format!("Could not open the download ({s})")),
+            Err(e) => Err(format!("Could not open the download: {e}")),
+        }
+    }
 }
 
 impl Windows {
+    /// The channel's setup for this PC (`…/opencode/desktop-rune/dev/windows-x64-setup`).
+    fn download_url(&self) -> String {
+        let facts = &self.engine.facts;
+        format!("{}/{}/{}/{}/{}-setup", facts.service.trim_end_matches('/'), super::protocol::APP_NAME, super::protocol::ARTIFACT_NAME, facts.channel, feed::target_name())
+    }
+
     /// Every program and library in `app` must be signed by the release's publisher (or, from a
     /// local feed in a debug build, may be unsigned).
     fn verify(&self, app: &Path) -> Result<(), String> {
@@ -222,12 +312,22 @@ impl Windows {
     /// Starts the staged version's executable as the helper, which swaps the folders once this
     /// process exits.
     fn hand_off(&self, relaunch: bool) -> Result<(), String> {
+        // The marks time each step between the click and a started helper, the wait a person
+        // has before the app even starts to quit (310-665 ms in nine real updates of 25 Nov,
+        // no step named): `--launch-trace` writes them with the process's other marks.
+        rune::marks::mark("update.handoff.start");
         let staged = self.staged.lock().ok().and_then(|s| s.as_ref().map(|s| (s.version.clone(), s.sha256.clone(), s.dir.clone()))).ok_or_else(|| "No staged update ready to install.".to_owned())?;
         let (version, sha256, dir) = staged;
         if receipt::at(&self.root).is_some_and(|r| r.version == version && r.sha256 == sha256) {
             return Ok(());
         }
         self.verify_quick(&dir)?;
+        rune::marks::mark("update.handoff.verified");
+        // The swap replaces the whole folder, so the setup's receipt goes into the next version.
+        if self.root.join(win_install::RECEIPT).is_file() {
+            std::fs::copy(self.root.join(win_install::RECEIPT), dir.join(win_install::RECEIPT)).map_err(|e| format!("could not carry the install receipt: {e}"))?;
+        }
+        rune::marks::mark("update.handoff.receipt");
         let updates = &self.engine.facts.updates;
         let helper = updates.join(format!("opencode-update-helper-{}.exe", std::process::id()));
         // A hard link to the staged executable, not a copy of it: the helper is then the new
@@ -242,6 +342,7 @@ impl Windows {
         std::fs::hard_link(dir.join(EXE), &helper)
             .or_else(|_| std::fs::copy(dir.join(EXE), &helper).map(drop))
             .map_err(|e| format!("could not prepare the update: {e}"))?;
+        rune::marks::mark("update.handoff.linked");
         let mut cmd = Command::new(&helper);
         cmd.arg("--apply-update")
             .arg("--wait")
@@ -268,6 +369,7 @@ impl Windows {
         // Out of any job the app runs in, so the helper outlives it.
         let flags = DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP | CREATE_NO_WINDOW;
         let child = cmd.creation_flags(flags | CREATE_BREAKAWAY_FROM_JOB).spawn().or_else(|_| cmd.creation_flags(flags).spawn()).map_err(|e| format!("could not start the update: {e}"))?;
+        rune::marks::mark("update.handoff.spawned");
         log(&format!("updater: helper {} (pid {}) installs {version} after this process exits{}", helper.display(), child.id(), if relaunch { ", then restarts" } else { "" }));
         Ok(())
     }
@@ -284,6 +386,23 @@ impl Windows {
             _ => Ok(()),
         }
     }
+}
+
+/// Has Windows write every program and library of the staged build to the disk, while the update
+/// still shows as downloading.
+///
+/// Windows doesn't map a file as an image while bytes of it are only in its file cache: the
+/// first run of a build `tar` had just unpacked waited 775 to 1,481 ms for that (the 146 MiB
+/// library, n = 8), against 26 to 29 ms once the files were flushed (the setup does the same,
+/// `apps/installer/src/install.rs` `flush`). Without it the first process to load the staged
+/// library pays the wait: `first_start` below, or the update helper at the click (1.1 to 1.7 s
+/// in six real updates whose staging step didn't run the build).
+fn flush(dir: &Path) {
+    let started = rune::time::Instant::now();
+    let mut files = Vec::new();
+    binaries(dir, &mut files);
+    let flushed = files.iter().filter(|path| std::fs::OpenOptions::new().write(true).open(path).and_then(|file| file.sync_all()).is_ok()).count();
+    log(&format!("updater: {flushed} of {} staged programs and libraries are on the disk after {} us", files.len(), started.elapsed().as_micros()));
 }
 
 /// Runs the staged build once, with `--version`, where nobody waits for it: so Windows has made

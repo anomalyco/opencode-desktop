@@ -185,6 +185,35 @@ static CHECK_DIALOG_ACTIVE: std::sync::atomic::AtomicBool = std::sync::atomic::A
 #[cfg(not(target_arch = "wasm32"))]
 static PENDING_DIALOG_INSTALL: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
+#[cfg(not(target_arch = "wasm32"))]
+thread_local! {
+    static INSTALL_ON_QUIT_STORE_VER: std::cell::Cell<u64> = const { std::cell::Cell::new(u64::MAX) };
+}
+
+/// Syncs `plugin.updater` / `installOnQuit` (`{"enabled": bool}`, default `false`) into
+/// `opencode_feature_updater::set_install_on_quit` whenever the store version changes
+/// (`packages/gui-plugins/src/updater/main.ts:33-68`, `opencode#66501`).
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) fn sync_install_on_quit_pref() {
+    let ver = crate::plugin_host::services::store::store_version("updater", "installOnQuit");
+    let changed = INSTALL_ON_QUIT_STORE_VER.with(|v| {
+        if v.get() == ver {
+            false
+        } else {
+            v.set(ver);
+            true
+        }
+    });
+    if !changed {
+        return;
+    }
+    let enabled = crate::plugin_host::stores::text("updater", "plugin.updater", "installOnQuit")
+        .and_then(|raw| serde_json::from_str::<serde_json::Value>(&raw).ok())
+        .and_then(|v| v.get("enabled")?.as_bool())
+        .unwrap_or(false);
+    opencode_feature_updater::set_install_on_quit(enabled);
+}
+
 /// Starts the update service after the first frame when this build updates itself.
 pub fn start_if_packaged(s: &mut App) {
     #[cfg(not(target_arch = "wasm32"))]
@@ -315,6 +344,7 @@ impl Feature<App> for UpdaterFeature {
     fn register(&self, builder: &mut KernelBuilder<App>) {
         builder.register_slot(&UPDATER);
         builder.schedule(crate::tick::stage::INGEST_LOCAL, "updater.poll", |s, _, tx| {
+            sync_install_on_quit_pref();
             if PENDING_DIALOG_INSTALL.swap(false, std::sync::atomic::Ordering::AcqRel) && !opencode_feature_updater::is_suppressed() {
                 let lang = opencode_i18n::locale().id();
                 let err_title = crate::plugin_host::sources::builtin_message("updater", lang, "dialog.checkFailed.title")
@@ -339,6 +369,9 @@ impl Feature<App> for UpdaterFeature {
             poll_owed(s);
             false
         });
-        builder.add_close("updater.closing", |s| s.kernel.slots.get_mut(&UPDATER).closing());
+        builder.add_close("updater.closing", |s| {
+            sync_install_on_quit_pref();
+            s.kernel.slots.get_mut(&UPDATER).closing();
+        });
     }
 }

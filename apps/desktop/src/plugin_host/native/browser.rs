@@ -258,6 +258,12 @@ fn open(lua: &Lua, a: MultiValue, done: Completer) -> mlua::Result<()> {
             let url = if spec.url.trim().is_empty() { "about:blank" } else { spec.url.as_str() };
             let candidate = browser_pane::with_scheme(url);
             let driver = scope.driver(s);
+            // The person opens a blank tab from the browser's own chrome (the Browser launcher, New
+            // tab): opening the browser here takes it back from another window that holds the
+            // session (`packages/gui-plugins/src/browser/model.ts` `open`).
+            if driver.is_none() && url == "about:blank" && let Some(sid) = &sid {
+                crate::surfaces::browser::rpc::person_came(s, sid);
+            }
             // Third-party plugins may never mint preview/artifact grants (`notes/review-rd281.md` §9).
             let id = if !scope.is_builtin_browser
                 && !matches!(
@@ -593,6 +599,7 @@ pub fn version(app: &App) -> u64 {
     for t in app.workspace_panes.browser.host.tabs() {
         if let Some(d) = &t.device { (&d.preset, d.width, d.height, d.scale.map(f32::to_bits)).hash(&mut h); }
         (t.id, &t.url, &t.title, t.loading, t.can_go_back, t.can_go_forward, t.zoom.to_bits(), t.inspecting, &t.load_error, &t.favicon, &t.refusal, t.rejected).hash(&mut h);
+        (t.cursor as u8).hash(&mut h);
         t.preview.map(|p| p as u8).hash(&mut h);
         t.prompts.hash_state(&mut h);
         t.find.hash_state(&mut h);

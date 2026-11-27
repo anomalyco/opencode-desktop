@@ -7,23 +7,16 @@
 use std::path::Path;
 
 use opencode_kit::model::{self, Attachment};
-use rune::{El, FileDialogOptions, Icon, SurfaceFit, Tx, el, icon, row};
+use rune::{El, FileDialogOptions, SurfaceFit, Tx, el, icon, row};
 
 use crate::TimelineHost;
 use crate::composer::attachments::{card, type_label};
-use crate::images::{Fetched, Strip, opens};
+use crate::images::{Fetched, OUTLINE_PHOTO, Strip, opens};
 use crate::palette::Pal;
 use crate::style::BUBBLE_MAX;
 
 /// All image states share one footprint (OpenCode 26f2522e60, `message-part.css`, `message-content.tsx`).
 const THUMB: (f32, f32) = (132.0, 88.0);
-
-/// `outline-photo` (`icons/catalog.ts`), which a failed image shows.
-static OUTLINE_PHOTO: Icon = Icon {
-    name: "outline-photo",
-    view: 14.0,
-    body: r#"<path d="M11.6666 11.6666L8.16663 8.16663L6.99997 9.33332L4.66663 6.99998L2.1583 9.50832M2.04163 2.04165H11.9583V11.9583H2.04163V2.04165ZM9.33332 5.24998C9.33332 5.81377 8.87629 6.27081 8.31244 6.27081C7.74866 6.27081 7.29163 5.81377 7.29163 5.24998C7.29163 4.68619 7.74866 4.22915 8.31244 4.22915C8.87629 4.22915 9.33332 4.68619 9.33332 5.24998Z" stroke="currentColor" stroke-linecap="square"/>"#,
-};
 
 /// Whether prompt `id` has anything [`view`] draws.
 pub fn any(id: &str) -> bool {
@@ -54,7 +47,7 @@ fn thumb<S: TimelineHost>(s: &S, p: &Pal, message: &str, files: &std::sync::Arc<
     let f = &files[i];
     let store = s.media_store();
     let key = format!("file-{i}");
-    let image = store.image(f).filter(|img| img.error().is_none());
+    let image = store.image_sized(f, 264.0).filter(|img| img.error().is_none());
     let (w, h) = THUMB;
     let ring = el().key("ring").absolute(0.0, 0.0).size(w, h).radius(6.0).box_shadow(Pal::ring_in(p.border)).inert();
     let tile = el().key(key.clone()).label(f.name.clone()).size(w, h).radius(6.0).fill(p.layer2);
@@ -69,7 +62,6 @@ fn thumb<S: TimelineHost>(s: &S, p: &Pal, message: &str, files: &std::sync::Arc<
             let retry = f.clone();
             tile.role("button")
                 .label(opencode_i18n::t!("ui.fileMedia.state.error", kind = opencode_i18n::t!("ui.fileMedia.kind.image")))
-                .cursor(rune::Cursor::Pointer)
                 .center()
                 .on_press_tx(move |s: &mut S, tx: &mut Tx| {
                     tx.instant();
@@ -91,7 +83,6 @@ fn file_card<S: TimelineHost>(p: &Pal, i: usize, f: &Attachment) -> El {
         .key(format!("file-{i}"))
         .role("button")
         .focusable(true)
-        .cursor(rune::Cursor::Pointer)
         .help(f.name.clone())
         .on_press_tx(move |s: &mut S, tx: &mut Tx| open(s, &file, tx))
 }

@@ -12,7 +12,7 @@ use crate::host::PanelsHost;
 use crate::state::{
     CloseTabGuardEffect, CloseTabGuardEvent, EdgeFlightEffect, EdgeFlightEvent, ResolvedEntry, ResolvedRegion,
     SideMenu, adopt_child_strip, all_panels, bottom_open, close_side_tab, dismiss_side_new_tab, open_side_new_tab,
-    reopen_closed_side_tab, resolve_side_region, select_side_tab, shown_new_tab, side_open, sync_empty_side,
+    reopen_closed_side_tab, resolve_side_region, routed_unlisted, select_side_tab, shown_new_tab, side_open, sync_empty_side,
     toggle_bottom_region, toggle_side_region,
 };
 use crate::tabs::{SessionTabs, panel_key};
@@ -132,7 +132,12 @@ pub fn poll_panels(host: &mut dyn PanelsHost, tx: &mut Tx) -> bool {
                     changed |= rekey_luau(&mut st.tab_state.tabs, prov.plugin);
                 }
             }
-            if panels.iter().any(|p| p.transient)
+            // A plugin lists its tabs from what it kept for the session, and that is kept under
+            // the session's folder: while the server hasn't listed the routed session (a
+            // subagent's page at launch) its list is empty, and a tab it doesn't name isn't a
+            // closed one. The check runs again when the session is listed (`tabs_check_stamp`).
+            if !routed_unlisted(host)
+                && panels.iter().any(|p| p.transient)
                 && let Some(reg) = resolve_side_region(host)
             {
                 let listed: HashSet<&str> = reg.entries.iter().map(|e| e.key.as_str()).collect();

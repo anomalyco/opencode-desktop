@@ -31,7 +31,7 @@ pub(crate) use crate::session::{
     events,
     events::{incoming, stream::pace as stream_pace},
     inbox::{
-        model as inbox_model, order as inbox_order, queue, send, send_failed, stop, submit,
+        model as inbox_model, moves as archive_moves, order as inbox_order, queue, send, send_failed, stop, submit,
     },
     menu as session_menu,
     menu::view as session_menu_view,

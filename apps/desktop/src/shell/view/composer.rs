@@ -13,9 +13,12 @@ pub(super) mod touch;
 // Composer and status bar
 
 pub(super) fn composer_dock(s: &App, p: &Pal) -> El {
-    let session_ver = match &*s.route {
-        Route::Session { id, .. } => Some(crate::plugin_host::services::session_version(s, id)),
-        _ => None,
+    let (session_ver, is_child) = match &*s.route {
+        Route::Session { id, .. } => (
+            Some(crate::plugin_host::services::session_version(s, id)),
+            s.session(id).is_some_and(|i| i.parent.is_some()),
+        ),
+        _ => (None, false),
     };
     let touch = session_view::style::touch_controls();
     let touch_server_ver = touch.then(|| (crate::servers::runtime::version(), crate::servers::health::version()));
@@ -29,22 +32,36 @@ pub(super) fn composer_dock(s: &App, p: &Pal) -> El {
         crate::keymap::overrides::version(),
         crate::speech::listening(s),
         crate::plugin_host::surfaces_version(s),
-        session_ver,
+        (session_ver, is_child),
         rune::Tracked::untracked(&s.composer),
     );
     rune::region_with("composer-dock", inputs, || {
+        // Child/subagent sessions hide the prompt composer, queue, and free-limit panel, showing
+        // only any active question/permission dock (mb-2) above the quiet `SubagentBar`
+        // (`packages/app/src/session/composer/session-composer-region.tsx:41,68-111`).
+        if let Route::Session { id, .. } = &*s.route
+            && s.session(id).is_some_and(|i| i.parent.is_some())
+        {
+            let dock = session_view::composer::request_dock(s, p).map(|el| el.mb(8.0));
+            let status = crate::subagents::reply::status_line(s, p, id);
+            return col()
+                .key("composer-dock")
+                .w_full()
+                .center()
+                .px(crate::view::DOCK_SIDE)
+                .pb(crate::view::DOCK_SIDE)
+                .children(dock)
+                .children(status);
+        }
         // A session whose folder is gone shows its card in the composer's place, and nothing
         // over it (`region.tsx`: `above` hides while `missing()`).
         let missing = crate::location_missing::replaces_composer(s);
-        let (queue, status) = match &*s.route {
-            Route::Session { id, .. } => (
-                (!missing).then(|| col().key("queue-room").w_full().items_center().child(crate::queue::panel(s, p, id, s.busy(id)))),
-                crate::subagents::reply::status_line(s, p, id),
-            ),
-            _ => (None, None),
+        let queue = match &*s.route {
+            Route::Session { id, .. } => {
+                (!missing).then(|| col().key("queue-room").w_full().items_center().child(crate::queue::panel(s, p, id, s.busy(id))))
+            }
+            _ => None,
         };
-        // A subagent's page keeps its status line under the composer, in the dock's bottom inset.
-        let pb = if status.is_some() { 0.0 } else { crate::view::DOCK_SIDE };
         let body = if missing {
             crate::location_missing::panel(s, p)
         } else if crate::free_limit::replaces_composer(s) {
@@ -57,10 +74,9 @@ pub(super) fn composer_dock(s: &App, p: &Pal) -> El {
             .w_full()
             .center()
             .px(crate::view::DOCK_SIDE)
-            .pb(pb)
+            .pb(crate::view::DOCK_SIDE)
             .children(queue)
             .child(body)
-            .children(status)
     })
 }
 
@@ -96,6 +112,12 @@ impl session_view::dock::DockHost for App {
     }
     fn dock_new_question_ui(&self) -> bool {
         self.settings.new_question_ui
+    }
+    fn dock_question_submit(&self) -> session_view::dock::question::SubmitKey {
+        match self.settings.question_submit {
+            crate::settings::QuestionSubmitKey::Enter => session_view::dock::question::SubmitKey::Enter,
+            crate::settings::QuestionSubmitKey::ModEnter => session_view::dock::question::SubmitKey::ModEnter,
+        }
     }
     fn dock_reply_permission(&mut self, id: &str, decision: &str) {
         self.reply_permission(id, decision);
@@ -136,6 +158,12 @@ impl ComposerHost for App {
     }
     fn composer_send(&mut self, tx: &mut Tx) {
         self.send(tx);
+    }
+    fn composer_send_in_place(&mut self, tx: &mut Tx) {
+        self.submit_mode(crate::send::SubmitMode::InPlace, tx);
+    }
+    fn composer_shift_held(&self) -> bool {
+        *self.kernel.slots.get(&crate::attachments::SHIFT_HELD)
     }
     fn composer_stop(&mut self, tx: &mut Tx) {
         crate::stop::press(self, tx);
@@ -303,6 +331,12 @@ impl ComposerHost for App {
         if crate::keymap::Bind::SubmitFirst.matches_tx(ev, tx) {
             if !tx.key_repeat() {
                 self.submit_mode(crate::send::SubmitMode::QueueFirst, tx);
+            }
+            return true;
+        }
+        if crate::keymap::Bind::SubmitInPlace.matches_tx(ev, tx) {
+            if !tx.key_repeat() {
+                self.submit_mode(crate::send::SubmitMode::InPlace, tx);
             }
             return true;
         }

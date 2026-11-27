@@ -39,7 +39,8 @@ use crate::style::{HOVER_FADE, TOOL_CODE, UI, arrow, readable};
 
 pub use console::{console_open, follow as shell_follow};
 pub use details::overlay as details_overlay;
-pub use files::{group as file_group, is_file_tool, shut_group};
+pub use files::{draws_card as file_draws_card, group as file_group, is_file_tool, shut_group};
+pub use execute::script_output_text;
 pub use lists::{read_group, skill_group, skill_name};
 pub use plain::strip_ansi;
 
@@ -158,6 +159,12 @@ pub fn sub_key(id: &str, part: impl std::fmt::Display) -> String {
 /// Whether call `c` shows a body below its 28 pt trigger line (so its visual foot sits at its
 /// box's bottom rather than 6 pt inside the trigger).
 pub fn shows_body<S: TimelineHost>(s: &S, cx: Ctx, c: &Call) -> bool {
+    shows_body_with(s, cx, c, false)
+}
+
+/// Like [`shows_body`], with `after_changes` indicating whether a flat `execute` call's Output
+/// row moved after its script file changes (`opencode#66509`).
+pub fn shows_body_with<S: TimelineHost>(s: &S, cx: Ctx, c: &Call, after_changes: bool) -> bool {
     let cx = if opencode_kit::model::shell_message(c.metadata) { Ctx { live: true, ..cx } } else { cx };
     let stopped_shell = matches!(c.name, "shell" | "bash") && crate::activity::rules::stopped(c.status, c.metadata);
     if *c.status == ToolStatus::Error && c.name != "execute" && !stopped_shell {
@@ -173,10 +180,13 @@ pub fn shows_body<S: TimelineHost>(s: &S, cx: Ctx, c: &Call) -> bool {
         "execute" => {
             let calls = execute::calls(c.metadata);
             let err = execute::error(c);
-            let out = if err.is_some() { "" } else { output(c).trim() };
-            Display::of(s, cx, c, !calls.is_empty() || err.is_some() || !out.is_empty()).open()
+            let out = execute::script_output_text(c);
+            let flat = s.full_codemode(cx.session);
+            let output_here = !out.is_empty() && !(flat && after_changes);
+            let opens = !calls.is_empty() || err.is_some() || output_here;
+            if flat { opens } else { Display::of(s, cx, c, opens).open() }
         }
-        "edit" | "multiedit" | "write" | "patch" | "apply_patch" => true,
+        "edit" | "multiedit" | "write" | "patch" | "apply_patch" => files::draws_card(c),
         "websearch" => {
             let out = output(c);
             let opens = !busy(c.status, cx.live) && (out.len() > 8192 || !plain::urls(out).is_empty());
@@ -190,6 +200,12 @@ pub fn shows_body<S: TimelineHost>(s: &S, cx: Ctx, c: &Call) -> bool {
 /// when what it shows changes. A shimmering title isn't cached, so its sweep keeps the run's
 /// rhythm.
 pub fn view<S: TimelineHost>(s: &S, p: &Pal, cx: Ctx, c: &Call) -> El {
+    view_with(s, p, cx, c, false)
+}
+
+/// Like [`view`]; `after_changes` moves a flat `execute` script's Output row after its file
+/// changes (`opencode#66509`).
+pub fn view_with<S: TimelineHost>(s: &S, p: &Pal, cx: Ctx, c: &Call, after_changes: bool) -> El {
     // A shell command run from the composer runs whether or not its session does: its title
     // shimmers while the command runs (`SessionShellMessage` passes its own status).
     let cx = if opencode_kit::model::shell_message(c.metadata) { Ctx { live: true, ..cx } } else { cx };
@@ -203,7 +219,7 @@ pub fn view<S: TimelineHost>(s: &S, p: &Pal, cx: Ctx, c: &Call) -> El {
         match c.name {
             "shell" if opencode_kit::model::shell_message(c.metadata) => shell_message(s, p, cx, c),
             "shell" | "bash" => console::shell(s, p, cx, c),
-            "execute" => execute::execute(s, p, cx, c),
+            "execute" => execute::execute(s, p, cx, c, after_changes),
             "edit" | "multiedit" | "write" | "patch" | "apply_patch" => files::group(s, p, cx, &[*c]),
             "read" => lists::read(s, p, cx, c),
             "list" | "glob" | "grep" => lists::search(s, p, cx, c),
@@ -213,7 +229,7 @@ pub fn view<S: TimelineHost>(s: &S, p: &Pal, cx: Ctx, c: &Call) -> El {
             _ => lists::generic(s, p, cx, c),
         }
     };
-    cached(s, p, cx, &[*c], build)
+    cached_with(s, p, cx, &[*c], after_changes, build)
 }
 
 /// A shell command run from the composer (`SessionShellMessage`): its shell call, and under it
@@ -245,12 +261,17 @@ fn shell_message<S: TimelineHost>(s: &S, p: &Pal, cx: Ctx, c: &Call) -> El {
 /// `build` for `calls`, kept until one of them, the parts of them held open, their copy
 /// buttons, the host's buttons beside them or the look changes.
 pub fn cached<S: TimelineHost>(s: &S, p: &Pal, cx: Ctx, calls: &[Call], build: impl FnOnce() -> El) -> El {
+    cached_with(s, p, cx, calls, false, build)
+}
+
+fn cached_with<S: TimelineHost>(s: &S, p: &Pal, cx: Ctx, calls: &[Call], after_changes: bool, build: impl FnOnce() -> El) -> El {
     let Some(first) = calls.first() else { return col() };
     if !s.reduced_motion() && calls.iter().any(|c| busy(c.status, cx.live)) {
         return build();
     }
     let mut h = std::hash::DefaultHasher::new();
     (cx.session, cx.live, cx.sticky.to_bits(), crate::scroller::device_scale().to_bits(), p.theme, p.generation, p.dark, opencode_i18n::locale().id(), crate::style::hover_none(), s.reduced_motion(), s.session_directory(cx.session), s.timeline_detail()).hash(&mut h);
+    (s.full_codemode(cx.session), after_changes).hash(&mut h);
     let copied = crate::copied::current(s);
     for c in calls {
         (c.id, c.name, std::mem::discriminant(c.status), s.tool_row_action_version(c.id)).hash(&mut h);
@@ -371,7 +392,6 @@ pub fn trigger<S: TimelineHost>(s: &S, p: &Pal, cx: Ctx, c: &Call, d: Display, t
             .label(t.title.into_owned())
             .expanded(d.open())
             .radius(4.0)
-            .cursor(rune::Cursor::Pointer)
             .focus_default(p)
             .hover_group_focus()
             // The arrow fades in under the pointer (`collapsible.css:26-29`).

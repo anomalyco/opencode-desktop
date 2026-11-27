@@ -81,6 +81,14 @@ fn release_notes_enabled() -> bool {
         .unwrap_or(true)
 }
 
+#[cfg(not(target_arch = "wasm32"))]
+fn install_on_quit_enabled() -> bool {
+    crate::plugin_host::stores::text("updater", "plugin.updater", "installOnQuit")
+        .and_then(|raw| serde_json::from_str::<serde_json::Value>(&raw).ok())
+        .and_then(|v| v.get("enabled")?.as_bool())
+        .unwrap_or(false)
+}
+
 /// Why updates are off: the isolated-run text when the updater said so (`ISOLATED`), else the
 /// package-manager text `action.ts` shows.
 fn disabled_description(error: Option<&str>) -> String {
@@ -146,10 +154,38 @@ fn view(app: &App, p: &Pal) -> El {
     let check_row = crate::settings::setting(p, "settings-check-updates", &check_title, &check_desc, check_control);
     let lit_notes = crate::settings::search::reveal_of(app, "settings-release-notes");
     let lit_check = crate::settings::search::reveal_of(app, "settings-check-updates");
-    let rows = vec![
-        crate::settings::pages::revealed(p, lit_notes, 20.0, notes_row),
-        crate::settings::pages::revealed(p, lit_check, 20.0, check_row),
-    ];
+    let mut rows = vec![crate::settings::pages::revealed(p, lit_notes, 20.0, notes_row)];
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let quit_disabled = phase.is_none() || phase == Some("disabled");
+        let quit_on = !quit_disabled && install_on_quit_enabled();
+        let quit_title = msg("installOnQuit.title", "Install updates on quit");
+        let quit_desc = msg(
+            "installOnQuit.description",
+            "Automatically install downloaded updates when you quit OpenCode",
+        );
+        let mut quit_sw = rune_kit::Switch::new(quit_on)
+            .web()
+            .disabled(quit_disabled)
+            .build(opencode_ui::palette::kit(p))
+            .key("install-on-quit-switch")
+            .padding(4.0)
+            .labelled_by("title")
+            .described_by("about");
+        if !quit_disabled {
+            quit_sw = quit_sw.on_press(move |s: &mut App| {
+                let next = !quit_on;
+                crate::plugin_host::stores::set("plugin.updater", "installOnQuit", format!("{{\"enabled\":{next}}}"));
+                crate::plugin_host::services::store::store_changed("updater", "installOnQuit");
+                opencode_feature_updater::set_install_on_quit(next);
+                rune::Tracked::touch(&s.plugins);
+            });
+        }
+        let quit_row = crate::settings::setting(p, "settings-install-on-quit", &quit_title, &quit_desc, quit_sw);
+        let lit_quit = crate::settings::search::reveal_of(app, "settings-install-on-quit");
+        rows.push(crate::settings::pages::revealed(p, lit_quit, 20.0, quit_row));
+    }
+    rows.push(crate::settings::pages::revealed(p, lit_check, 20.0, check_row));
     let card = crate::settings::list(p, "settings-updates", rows);
     rune::col()
         .key("plugin-page-updater.updates")
