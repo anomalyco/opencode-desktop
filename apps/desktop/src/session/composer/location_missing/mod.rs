@@ -153,9 +153,24 @@ pub(crate) fn restore(s: &mut App) {
     }
 }
 
+/// Whether the window is checked out on the page's server, the only one that can say whether the
+/// page's folder exists. A turn runs there except while another server's events and replies are
+/// taken (`servers::runtime::with_server`), when `s.source` is that other server.
+fn on_page_server(s: &App) -> bool {
+    folder(s).is_some_and(|(_, server, _)| server == crate::servers::runtime::active(s).as_str())
+}
+
 /// The stream came back (`Incoming::Reconnected`): the folder is asked about again, the card
 /// staying meanwhile. Told as the stream dropping and returning, which one poll may miss.
+///
+/// Every listed server's stream reports back here, each while the window is checked out on it.
+/// Only the page's own server is asked: another one would answer about its own disk (a remote
+/// server has no such folder of this computer), and its `LocationNotFoundError` would show the
+/// card over a folder that is there and be kept for the next launch.
 pub(crate) fn reconnected(s: &mut App, tx: &mut Tx) {
+    if !on_page_server(s) {
+        return;
+    }
     let _ = retarget(s, Some(false));
     let effects = retarget(s, None);
     run_sync(s, effects, tx);
