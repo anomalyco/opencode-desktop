@@ -5,7 +5,7 @@
   "upstream_head": "93e3b623db26a3984263c4fe2fed276624851325",
   "upstream_pre_window_base": "3751be8138ebcf33343eb3f3d011b32fc814103c",
   "rune_desktop_repo": "anomalyco/opencode-rune",
-  "rune_desktop_head": "5df274b5d1",
+  "rune_desktop_head": "5b4bfe9c43",
   "post_1114_commit_count": 820,
   "post_1114_in_ledger": 274,
   "post_1114_skipped": 546,
@@ -20,11 +20,11 @@
   "pre_1114_carryover_rows": 15,
   "total_ledger_rows": 295,
   "status_counts": {
-    "have it": 253,
+    "have it": 254,
     "not applicable": 39,
     "differs on purpose": 1,
     "partly": 1,
-    "missing": 1
+    "missing": 0
   },
   "rows": [
     {
@@ -7431,14 +7431,18 @@
       ],
       "summary": "When counting a script's steps (full_codemode), groups unrecognized tools into one trailing 'tool' entry in activity headers instead of listing raw tool names.",
       "size": "XS",
-      "status": "missing",
-      "status_evidence": "Open PR #1435 (head d818649554, CI running): adds ui.timeline.activity.otherTool and ui.tool.other to en.json and collapses unrecognized tools into one trailing 'tool' in activity_with when script_steps is true.",
+      "status": "have it",
+      "status_evidence": "Merged in #1435 (dev 5b4bfe9c43, CI run 46044004770 green): adds ui.timeline.activity.otherTool and ui.tool.other to en.json and collapses unrecognized tools into one trailing 'tool' in activity_with when script_steps is true. Post-merge bulk headless verification queued.",
       "pr_refs": [
         1435
       ],
       "depends_on": "UP-258",
       "risks": "none",
-      "workstream": "UPSTREAM"
+      "workstream": "UPSTREAM",
+      "rune_files": [
+        "crates/opencode-i18n/locales/official/en.json",
+        "crates/session-view/src/activity/label.rs"
+      ]
     },
     {
       "id": "UP-274",
