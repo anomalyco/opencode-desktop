@@ -243,9 +243,9 @@ return plugin.defineWindow(function(ctx)
             if effect.type == "select" then
                 editor:SelectAll()
             elseif effect.type == "select-completion" then
-                local tab = editing()
-                if tab and type(bAny.SetAddressSelection) == "function" then
-                    local bar = address.view(state, tab.Id, epoch(tab), visits())
+                local editId, editEp = editingEpoch()
+                if editId and editEp and type(bAny.SetAddressSelection) == "function" then
+                    local bar = address.view(state, editId, editEp, visits())
                     if bar.completion ~= "" then
                         syncingEditor = true
                         bAny:SetAddressSelection(#bar.field, #bar.field - #bar.completion)
@@ -280,12 +280,25 @@ return plugin.defineWindow(function(ctx)
                     keeper.forget(effect.url)
                 end
             elseif effect.type == "navigate" then
-                local tab = Browser:Get(effect.tab)
-                if tab then
-                    if effect.typed then
-                        typedNavs[effect.tab] = effect.url
+                if effect.tab == address.NEW_TAB_ID then
+                    local targetSid = newTabTarget.sessionId
+                    local targetPane = newTabTarget.pane
+                    local navUrl = effect.url
+                    local wasTyped = effect.typed
+                    task.spawn(function()
+                        local opened = Browser:OpenAsync({ url = navUrl, sessionId = targetSid, pane = targetPane })
+                        if opened and wasTyped then
+                            typedNavs[opened.Id] = navUrl
+                        end
+                    end)
+                else
+                    local tab = Browser:Get(effect.tab)
+                    if tab then
+                        if effect.typed then
+                            typedNavs[effect.tab] = effect.url
+                        end
+                        tab:Navigate(effect.url)
                     end
-                    tab:Navigate(effect.url)
                 end
             end
         end
@@ -294,14 +307,33 @@ return plugin.defineWindow(function(ctx)
     dispatch = function(event: address.Event)
         local nextState, effects = address.step(state, event)
         state = nextState
-        local tab = editing()
-        if tab then
-            local bar = address.view(state, tab.Id, epoch(tab), visits())
+        local editId, editEp = editingEpoch()
+        if editId and editEp then
+            local bar = address.view(state, editId, editEp, visits())
             if editor:Text() ~= bar.field then
                 setEditorText(bar.field)
             else
                 lastEditorField = bar.field
             end
+        end
+        run(effects)
+        refresh()
+    end
+
+    -- Puts the side panel New tab's address bar into editing mode.
+    local function editNewTab(sid: string?, pane: string?)
+        newTabTarget = { sessionId = sid, pane = pane }
+        Browser:Prepare()
+        local already = state.edit.status == "editing" and state.edit.tab == address.NEW_TAB_ID
+        local nextState, effects = address.step(state, { type = "focused", tab = address.NEW_TAB_ID, epoch = address.BLANK_EPOCH })
+        state = nextState
+        local e = state.edit
+        if not already and e.status == "editing" then
+            setEditorText(e.text)
+        end
+        editor:Focus()
+        if already then
+            editor:SelectAll()
         end
         run(effects)
         refresh()
@@ -362,11 +394,11 @@ return plugin.defineWindow(function(ctx)
             if syncingEditor or type(sel) ~= "table" or sel.focused ~= true then
                 return
             end
-            local tab = editing()
-            if not tab then
+            local editId, editEp = editingEpoch()
+            if not editId or not editEp then
                 return
             end
-            local bar = address.view(state, tab.Id, epoch(tab), visits())
+            local bar = address.view(state, editId, editEp, visits())
             if not bar.completing then
                 return
             end
@@ -386,15 +418,15 @@ return plugin.defineWindow(function(ctx)
         end)
     end
     editor.Submitted:Connect(function()
-        local tab = editing()
-        if tab then
-            dispatch({ type = "submitted", tab = tab.Id, epoch = epoch(tab), visits = visits() })
+        local editId, editEp = editingEpoch()
+        if editId and editEp then
+            dispatch({ type = "submitted", tab = editId, epoch = editEp, visits = visits() })
         end
     end)
     editor.KeyPressed:Connect(function(key: string)
-        local tab = editing()
-        if tab then
-            dispatch({ type = "key", key = key, epoch = epoch(tab), visits = visits() })
+        local editId, editEp = editingEpoch()
+        if editId and editEp then
+            dispatch({ type = "key", key = key, epoch = editEp, visits = visits() })
         end
     end)
 
@@ -581,8 +613,11 @@ return plugin.defineWindow(function(ctx)
         end
         local prev = epochs[id]
         local prevUrl = if prev then prev.url else ""
-        epoch(tab)
+        local curEpoch = epoch(tab)
         local url = pageUrl(tab)
+        if state.edit.status == "editing" and state.edit.tab == id and not state.edit.typed then
+            dispatch({ type = "page.followed", tab = id, epoch = curEpoch })
+        end
         local navigated = prev ~= nil and url ~= prevUrl
         syncRefusal(tab, navigated)
         if navigated and findStates[id] ~= nil and findStates[id].status ~= "closed" then
@@ -1424,10 +1459,6 @@ return plugin.defineWindow(function(ctx)
         tab:Close()
         return true
     end, "tab.close")
-    scoped("newTab", "mod+t", true, I18n:T("command.newTab"), function()
-        openNew(nil, "address")
-        return true
-    end)
     scoped("inspect", "mod+shift+c", false, I18n:T("command.inspect"), function(tab)
         if pageUrl(tab) == "" then
             return false
@@ -1436,22 +1467,63 @@ return plugin.defineWindow(function(ctx)
         return true
     end)
 
-    -- The + menu's and New tab's Browser row, between Review and Terminal (order 15).
-    ctx:AddMenuItem({
-        menu = "session.panel",
-        id = "open",
-        title = I18n:T("tab.title"),
-        icon = "globe",
-        keybind = "browser.open",
-        order = 15,
-        when = function(sid: string): boolean
-            return Sessions:Get(sid) ~= nil and Browser:Available()
+    -- Side panel New tab: browser address bar across the top and recent pages below launchers
+    -- (`packages/gui-plugins/src/browser/renderer.tsx:409-447`, opencode#66818).
+    local function openFromNewTab(sid: string?, pane: string?, url: string)
+        newTabTarget = { sessionId = sid, pane = pane }
+        dispatch({ type = "navigated", tab = address.NEW_TAB_ID, url = url, epoch = address.BLANK_EPOCH })
+    end
+
+    newTabBarHandle = ctx:AddSlot({
+        id = "new-tab-bar",
+        at = "session.panel.new",
+        render = function(view, props)
+            if not Browser:Available() then
+                return nil
+            end
+            local sid = props.sessionId
+            local pane = props.pane
+            local width = props.width or 480
+            if props.focusToken ~= nil and props.focusToken ~= lastFocusToken then
+                lastFocusToken = props.focusToken
+                task.delay(0, function()
+                    editNewTab(sid, pane)
+                end)
+            end
+            return panel.newTabBar(
+                env,
+                view,
+                width,
+                function()
+                    editNewTab(sid, pane)
+                end,
+                function()
+                    editor:Focus()
+                end,
+                function(url: string)
+                    openFromNewTab(sid, pane, url)
+                end,
+                function(url: string)
+                    dispatch({ type = "forget", url = url, visits = visits() })
+                    editor:Focus()
+                end
+            )
         end,
-        hover = function()
-            Browser:Prepare()
-        end,
-        run = function(sid: string?)
-            openNew(sid, "address")
+    })
+
+    newTabRecentHandle = ctx:AddSlot({
+        id = "new-tab-recent",
+        at = "session.panel.new.list",
+        render = function(view, props)
+            if not Browser:Available() then
+                return nil
+            end
+            local sid = props.sessionId
+            local pane = props.pane
+            local width = props.width or 480
+            return panel.newTabRecent(env, view, width, function(url: string)
+                openFromNewTab(sid, pane, url)
+            end)
         end,
     })
 
