@@ -1,6 +1,6 @@
-//! Experimental Automations screen (packages/app/src/automations/, opencode#66393 + #66635).
+//! Automations screen (packages/app/src/automations/, opencode#66393 + #66635 + #66899).
 //!
-//! Shows where automations run (server, folder, project) and which session they wake, with
+//! Shows where automations run (folder, project) and which session they wake, with
 //! pause/resume/delete controls, session links, and New automation draft creation.
 
 #![forbid(unsafe_code)]
@@ -79,16 +79,8 @@ impl Default for State {
 
 pub(crate) static AUTOMATIONS: Slot<State> = Slot::new();
 
-/// Whether the experimental Automations feature is enabled (source.ts:available).
-pub fn available(s: &App) -> bool {
-    s.settings.automations()
-}
-
 /// Active automation count shown on the sidebar Automations action (source.ts:active).
 pub fn active_count(s: &App) -> usize {
-    if !available(s) {
-        return 0;
-    }
     s.kernel
         .slots
         .get(&AUTOMATIONS)
@@ -198,8 +190,7 @@ impl Feature<App> for AutomationsFeature {
                 crate::commands::order::AUTOMATIONS,
                 toggle,
             )
-            .section("view")
-            .when(available),
+            .section("view"),
         );
         builder.register_overlay(
             OverlayRegistration::<App>::new(DELETE_OVERLAY_ID)

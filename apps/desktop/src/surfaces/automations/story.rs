@@ -14,10 +14,9 @@ use super::source;
 const VARIANTS: &[(&str, usize)] = &[
     ("Default", 0),
     ("Empty", 1),
-    ("Setting off", 2),
-    ("Delete confirm", 3),
-    ("Long prompt", 4),
-    ("Long prompt open", 5),
+    ("Delete confirm", 2),
+    ("Long prompt", 3),
+    ("Long prompt open", 4),
 ];
 
 const KEYS: &[Trigger] = &[
@@ -102,6 +101,45 @@ fn sample_rows(now_ms: i64) -> Vec<AutomationInfo> {
             time: AutomationTime { created: now_ms - 259_200_000, updated: now_ms - 180_000 },
         },
         AutomationInfo {
+            id: "aut_triage".into(),
+            name: "Issue triage sweep".into(),
+            project_id: "proj_lumen".into(),
+            session_id: Some("ses_fx0001aaaaaaaaaaaaaaaaaa".into()),
+            directory: base_dir.into(),
+            trigger: AutomationTrigger::Cron { cron: "30 */6 * * *".into(), tz: None },
+            tz: "UTC".into(),
+            action: AutomationAction::Prompt {
+                prompt: "Label and route new issues.".into(),
+                to: AutomationTarget::Session("ses_fx0009aaaaaaaaaaaaaaaaaa".into()),
+            },
+            expires: None,
+            status: AutomationStatus::Active,
+            next_due_at: Some(now_ms + 2 * 3_600_000),
+            run_count: 8,
+            last_run_at: Some(now_ms - 4 * 3_600_000),
+            last_outcome: Some(AutomationOutcome::Fired),
+            last_output: None,
+            time: AutomationTime { created: now_ms - 172_800_000, updated: now_ms - 150_000 },
+        },
+        AutomationInfo {
+            id: "aut_flaky".into(),
+            name: "Flaky test report".into(),
+            project_id: "proj_harbor".into(),
+            session_id: None,
+            directory: "/workspace/harbor".into(),
+            trigger: AutomationTrigger::Every { every: "15 minutes".into(), tz: None },
+            tz: "UTC".into(),
+            action: AutomationAction::Shell { command: "bun scripts/flaky.ts".into() },
+            expires: None,
+            status: AutomationStatus::Paused,
+            next_due_at: None,
+            run_count: 4,
+            last_run_at: Some(now_ms - 30 * 60_000),
+            last_outcome: Some(AutomationOutcome::Failed),
+            last_output: Some("Exit code: 1".into()),
+            time: AutomationTime { created: now_ms - 259_200_000, updated: now_ms - 200_000 },
+        },
+        AutomationInfo {
             id: "aut_docs".into(),
             name: "Documentation review".into(),
             project_id: "proj_lumen".into(),
@@ -143,31 +181,30 @@ fn sample_rows(now_ms: i64) -> Vec<AutomationInfo> {
     ]
 }
 
-fn setup_base(s: &mut App, enabled: bool) {
+fn setup_base(s: &mut App) {
     crate::scenes::open_scene(s);
     s.finish_stream();
     crate::scenes::side_tabs(s);
-    s.settings.automations = Some(enabled);
     *s.route = Route::Automations;
 }
 
 fn setup_default(s: &mut App) {
-    setup_base(s, true);
+    setup_base(s);
     let now_ms = *s.now_ms;
     let rows = sample_rows(now_ms);
-    source::seed_fixture(s, "release-runner-03", rows, &["/workspace/lumen/release", "/workspace/harbor"]);
+    source::seed_fixture(s, rows, &["/workspace/lumen/release", "/workspace/harbor"]);
 }
 
 fn setup_empty(s: &mut App) {
-    setup_base(s, true);
-    source::seed_fixture(s, "release-runner-03", Vec::new(), &["/workspace/lumen/release"]);
+    setup_base(s);
+    source::seed_fixture(s, Vec::new(), &["/workspace/lumen/release"]);
 }
 
-/// A prompt of many paragraphs on a server with no name, as a local one has.
+/// A prompt of many paragraphs.
 fn setup_long(s: &mut App) {
-    setup_base(s, true);
+    setup_base(s);
     let rows = super::samples::long_rows(*s.now_ms);
-    source::seed_fixture(s, "", rows, &super::samples::DIRS);
+    source::seed_fixture(s, rows, &super::samples::DIRS);
     let key = source::entry_key(crate::servers::runtime::active(s), super::samples::LONG_ID);
     s.kernel.slots.get_mut(&super::AUTOMATIONS).selected = Some(key);
 }
@@ -181,24 +218,18 @@ fn setup_long_open(s: &mut App) {
     }
 }
 
-fn setup_off(s: &mut App) {
-    setup_base(s, false);
-    source::seed_fixture(s, "release-runner-03", Vec::new(), &[]);
-}
-
 fn open(s: &mut App, _play: &mut rune::Play<'_, App>) {
     match *s.fixture_run.variant {
         1 => setup_empty(s),
-        2 => setup_off(s),
-        3 => {
+        2 => {
             setup_default(s);
             let entries = source::entries(s);
             if let Some(first) = entries.first() {
                 super::ask_delete(s, first.key.clone(), first.server.clone(), first.row.id.clone(), first.row.name.clone());
             }
         }
-        4 => setup_long(s),
-        5 => setup_long_open(s),
+        3 => setup_long(s),
+        4 => setup_long_open(s),
         _ => setup_default(s),
     }
 }
@@ -219,7 +250,6 @@ rune_register::register!(crate::stories::STORY_LIST: Story = [
 rune_register::register!(crate::scenes::SCENE_LIST: crate::scenes::Scene = [
     ("automations", setup_default),
     ("automations-empty", setup_empty),
-    ("automations-off", setup_off),
     ("automations-long-prompt", setup_long),
     ("automations-long-prompt-open", setup_long_open),
 ]);

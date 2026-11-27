@@ -35,14 +35,8 @@ pub fn described_cron(row: &AutomationInfo) -> Option<&str> {
     }
 }
 
-/// The most times of day a description lists: `0 9,13,17,21 * * *` reads as its four times, while
-/// `0 6-22 * * *` keeps its cron text rather than seventeen.
-const MAX_TIMES: usize = 6;
-
 /// Covers the common cron shapes ("every weekday at 9"); anything else keeps its raw cron text
-/// (format.ts:describeCron). Official describes one time of day only and leaves every other
-/// schedule as cron text; this also reads several times a day, every N hours and a day of the
-/// month, which are as common in what people ask for.
+/// (packages/app/src/automations/format.ts:describeCron). This also reads a day of the month.
 fn describe_cron(cron: &str) -> Option<String> {
     let fields: Vec<&str> = cron.split_whitespace().collect();
     if fields.len() != 5 {
@@ -66,22 +60,8 @@ fn describe_cron(cron: &str) -> Option<String> {
         return None;
     }
 
-    if let [minute] = minutes[..]
-        && !hours.is_empty()
-    {
-        if weekdays.is_empty()
-            && let Some(step) = even_step(&hours, 24).filter(|step| *step > 1)
-        {
-            if minute == 0 {
-                return Some(t!("rune.automations.trigger.hours", count = step));
-            }
-            return Some(t!("rune.automations.trigger.hoursAt", count = step, minute = format!("{minute:02}")));
-        }
-        if hours.len() > MAX_TIMES {
-            return None;
-        }
-        let times: Vec<String> = hours.iter().map(|&hour| clock(hour, minute)).collect();
-        let time = list(&times);
+    if let ([minute], [hour]) = (&minutes[..], &hours[..]) {
+        let time = clock(*hour, *minute);
         if weekdays.is_empty() {
             return Some(t!("automations.trigger.daily", time = time));
         }
@@ -96,9 +76,19 @@ fn describe_cron(cron: &str) -> Option<String> {
         return Some(t!("automations.trigger.days", days = days, time = time));
     }
 
-    if !hours.is_empty() || !weekdays.is_empty() {
+    if !weekdays.is_empty() {
         return None;
     }
+
+    // Evenly spaced hours that fill the day (`30 */6 * * *`); `0 9-17 * * *` and `0 0-12/6 * * *`
+    // keep their cron text (opencode#66900). Every hour of the day parses as `*`, the hourly label.
+    if !hours.is_empty() {
+        let [minute] = minutes[..] else { return None };
+        let step = hours.get(1)?.checked_sub(hours[0]).filter(|step| *step > 0)?;
+        let even = hours.len() as u32 * step == 24 && hours.iter().enumerate().all(|(i, &h)| h == hours[0] + i as u32 * step);
+        return even.then(|| t!("automations.trigger.hours", count = step, minute = format!("{minute:02}")));
+    }
+
     if let [minute] = minutes[..] {
         let minute = format!("{minute:02}");
         return Some(t!("automations.trigger.hourly", minute = minute));
@@ -107,7 +97,7 @@ fn describe_cron(cron: &str) -> Option<String> {
 }
 
 /// The step of `values` when they run from 0 in equal steps through a cycle of `cycle` (`*/15`
-/// minutes, `*/2` hours).
+/// minutes).
 fn even_step(values: &[u32], cycle: u32) -> Option<u32> {
     let step = values.get(1)?.checked_sub(*values.first()?).filter(|step| *step > 0)?;
     let even = values[0] == 0
@@ -254,6 +244,21 @@ pub fn relative_time(at_ms: i64, now_ms: i64) -> String {
     date::relative_day(days)
         .map(str::to_owned)
         .unwrap_or_else(|| date::relative(days, Unit::Day))
+}
+
+/// How long until `at` in the list's chip: "5m", "2h", "3d", at least 1 (format.ts:shortDuration).
+/// Official writes it with `Intl.NumberFormat`'s narrow units; the sidebar's elapsed times are
+/// the same narrow forms, translated.
+pub fn short_duration(at_ms: i64, now_ms: i64) -> String {
+    let minutes = (((at_ms - now_ms) as f64 / 60_000.0).round() as i64).max(1);
+    let count = |per: f64| ((minutes as f64 / per).round() as u64).max(1);
+    if minutes < 60 {
+        return opencode_i18n::plural!("sidebar.inbox.elapsed.minutes", count(1.0));
+    }
+    if minutes < 1440 {
+        return opencode_i18n::plural!("sidebar.inbox.elapsed.hours", count(60.0));
+    }
+    opencode_i18n::plural!("sidebar.inbox.elapsed.days", count(1440.0))
 }
 
 /// Status string for the inspector subtitle (format.ts:statusLabel).

@@ -26,7 +26,7 @@ impl crate::App {
 pub enum Route {
     #[default]
     Home,
-    /// Experimental Automations screen (`/automations`, opencode#66393).
+    /// Automations screen (`/automations`, opencode#66393).
     Automations,
     /// Session `id` on `server`. The window works against `server` while it shows it
     /// (`servers::runtime`'s checkout).

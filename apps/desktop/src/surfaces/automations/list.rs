@@ -2,7 +2,7 @@
 //! until asked for (packages/app/src/automations/route.tsx, view.tsx:AutomationListRow).
 
 use opencode_i18n::t;
-use opencode_kit::model::{AutomationOutcome, AutomationStatus};
+use opencode_kit::model::{AutomationOutcome, AutomationStatus, AutomationTrigger};
 use opencode_ui::palette::Pal;
 use opencode_ui::widgets::BODY;
 use rune::{Anim, Color, Direction, El, TextStyle, Tx, col, el, icon, row, text};
@@ -12,7 +12,7 @@ use session_view::focus::FocusExt as _;
 use crate::App;
 
 use super::AUTOMATIONS;
-use super::format::relative_time;
+use super::format::short_duration;
 use super::source::Entry;
 
 /// A group's name, set as the sidebar's section headers are (`sidebar/sections/header.rs`: 11.5,
@@ -25,7 +25,7 @@ const GROUP_H: f32 = 24.0;
 /// The spine every header, rule and row keeps: 10 pt inside a row's pill, under the page title.
 const SPINE: f32 = 10.0;
 const ROW_TITLE: TextStyle = TextStyle::new(13.0, 530.0).lh(20.0).tracking(-0.04);
-const ROW_NOTE: TextStyle = TextStyle::new(12.0, 440.0).lh(20.0);
+const CHIP: TextStyle = TextStyle::new(12.0, 530.0).lh(16.0).features("\"tnum\"");
 const ROW_SUB: TextStyle = TextStyle::new(12.0, 440.0).lh(16.0);
 
 const STATUSES: [AutomationStatus; 3] = [AutomationStatus::Active, AutomationStatus::Paused, AutomationStatus::Done];
@@ -119,33 +119,70 @@ fn group_header(p: &Pal, label: &'static str, count: usize, fold: Option<bool>) 
         .child(el().size(12.0, 12.0).ml(-5.0).center().a11y_hidden().child(triangle))
 }
 
-fn list_row(s: &App, p: &Pal, entry: &Entry, selected: bool, mut context: Vec<String>) -> El {
-    let info = &entry.row;
-    let failed = info.status == AutomationStatus::Paused && info.last_outcome == Some(AutomationOutcome::Failed);
-    let note = if failed {
-        Some(t!("automations.note.failed").to_owned())
-    } else if info.status == AutomationStatus::Done && info.last_outcome == Some(AutomationOutcome::Expired) {
-        Some(t!("automations.status.expired").to_owned())
-    } else if info.status == AutomationStatus::Active {
-        info.next_due_at.map(|at| relative_time(at, *s.now_ms))
-    } else {
-        None
+/// The chip at a row's end (view.tsx:AutomationListRow `note`): when an active one next runs,
+/// Live while it watches for an event, Failed when a failure paused it, Ended when it timed out.
+enum Note {
+    Due(String),
+    Live,
+    Failed,
+    Ended,
+}
+
+fn note(s: &App, info: &opencode_kit::model::AutomationInfo) -> Option<Note> {
+    match (info.status, info.last_outcome) {
+        (AutomationStatus::Paused, Some(AutomationOutcome::Failed)) => Some(Note::Failed),
+        (AutomationStatus::Done, Some(AutomationOutcome::Expired)) => Some(Note::Ended),
+        (AutomationStatus::Active, _) if matches!(info.trigger, AutomationTrigger::Event { .. }) => Some(Note::Live),
+        (AutomationStatus::Active, _) => info.next_due_at.map(|at| Note::Due(short_duration(at, *s.now_ms))),
+        _ => None,
+    }
+}
+
+/// `h-6 min-w-10 rounded-full border px-2 gap-1`, 12 px medium tabular text, no fill. Official's
+/// Live dot pulses (`motion-safe:animate-pulse`); here it holds still.
+fn chip(p: &Pal, note: Note) -> El {
+    let (ink, border, label) = match &note {
+        Note::Due(text) => (p.muted, p.border, text.clone()),
+        Note::Live => (p.v2.success.fg, p.v2.success.border, t!("automations.note.live").to_owned()),
+        Note::Failed => (p.v2.danger.fg, p.v2.danger.border, t!("automations.note.failed").to_owned()),
+        Note::Ended => (p.muted, p.border, t!("automations.note.ended").to_owned()),
     };
-    context.push(entry.trigger.clone());
+    let lead = match note {
+        Note::Due(_) => None,
+        Note::Live => Some(el().size(6.0, 6.0).radius(3.0).fill(ink).a11y_hidden()),
+        Note::Failed => Some(icon(&ic::WARNING, 12.0).color(ink).a11y_hidden()),
+        Note::Ended => Some(icon(&super::CLOCK, 12.0).color(ink).a11y_hidden()),
+    };
+    row()
+        .key("auto-row-note")
+        .h(24.0)
+        .min_w(40.0)
+        .px(8.0)
+        .gap(4.0)
+        .center()
+        .radius(12.0)
+        .border(1.0, border)
+        .children(lead)
+        .child(text(label).font(CHIP).color(ink))
+}
+
+fn list_row(s: &App, p: &Pal, entry: &Entry, selected: bool, context: Vec<String>) -> El {
+    let info = &entry.row;
+    // The trigger leads, then the project when there are several (view.tsx:AutomationListRow).
+    let sub = std::iter::once(entry.trigger.clone()).chain(context).collect::<Vec<_>>().join(" · ");
     // A finished automation steps back: its name in the muted ink.
     let name_ink = if info.status == AutomationStatus::Done { p.muted } else { p.text };
-    let note_ink = if failed { p.danger } else { p.muted };
 
     let key = entry.key.clone();
-    let top = row()
-        .w_full()
+    let lines = col()
+        .grow(1.0)
+        .shrink()
         .min_w(0.0)
-        .gap(12.0)
-        .center_y()
-        .child(text(info.name.clone()).font(ROW_TITLE).color(name_ink).grow(1.0).shrink().min_w(0.0).truncate().dir(Direction::Auto))
-        .children(note.map(|n| text(n).font(ROW_NOTE.features("\"tnum\"")).color(note_ink)));
+        .gap(2.0)
+        .child(text(info.name.clone()).font(ROW_TITLE).color(name_ink).w_full().truncate().dir(Direction::Auto))
+        .child(text(sub).font(ROW_SUB).color(p.faint).w_full().truncate());
 
-    col()
+    row()
         .key(format!("auto-row-{}", info.id))
         .role("button")
         .label(info.name.clone())
@@ -153,7 +190,8 @@ fn list_row(s: &App, p: &Pal, entry: &Entry, selected: bool, mut context: Vec<St
         .w_full()
         .px(SPINE)
         .py(8.0)
-        .gap(2.0)
+        .gap(12.0)
+        .center_y()
         .radius(7.0)
         .focus_inset(p)
         .fill(if selected { p.layer2 } else { Color::TRANSPARENT })
@@ -162,6 +200,6 @@ fn list_row(s: &App, p: &Pal, entry: &Entry, selected: bool, mut context: Vec<St
             tx.instant();
             s.kernel.slots.get_mut(&AUTOMATIONS).selected = Some(key.clone());
         })
-        .child(top)
-        .child(text(context.join(" · ")).font(ROW_SUB).color(p.faint).w_full().truncate())
+        .child(lines)
+        .children(note(s, info).map(|n| chip(p, n)))
 }

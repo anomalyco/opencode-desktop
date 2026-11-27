@@ -59,21 +59,16 @@ pub(super) fn status_dot(p: &Pal, info: &AutomationInfo) -> El {
     el().size(6.0, 20.0).center().child(dot).a11y_hidden()
 }
 
-/// A session to open: its title and an arrow, or its ID cut short while the title isn't known.
-/// The hover wash bleeds past the text, which stays on its column's edge.
-pub(super) fn session_link(p: &Pal, key: &str, server: ServerKey, id: &str, title: Option<String>, font: TextStyle) -> El {
+/// A session to open: its title (or a stand-in when it isn't known) and an arrow. The hover wash
+/// bleeds past the text, which stays on its column's edge.
+pub(super) fn session_link(p: &Pal, key: &str, server: ServerKey, id: &str, title: String, font: TextStyle) -> El {
     const BLEED: f32 = 4.0;
-    let name = match &title {
-        Some(title) => text(title.clone()).font(font).color(p.text),
-        // Beside 12 pt [`META`] the mono is already on the baseline.
-        None if font == BODY_MED => code_inline(text(short_id(id))).color(p.muted).help(id.to_owned()),
-        None => text(short_id(id)).font(CODE).color(p.muted).help(id.to_owned()),
-    };
+    let name = text(title.clone()).font(font).color(p.text);
     let session = id.to_owned();
     row()
         .key(key.to_owned())
         .role("button")
-        .label(title.unwrap_or_else(|| id.to_owned()))
+        .label(title)
         .min_w(0.0)
         .shrink()
         .h(font.line_px())
@@ -90,17 +85,6 @@ pub(super) fn session_link(p: &Pal, key: &str, server: ServerKey, id: &str, titl
         .on_press_tx(move |s: &mut App, tx: &mut Tx| super::open_session(s, &server, &session, tx))
         .child(name.truncate().dir(Direction::Auto))
         .child(icon(&ic::OUTLINE_ARROW_UP_RIGHT, 14.0).color(p.icon_muted).group_color(p.icon))
-}
-
-/// `ses_` and the ID's first and last four characters.
-fn short_id(id: &str) -> String {
-    let chars: Vec<char> = id.chars().collect();
-    if chars.len() <= 16 {
-        return id.to_owned();
-    }
-    let head: String = chars[..8].iter().collect();
-    let tail: String = chars[chars.len() - 4..].iter().collect();
-    format!("{head}…{tail}")
 }
 
 /// A 28 pt ghost icon button, the height of the buttons beside it, its glyph `ink` under the
