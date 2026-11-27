@@ -7432,7 +7432,7 @@
       "summary": "When counting a script's steps (full_codemode), groups unrecognized tools into one trailing 'tool' entry in activity headers instead of listing raw tool names.",
       "size": "XS",
       "status": "have it",
-      "status_evidence": "Merged in #1435 (dev 5b4bfe9c43, CI run 46044004770 green): adds ui.timeline.activity.otherTool and ui.tool.other to en.json and collapses unrecognized tools into one trailing 'tool' in activity_with when script_steps is true. Post-merge bulk headless verification queued.",
+      "status_evidence": "Merged in #1435 (dev 5b4bfe9c43, CI run 46044004770 green): adds ui.timeline.activity.otherTool and ui.tool.other to en.json and collapses unrecognized tools into one trailing 'tool' in activity_with when script_steps is true. Post-merge verified headless on Windows x64 PR build (run 46044004770, 7/7 passes exit 0, peak <= 0.52 GiB): unknown-only script tools render 'Used tool', mixed known + unknown render 'Used Questions, tool', and regression scenes stay unchanged. Not run: real window, macOS, Linux.",
       "pr_refs": [
         1435
       ],
@@ -7490,10 +7490,13 @@
       "summary": "Replaces the old experimental keyboard-first question dock with the composer-integrated New question UI experiment (settings.general.questionComposer, preset answers card above custom answer composer + actions, removing session-question-dock-experimental and newQuestionUI).",
       "size": "L",
       "status": "missing",
-      "status_evidence": "In progress. Official: packages/app/src/session/requests/{session-question-dock-classic.tsx,question-answer-composer.css,session-question-dock.tsx,question-controller.ts}, settings/{experimental/experimental.tsx,model.tsx,search-catalog.ts}, runtime/i18n/en.ts.",
+      "status_evidence": "Open PR #1444 (head ccc00503d3, CI running): replaces retired experimental question dock (face.rs) with composer-integrated dock (composer.rs), adds general.questionComposer setting (local/dev/pr), and adds --scene question-composer.",
       "depends_on": "none",
       "risks": "none",
-      "workstream": "UPSTREAM"
+      "workstream": "UPSTREAM",
+      "pr_refs": [
+        1444
+      ]
     }
   ],
   "browser_security_review": {
