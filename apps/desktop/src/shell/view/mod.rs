@@ -114,8 +114,12 @@ pub fn app(s: &App, cx: &mut Cx<App>) -> El {
     if s.plugins.force_focus {
         cx.force_focus_rings();
     }
-    // Tooltips are Desktop's compact `Tooltip` (`tooltip.css`), placed and timed as its Kobalte.
-    cx.help_look(rune_kit::TooltipStyle::from_kit(crate::palette::kit(p), rune_kit::TooltipAppearance::Compact).help_look());
+    // Tooltips are Desktop's compact `Tooltip` (`tooltip.css`, `opencode#66789`), placed and timed
+    // as its Kobalte: 4px 6px padding and `--line-height-compact` (16px) line-height.
+    let tip = rune_kit::TooltipStyle::from_kit(crate::palette::kit(p), rune_kit::TooltipAppearance::Compact);
+    let tip_font = opencode_ui::tooltip::compact_text_style(tip.text_style());
+    let (tip_px, tip_py) = opencode_ui::tooltip::COMPACT_PADDING;
+    cx.help_look(tip.padding(tip_px, tip_py).font(tip_font).help_look());
     // A quote's source stays lit in the timeline while its comment is written.
     cx.mark_texts(crate::quote::marks(s));
     crate::icons::prepare(s, cx);
