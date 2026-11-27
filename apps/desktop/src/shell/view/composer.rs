@@ -110,8 +110,9 @@ impl session_view::dock::DockHost for App {
     fn dock_auto_accept(&self) -> bool {
         self.settings.auto_accept
     }
-    fn dock_new_question_ui(&self) -> bool {
-        self.settings.new_question_ui
+    fn dock_question_composer(&self) -> bool {
+        // Test fixtures keep the Classic dock unless a scene opts in (`settings/model.tsx:492-496`).
+        self.settings.question_composer_with_default(self.live())
     }
     fn dock_question_submit(&self) -> session_view::dock::question::SubmitKey {
         match self.settings.question_submit {
