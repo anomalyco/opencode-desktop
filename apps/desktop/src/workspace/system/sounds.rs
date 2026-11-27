@@ -71,7 +71,7 @@ pub fn event(app: &App, e: &crate::events::StreamEvent, sid: &str) {
     if !app.persists() {
         return;
     }
-    let Some((id, dedup_key)) = decide(app, e.ty.as_str(), &e.data, sid) else {
+    let Some((id, dedup_key)) = decide(app, e.ty.as_str(), &e.data, sid, e.done.running_child) else {
         return;
     };
     if !crate::events::StreamEvent::take(&e.sound, true) {
@@ -85,33 +85,35 @@ pub fn event(app: &App, e: &crate::events::StreamEvent, sid: &str) {
     play(id);
 }
 
-fn decide<'a>(app: &'a App, ty: &str, data: &serde_json::Value, sid: &str) -> Option<(&'a str, Option<String>)> {
+fn decide<'a>(app: &'a App, ty: &str, data: &serde_json::Value, sid: &str, running_child: bool) -> Option<(&'a str, Option<String>)> {
     let sounds = &app.settings.sounds;
     // A tab on the event's server: the window is checked out on it while it reacts.
     let server = crate::servers::runtime::active(app);
     let has_tab = |id: &str| app.tabs.iter().any(|t| !t.is_draft() && t.id == id && t.server == *server);
-    let root = |id: &str| app.session(id).is_none_or(|s| s.parent.is_none());
     let silenced = |id: &str| crate::session_menu::preferences::silenced(app, server, id);
     let exec_key = || {
-        data["eventID"]
+        data["executionEventID"]
             .as_str()
+            .or_else(|| data["eventID"].as_str())
             .filter(|id| !id.is_empty())
             .map(|id| format!("{}\0{id}", server.as_str()))
     };
     match ty {
         // `handleSessionIdle` (`packages/app/src/shell/notifications/notification.tsx:275-289`):
-        // skip while any direct child subagent is running, for subagents themselves, when muted,
-        // or when the session has no open tab.
+        // skip while any direct child subagent was running at event time, for unknown or child
+        // sessions (`if (!session || session.parentID) return`), when muted, or without a tab.
         "session.execution.succeeded" => {
-            if app.has_running_child(sid) || silenced(sid) || !root(sid) || !has_tab(sid) {
+            let known_root = app.session(sid).is_some_and(|s| s.parent.is_none());
+            if running_child || silenced(sid) || !known_root || !has_tab(sid) {
                 return None;
             }
             Some((sounds.agent.as_deref()?, exec_key()))
         }
         // `handleSessionError` (`packages/app/src/shell/notifications/notification.tsx:304-315`):
-        // skip for subagents, when muted, or when the session has no open tab.
+        // skip for subagents (`if (session?.parentID) return`), when muted, or without a tab.
         "session.execution.failed" => {
-            if silenced(sid) || !root(sid) || !has_tab(sid) {
+            let not_child = app.session(sid).is_none_or(|s| s.parent.is_none());
+            if silenced(sid) || !not_child || !has_tab(sid) {
                 return None;
             }
             Some((sounds.errors.as_deref()?, exec_key()))

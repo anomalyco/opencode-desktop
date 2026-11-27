@@ -360,7 +360,7 @@ pub fn clear_extension(host: &mut dyn NotificationsHost, os_id: &str) {
 }
 
 /// What `ty` posts, if anything: the kind, its title, the session a click opens and the body.
-fn decide(host: &dyn NotificationsHost, ty: &str, data: &Value, sid: &str) -> Option<(Kind, &'static str, String, String)> {
+fn decide(host: &dyn NotificationsHost, ty: &str, data: &Value, sid: &str, running_child: bool) -> Option<(Kind, &'static str, String, String)> {
     // A muted session, or one under a muted root, posts nothing (`notification.tsx`'s `muted`).
     if host.is_session_silenced(sid) {
         return None;
@@ -368,7 +368,7 @@ fn decide(host: &dyn NotificationsHost, ty: &str, data: &Value, sid: &str) -> Op
     let prefs = host.notification_prefs();
     match ty {
         "session.execution.succeeded" if prefs.agent => {
-            if host.has_running_child(sid) || !host.is_root_session(sid) {
+            if running_child || !host.is_root_session(sid) {
                 return None;
             }
             let title = host.tab_title(sid)?;
@@ -426,11 +426,11 @@ fn request(ty: &str, data: &Value, sid: &str) -> Option<(Kind, &'static str, Str
 ///
 /// `claim` receives whether this window decided to post and returns `true` when this window won
 /// the per-event claim across windows (e.g. `StreamEvent::take(&e.notice, want)`).
-pub fn notify_event(host: &mut dyn NotificationsHost, ty: &str, data: &Value, sid: &str, claim: &mut dyn FnMut(bool) -> bool) -> bool {
+pub fn notify_event(host: &mut dyn NotificationsHost, ty: &str, data: &Value, sid: &str, running_child: bool, claim: &mut dyn FnMut(bool) -> bool) -> bool {
     if !host.notifier().shows() {
         return false;
     }
-    let decided = decide(host, ty, data, sid);
+    let decided = decide(host, ty, data, sid, running_child);
     if !claim(decided.is_some()) {
         return false;
     }

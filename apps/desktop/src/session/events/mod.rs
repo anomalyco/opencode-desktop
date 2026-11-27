@@ -182,6 +182,9 @@ impl StreamEvent {
 pub struct Done {
     /// Running sessions, idle and busy marks, requests (`apply_status`).
     pub status: bool,
+    /// Whether a direct child subagent was running when `session.execution.succeeded` arrived,
+    /// snapshotted before later events in the same `peer::heard` batch mutate `self.running`.
+    pub running_child: bool,
     pub inbox: bool,
     /// The delivered item occupied the queue, not a Pending row in the transcript.
     pub queued_delivery: bool,
@@ -290,7 +293,8 @@ impl App {
     fn apply_event_shared(&mut self, ty: &str, data: &Value) -> Done {
         let sid = data["sessionID"].as_str().unwrap_or("").to_owned();
         let now = *self.now_ms;
-        let mut done = Done { status: self.apply_status(ty, data, &sid), ..Done::default() };
+        let running_child = ty == "session.execution.succeeded" && self.has_running_child(&sid);
+        let mut done = Done { status: self.apply_status(ty, data, &sid), running_child, ..Done::default() };
         if ty.starts_with("session.inbox.") && !sid.is_empty() {
             done.queued_delivery = ty == "session.inbox.delivered" && data["inboxID"].as_str().is_some_and(|id|
                 self.inboxes.get(&sid).is_some_and(|i| i.queued().any(|item| item.id == id)));
@@ -628,8 +632,8 @@ impl App {
 
 impl App {
     /// Records newly created child sessions synchronously on the SSE stream so `has_running_child`,
-    /// `root_of`, and family status know `parent` before `GET /api/session/:id` returns
-    /// (`packages/client/src/solid/data.ts:901-913`).
+    /// `root_of`, and family status know `parent` before the server read settles, then fetches the
+    /// authoritative `SessionInfo` (`packages/client/src/solid/data.ts:901-905` calls `session.sync`).
     fn apply_created(&mut self, ty: &str, data: &Value, sid: &str, now: i64) -> bool {
         if ty != "session.created" || sid.is_empty() {
             return false;
@@ -659,6 +663,7 @@ impl App {
             browser: opencode_kit::model::BrowserGrant::of(&data["permissions"]),
             ..Default::default()
         });
+        self.fetch_info(sid);
         true
     }
 

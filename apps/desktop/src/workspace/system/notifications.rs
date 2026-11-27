@@ -97,10 +97,6 @@ impl NotificationsHost for App {
         self.session(session_id).is_none_or(|s| s.parent.is_none())
     }
 
-    fn has_running_child(&self, session_id: &str) -> bool {
-        App::has_running_child(self, session_id)
-    }
-
     fn is_session_silenced(&self, session_id: &str) -> bool {
         crate::session_menu::preferences::silenced(self, crate::servers::runtime::active(self), session_id)
     }
@@ -111,18 +107,18 @@ impl NotificationsHost for App {
 
     fn is_tab_open(&self, session_id: &str) -> bool {
         let server = crate::servers::runtime::active(self);
-        self.tabs.iter().any(|t| t.id == session_id && t.server == *server)
+        self.tabs.iter().any(|t| !t.is_draft() && t.id == session_id && t.server == *server)
     }
 
     fn tab_title(&self, session_id: &str) -> Option<String> {
         let server = crate::servers::runtime::active(self);
-        let tab = self.tabs.iter().find(|t| t.id == session_id && t.server == *server)?;
+        let tab = self.tabs.iter().find(|t| !t.is_draft() && t.id == session_id && t.server == *server)?;
         let title = self.session(session_id).map_or(tab.title.as_str(), |s| s.title.as_str());
         Some(title.to_owned())
     }
 
     fn has_tab_for_root(&self, root_session_id: &str) -> bool {
-        self.tabs.iter().any(|t| t.id == root_session_id)
+        self.tabs.iter().any(|t| !t.is_draft() && t.id == root_session_id)
     }
 
     fn has_pending_request(&self, request_id: &str) -> bool {
@@ -170,7 +166,7 @@ impl NotificationsHost for App {
 /// Posts the notification event `e` calls for, if any (from `App::react`).
 pub fn event(app: &mut App, e: &crate::events::StreamEvent, sid: &str) {
     #[cfg(not(target_arch = "wasm32"))]
-    notify_event(app, &e.ty, &e.data, sid, &mut |want| crate::events::StreamEvent::take(&e.notice, want));
+    notify_event(app, &e.ty, &e.data, sid, e.done.running_child, &mut |want| crate::events::StreamEvent::take(&e.notice, want));
     #[cfg(target_arch = "wasm32")]
     let _ = (app, e, sid);
 }

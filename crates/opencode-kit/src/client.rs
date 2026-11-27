@@ -781,11 +781,10 @@ fn event_line(line: &str) -> Option<Incoming> {
         return None;
     }
     let mut data = v["data"].take();
-    // Compaction, notice, and execution events keep their event id (`coordinator.sound` dedup).
-    if (ty.starts_with("session.compaction.") || ty.starts_with("session.execution.") || crate::model::is_notice_event(&ty))
-        && let Some(id) = v["id"].as_str()
-    {
-        data["eventID"] = id.into();
+    // Compaction and notice events keep `eventID`; execution events use `executionEventID` for sound dedup.
+    if let Some(id) = v["id"].as_str() {
+        if ty.starts_with("session.compaction.") || crate::model::is_notice_event(&ty) { data["eventID"] = id.into(); }
+        else if ty.starts_with("session.execution.") { data["executionEventID"] = id.into(); }
     }
     // When a request was asked, for the inbox's waiting age; and a branch change's folder.
     if ty.starts_with("session.execution.") || matches!(ty.as_str(), "session.created" | "permission.asked" | "form.created" | "session.archived") {
