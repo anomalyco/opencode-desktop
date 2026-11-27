@@ -70,9 +70,14 @@ impl EngineManager {
                 let ids: Vec<u64> = self.tabs.keys().copied().collect();
                 for tab_id in ids {
                     let Some(tab) = self.tabs.remove(&tab_id) else { continue };
+                    // Gate the closing render handler before reopening the same `tab_id` so a late
+                    // accelerated paint cannot race against the new BGRA browser.
+                    tab.awake.store(false, Ordering::Release);
                     self.release_preview(tab_id, tab.preview.as_ref());
                     let was_agent = tab.prompts.agent_driven.load(Ordering::Acquire);
                     self.permissions.on_tab_closed(tab_id);
+                    tab.menu.cancel_all();
+                    tab.prompts.dismiss_all();
                     tab.download_alive.store(false, Ordering::Release);
                     tab.host.close_browser(1);
                     self.downloads.close_tab(tab_id, tab.download_gen);
@@ -90,13 +95,17 @@ impl EngineManager {
                     let roots = tab.file_roots.lock().unwrap().clone();
                     let allow_ext = tab.allow_extension_pages && !was_agent;
                     let ctx = tab.context.clone();
+                    let focused = match self.lifecycle_mode {
+                        super::lifecycle::LifecycleMode::Explicit => self.focused_tab == Some(tab_id),
+                        super::lifecycle::LifecycleMode::Legacy => tab.shown,
+                    };
                     self.open_tab(
                         tab_id,
                         &url,
                         v.width_pt,
                         v.height_pt,
                         v.scale,
-                        tab.shown,
+                        focused,
                         roots,
                         ctx,
                         tab.preview_spec,
