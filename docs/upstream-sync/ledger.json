@@ -5,7 +5,7 @@
   "upstream_head": "a152d11d072499a97593107bf90379b83aad107f",
   "upstream_pre_window_base": "3751be8138ebcf33343eb3f3d011b32fc814103c",
   "rune_desktop_repo": "anomalyco/opencode-rune",
-  "rune_desktop_head": "0a5fd6064f",
+  "rune_desktop_head": "18b662e2fb",
   "post_1114_commit_count": 828,
   "post_1114_in_ledger": 276,
   "post_1114_skipped": 552,
@@ -7524,7 +7524,7 @@
       "summary": "Renames Component Lab to Lab in the debug bar (LAB button and tooltip) and updates lab.* strings across all 63 locale catalogs.",
       "size": "XS",
       "status": "have it",
-      "status_evidence": "Merged in #1446 (dev 15d849e85d, CI run 46055012594 green): switches debug bar button to lab.label/lab.tip and syncs 126 debug/official locale JSON files matching opencode#66618. Post-merge bulk headless verification queued.",
+      "status_evidence": "Merged in #1446 (dev 15d849e85d, CI run 46055012594 green): switches debug bar button to lab.label/lab.tip and syncs 126 debug/official locale JSON files matching opencode#66618. Post-merge verified headless on Windows x64 PR build (run 46055012594, 2/2 passes exit 0, peak <= 0.43 GiB): debug bar renders 'LAB' with tooltip 'Open the Lab: every page, with live controls and its states' vs baseline 'COMPONENTS'. Not run: real window, macOS, Linux.",
       "pr_refs": [
         1446
       ],
