@@ -1,4 +1,4 @@
--- OpenCode plugin contract 1.11: global types for luau-lsp.
+-- OpenCode plugin contract 1.12: global types for luau-lsp.
 -- Generated from crates/opencode-plugin-spec/contract.json by `cargo run -p opencode-plugin-spec -- --write`. Do not edit.
 -- Load it with `luau-lsp analyze --definitions=@opencode=plugins/opencode.d.luau`.
 
@@ -145,7 +145,7 @@ export type ControlSize = "small" | "normal" | "large"
 export type Elevation = "raised" | "floating" | "overlay"
 
 --- An element's accessibility role.
-export type Role = "none" | "group" | "region" | "button" | "link" | "switch" | "checkbox" | "radio" | "tab" | "list" | "listitem" | "heading" | "img" | "status" | "timer" | "alert"
+export type Role = "none" | "group" | "region" | "button" | "link" | "switch" | "checkbox" | "radio" | "tab" | "list" | "listitem" | "listbox" | "option" | "heading" | "img" | "status" | "timer" | "alert"
 
 --- The state of a contract another plugin provides.
 export type LiveState = "pending" | "active" | "inactive" | "failed"
@@ -676,7 +676,7 @@ export type UiFrameProps = {
     hover: Color?,
     --- Background while pressed.
     press: Color?,
-    --- Draws the `surface-selected` fill and reports the selected state to assistive technology.
+    --- Selected state for an `option` or `tab` row (`aria-selected`).
     selected: boolean?,
     --- Border color.
     border: Color?,
@@ -1620,6 +1620,8 @@ export type UiCheckboxProps = {
     indeterminate: boolean?,
     --- The background the box sits on: `base` (the default) or `layer-1`, as Desktop's `surface`; an unticked box takes its fill.
     surface: ("base" | "layer-1")?,
+    --- Draws only the checkbox box visually with no role, focus or click handler, for use inside an `option` row (Desktop's `Checkbox presentation`).
+    presentation: boolean?,
     --- Cannot change; drawn at half opacity.
     disabled: boolean?,
     --- Runs with the new state in `event.checked`.
@@ -1814,6 +1816,92 @@ export type UiSegmentedItem = {
     label: string,
     --- Its element's key. Defaults to `id`.
     key: string?,
+}
+
+--- One option of `ui.select`.
+export type UiSelectOption = {
+    --- What `onChange` receives in `event.value`.
+    value: string,
+    --- The option's visible text.
+    label: string,
+}
+
+--- `ui.select` props: Desktop's `Select` dropdown control (`select-v2`). Desktop's plugin API calls it `Select`.
+export type UiSelectProps = {
+    --- Identity among siblings across renders, and the anchor key for popovers and menus.
+    key: string?,
+    --- Width.
+    w: UiSize?,
+    --- Height.
+    h: UiSize?,
+    --- Minimum width.
+    minW: number?,
+    --- Minimum height.
+    minH: number?,
+    --- Maximum width.
+    maxW: number?,
+    --- Maximum height.
+    maxH: number?,
+    --- Share of a stack's free space.
+    grow: number?,
+    --- May shrink below its content size.
+    shrink: boolean?,
+    --- Padding on every side.
+    pad: number?,
+    --- Left and right padding.
+    px: number?,
+    --- Top and bottom padding.
+    py: number?,
+    --- Top padding.
+    pt: number?,
+    --- Right padding.
+    pr: number?,
+    --- Bottom padding.
+    pb: number?,
+    --- Left padding.
+    pl: number?,
+    --- Margin on every side.
+    m: number?,
+    --- Left and right margin.
+    mx: number?,
+    --- Top and bottom margin.
+    my: number?,
+    --- Top margin.
+    mt: number?,
+    --- Right margin.
+    mr: number?,
+    --- Bottom margin.
+    mb: number?,
+    --- Left margin.
+    ml: number?,
+    --- Takes the node out of flow, at these offsets from its parent's edges.
+    pin: UiPin?,
+    --- 0 to 1.
+    opacity: number?,
+    --- The accessibility role.
+    role: Role?,
+    --- The accessible name.
+    label: string?,
+    --- A tooltip.
+    help: string?,
+    --- Where the tooltip shows. Defaults to below.
+    helpSide: Side?,
+    --- Keeps the tooltip showing while true, whatever the pointer does, as Desktop's `Tooltip forceOpen`: a Copy button's "Copied" for a moment after the press.
+    helpOpen: boolean?,
+    --- Which way the subtree reads, as HTML's `dir` does: `ltr` or `rtl` keeps a figure or a path in that order inside a window running the other way, `auto` takes a text's first strong direction (a name). On `ui.field` it is the value's direction, as on an `input`: `auto` starts an Arabic name at the right, `ltr` keeps an address or a host left to right. Defaults to the window's.
+    dir: ("ltr" | "rtl" | "auto")?,
+    --- The pointer's shape over the node and over what is inside it that sets none, by its CSS `cursor` name. Desktop shows the arrow on controls; set this only where its style sheet names another cursor, as the browser's address field does (`text`).
+    cursor: ("default" | "pointer" | "text" | "grab" | "grabbing" | "not-allowed" | "move" | "col-resize" | "row-resize" | "ew-resize" | "ns-resize" | "nwse-resize" | "nesw-resize" | "crosshair" | "cell" | "zoom-in" | "zoom-out")?,
+    --- The selected option's `value`.
+    value: string?,
+    --- Text shown when no option matches `value`.
+    placeholder: string?,
+    --- The options, in order.
+    options: { UiSelectOption },
+    --- Cannot open; drawn at half opacity.
+    disabled: boolean?,
+    --- Runs when an option is picked, with its value in `event.value`.
+    onChange: UiHandler?,
 }
 
 --- `ui.segmented` props: the app's segmented control of icon items.
@@ -6056,6 +6144,8 @@ export type UiLibrary = {
     radio: (props: UiRadioProps) -> UiNode,
     --- The app's own text field.
     field: (props: UiFieldProps) -> UiNode,
+    --- Desktop's select dropdown control.
+    select: (props: UiSelectProps) -> UiNode,
     --- The app's segmented control.
     segmented: (props: UiSegmentedProps) -> UiNode,
     --- The app's spinner.

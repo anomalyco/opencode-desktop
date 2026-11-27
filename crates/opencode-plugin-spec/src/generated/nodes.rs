@@ -44,6 +44,8 @@ string_enum! {
         Radio = "radio",
         /// The app's own text field.
         Field = "field",
+        /// Desktop's select dropdown control.
+        Select = "select",
         /// The app's segmented control.
         Segmented = "segmented",
         /// The app's spinner.
@@ -112,7 +114,7 @@ impl NodeKind {
         match self {
             Self::Box | Self::Row | Self::Col | Self::Frame | Self::Spacer | Self::Divider => NodeCategory::Layout,
             Self::Text | Self::Icon | Self::Image | Self::Video | Self::Metric | Self::Shimmer | Self::Keybind | Self::ProgressCircle => NodeCategory::Content,
-            Self::Button | Self::IconButton | Self::Switch | Self::Checkbox | Self::Radio | Self::Field | Self::Segmented | Self::Loader | Self::ServerIndicator | Self::Pill | Self::Badge | Self::SettingsRow | Self::SettingsList | Self::FlyoutRow | Self::DialogHeader => NodeCategory::Control,
+            Self::Button | Self::IconButton | Self::Switch | Self::Checkbox | Self::Radio | Self::Field | Self::Select | Self::Segmented | Self::Loader | Self::ServerIndicator | Self::Pill | Self::Badge | Self::SettingsRow | Self::SettingsList | Self::FlyoutRow | Self::DialogHeader => NodeCategory::Control,
             Self::Markdown | Self::VirtualList | Self::TerminalSurface | Self::TerminalTabLabel | Self::BrowserSurface | Self::CodeView | Self::DiffView | Self::FileTree | Self::PanelSidebar | Self::OpenInButton | Self::OfficePages | Self::OfficeSheet | Self::GenUi => NodeCategory::Native,
         }
     }
@@ -141,6 +143,7 @@ impl NodeKind {
             Self::Checkbox => &UI_CHECKBOX_PROPS,
             Self::Radio => &UI_RADIO_PROPS,
             Self::Field => &UI_FIELD_PROPS,
+            Self::Select => &UI_SELECT_PROPS,
             Self::Segmented => &UI_SEGMENTED_PROPS,
             Self::Loader => &UI_LOADER_PROPS,
             Self::ProgressCircle => &UI_PROGRESS_CIRCLE_PROPS,
@@ -236,6 +239,7 @@ pub static UI_CHECKBOX_PROPS: PropsSpec = PropsSpec::new("UiCheckboxProps", Some
     PropSpec::new("checked", PropType::Bool, true),
     PropSpec::new("indeterminate", PropType::Bool, false),
     PropSpec::new("surface", PropType::Any, false),
+    PropSpec::new("presentation", PropType::Bool, false),
     PropSpec::new("disabled", PropType::Bool, false),
     PropSpec::new("onChange", PropType::Handler, false),
 ]);
@@ -326,6 +330,7 @@ pub static UI_FRAME_PROPS: PropsSpec = PropsSpec::new("UiFrameProps", Some(&UI_B
     PropSpec::new("focusGroup", PropType::Bool, false),
     PropSpec::new("keys", PropType::List("string"), false),
     PropSpec::new("onKey", PropType::Handler, false),
+    PropSpec::new("selected", PropType::Bool, false),
 ]);
 
 /// `UiGenUiProps`.
@@ -500,6 +505,15 @@ pub static UI_RADIO_PROPS: PropsSpec = PropsSpec::new("UiRadioProps", Some(&UI_L
 pub static UI_SEGMENTED_PROPS: PropsSpec = PropsSpec::new("UiSegmentedProps", Some(&UI_LAYOUT_PROPS), &[
     PropSpec::new("items", PropType::List("UiSegmentedItem"), true),
     PropSpec::new("value", PropType::String, true),
+    PropSpec::new("onChange", PropType::Handler, false),
+]);
+
+/// `UiSelectProps`.
+pub static UI_SELECT_PROPS: PropsSpec = PropsSpec::new("UiSelectProps", Some(&UI_LAYOUT_PROPS), &[
+    PropSpec::new("value", PropType::String, false),
+    PropSpec::new("placeholder", PropType::String, false),
+    PropSpec::new("options", PropType::List("UiSelectOption"), true),
+    PropSpec::new("disabled", PropType::Bool, false),
     PropSpec::new("onChange", PropType::Handler, false),
 ]);
 

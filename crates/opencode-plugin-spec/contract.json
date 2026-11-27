@@ -1,6 +1,6 @@
 {
   "$comment": "The OpenCode plugin contract: the single source of truth for plugin types, the plugin.toml schema, the selene std, the API docs and the host's Rust decoders. Edit this file, then run `cargo run -p opencode-plugin-spec -- --write`. Type strings use Luau syntax; `integer` is a whole number (Luau `number`).",
-  "contract": "1.11",
+  "contract": "1.12",
   "versioning": {
     "format": "MAJOR.MINOR",
     "rules": [
@@ -237,6 +237,8 @@
       { "value": "tab", "doc": "A tab." },
       { "value": "list", "doc": "A list." },
       { "value": "listitem", "doc": "A list item." },
+      { "value": "listbox", "since": "1.12", "doc": "A list of selectable options." },
+      { "value": "option", "since": "1.12", "doc": "One selectable option inside a listbox." },
       { "value": "heading", "doc": "A heading." },
       { "value": "img", "doc": "An image. Give it a `label`." },
       { "value": "status", "doc": "A live status message." },
@@ -580,7 +582,8 @@
       { "name": "focusReturn", "type": "string?", "since": "1.7", "doc": "The key of the element that takes focus when this frame leaves while focus is on it or inside it: one view of a popover handing focus to the control that leads back to it. That element, or its first focusable child; nothing happens when none shows." },
       { "name": "focusGroup", "type": "boolean?", "since": "1.7", "doc": "One Tab stop for the focusable controls inside, which the arrow keys move between, as a roving `tabindex` does: Up and Down with `role` `list`, `listbox`, `menu` or `tree`, Left and Right as well otherwise. Home and End go to the ends; a `list` or `tree` stops at its ends, the others wrap. In a `list`, `listbox`, `menu`, `tree` or `tablist`, typing moves to the first control whose label starts with it. Space presses the focused control, and in a list Return does too." },
       { "name": "keys", "type": "{ string }?", "since": "1.7", "doc": "Keys `onKey` takes while focus is on the frame or inside it, outside a text field, pressed with no modifier: any of `Enter`, `Escape`, `ArrowUp`, `ArrowDown`, `ArrowLeft`, `ArrowRight`, `Home`, `End`, `PageUp`, `PageDown`, `Delete` and `Backspace`. A key it takes does nothing else there: Return in a `focusGroup` list then no longer presses the focused control." },
-      { "name": "onKey", "type": "UiHandler?", "since": "1.7", "doc": "Runs as a key `keys` names is pressed, with its name in `event.keyName`." }
+      { "name": "onKey", "type": "UiHandler?", "since": "1.7", "doc": "Runs as a key `keys` names is pressed, with its name in `event.keyName`." },
+      { "name": "selected", "type": "boolean?", "since": "1.12", "doc": "Selected state for an `option` or `tab` row (`aria-selected`)." }
     ] },
     { "name": "UiTextProps", "kind": "record", "extends": ["UiLayoutProps"], "doc": "Text styling: `ui.text` and `ui.shimmer`.", "fields": [
       { "name": "size", "type": "number?", "doc": "Font size in points. Defaults to 13." },
@@ -673,6 +676,7 @@
       { "name": "checked", "type": "boolean", "doc": "Ticked." },
       { "name": "indeterminate", "type": "boolean?", "since": "1.11", "doc": "Some of what it stands for is ticked: the box shows a dash, as Desktop's `indeterminate`. A press still reports the opposite of `checked`." },
       { "name": "surface", "type": "(\"base\" | \"layer-1\")?", "doc": "The background the box sits on: `base` (the default) or `layer-1`, as Desktop's `surface`; an unticked box takes its fill." },
+      { "name": "presentation", "type": "boolean?", "since": "1.12", "doc": "Draws only the checkbox box visually with no role, focus or click handler, for use inside an `option` row (Desktop's `Checkbox presentation`)." },
       { "name": "disabled", "type": "boolean?", "doc": "Cannot change; drawn at half opacity." },
       { "name": "onChange", "type": "UiHandler?", "doc": "Runs with the new state in `event.checked`." }
     ] },
@@ -706,6 +710,17 @@
       { "name": "icon", "type": "IconName", "doc": "Its icon." },
       { "name": "label", "type": "string", "doc": "Its accessible name and tooltip." },
       { "name": "key", "type": "string?", "doc": "Its element's key. Defaults to `id`." }
+    ] },
+    { "name": "UiSelectOption", "kind": "record", "rust": true, "doc": "One option of `ui.select`.", "fields": [
+      { "name": "value", "type": "string", "doc": "What `onChange` receives in `event.value`." },
+      { "name": "label", "type": "string", "doc": "The option's visible text." }
+    ] },
+    { "name": "UiSelectProps", "kind": "record", "extends": ["UiLayoutProps"], "official": "Select", "doc": "`ui.select` props: Desktop's `Select` dropdown control (`select-v2`).", "fields": [
+      { "name": "value", "type": "string?", "doc": "The selected option's `value`." },
+      { "name": "placeholder", "type": "string?", "doc": "Text shown when no option matches `value`." },
+      { "name": "options", "type": "{ UiSelectOption }", "doc": "The options, in order." },
+      { "name": "disabled", "type": "boolean?", "doc": "Cannot open; drawn at half opacity." },
+      { "name": "onChange", "type": "UiHandler?", "doc": "Runs when an option is picked, with its value in `event.value`." }
     ] },
     { "name": "UiSegmentedProps", "kind": "record", "extends": ["UiLayoutProps"], "doc": "`ui.segmented` props: the app's segmented control of icon items.", "fields": [
       { "name": "items", "type": "{ UiSegmentedItem }", "doc": "Its items, in order." },
@@ -2002,6 +2017,7 @@
     { "name": "checkbox", "category": "control", "since": "1.7", "sig": "(props: UiCheckboxProps) -> UiNode", "props": "UiCheckboxProps", "doc": "Desktop's compact checkbox with its label." },
     { "name": "radio", "category": "control", "sig": "(props: UiRadioProps) -> UiNode", "props": "UiRadioProps", "doc": "A radio row." },
     { "name": "field", "category": "control", "sig": "(props: UiFieldProps) -> UiNode", "props": "UiFieldProps", "doc": "The app's own text field." },
+    { "name": "select", "category": "control", "since": "1.12", "sig": "(props: UiSelectProps) -> UiNode", "props": "UiSelectProps", "doc": "Desktop's select dropdown control." },
     { "name": "segmented", "category": "control", "sig": "(props: UiSegmentedProps) -> UiNode", "props": "UiSegmentedProps", "doc": "The app's segmented control." },
     { "name": "loader", "category": "control", "sig": "(props: UiLoaderProps?) -> UiNode", "props": "UiLoaderProps", "doc": "The app's spinner." },
     { "name": "progressCircle", "category": "content", "sig": "(props: UiProgressCircleProps) -> UiNode", "props": "UiProgressCircleProps", "doc": "The app's progress ring: a track and an arc from twelve o'clock, clockwise." },

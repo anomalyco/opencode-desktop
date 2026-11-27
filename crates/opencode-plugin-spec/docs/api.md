@@ -1,4 +1,4 @@
-# OpenCode plugin API reference (contract 1.11)
+# OpenCode plugin API reference (contract 1.12)
 
 > Generated from crates/opencode-plugin-spec/contract.json by `cargo run -p opencode-plugin-spec -- --write`. Do not edit. For a walkthrough, read [Writing a plugin](writing-a-plugin.md).
 
@@ -6,7 +6,7 @@ Contents: [Versioning](#versioning) · [Modules and globals](#modules-and-global
 
 ## Versioning
 
-Contract versions are `MAJOR.MINOR`. This is contract `1.11`.
+Contract versions are `MAJOR.MINOR`. This is contract `1.12`.
 
 - A plugin names the contract it targets in plugin.toml: `contract = "1.0"`.
 - Minor versions (1.1, 1.2, …) only add: new optional properties on `ui.*` nodes and specs, new semantic tokens (each with a 1.0 fallback token), new services, methods, signals, contribution kinds and enum values. A plugin that targets 1.0 runs unchanged on every 1.x host.
@@ -557,6 +557,7 @@ The plugin's own messages in the interface language, and numbers, dates and list
 | `ui.checkbox(props: UiCheckboxProps) -> UiNode` | control | [`UiCheckboxProps`](#uicheckboxprops) | Desktop's compact checkbox with its label. Since 1.7. |
 | `ui.radio(props: UiRadioProps) -> UiNode` | control | [`UiRadioProps`](#uiradioprops) | A radio row. |
 | `ui.field(props: UiFieldProps) -> UiNode` | control | [`UiFieldProps`](#uifieldprops) | The app's own text field. |
+| `ui.select(props: UiSelectProps) -> UiNode` | control | [`UiSelectProps`](#uiselectprops) | Desktop's select dropdown control. Since 1.12. |
 | `ui.segmented(props: UiSegmentedProps) -> UiNode` | control | [`UiSegmentedProps`](#uisegmentedprops) | The app's segmented control. |
 | `ui.loader(props: UiLoaderProps?) -> UiNode` | control | [`UiLoaderProps`](#uiloaderprops) | The app's spinner. |
 | `ui.progressCircle(props: UiProgressCircleProps) -> UiNode` | content | [`UiProgressCircleProps`](#uiprogresscircleprops) | The app's progress ring: a track and an arc from twelve o'clock, clockwise. |
@@ -977,6 +978,8 @@ An element's accessibility role.
 | `"tab"` | A tab. |
 | `"list"` | A list. |
 | `"listitem"` | A list item. |
+| `"listbox"` | A list of selectable options. Since 1.12. |
+| `"option"` | One selectable option inside a listbox. Since 1.12. |
 | `"heading"` | A heading. |
 | `"img"` | An image. Give it a `label`. |
 | `"status"` | A live status message. |
@@ -1587,6 +1590,7 @@ Also takes every field of [`UiBoxProps`](#uiboxprops).
 | `focusGroup` | `boolean?` | One Tab stop for the focusable controls inside, which the arrow keys move between, as a roving `tabindex` does: Up and Down with `role` `list`, `listbox`, `menu` or `tree`, Left and Right as well otherwise. Home and End go to the ends; a `list` or `tree` stops at its ends, the others wrap. In a `list`, `listbox`, `menu`, `tree` or `tablist`, typing moves to the first control whose label starts with it. Space presses the focused control, and in a list Return does too. Since 1.7. |
 | `keys` | `{ string }?` | Keys `onKey` takes while focus is on the frame or inside it, outside a text field, pressed with no modifier: any of `Enter`, `Escape`, `ArrowUp`, `ArrowDown`, `ArrowLeft`, `ArrowRight`, `Home`, `End`, `PageUp`, `PageDown`, `Delete` and `Backspace`. A key it takes does nothing else there: Return in a `focusGroup` list then no longer presses the focused control. Since 1.7. |
 | `onKey` | `UiHandler?` | Runs as a key `keys` names is pressed, with its name in `event.keyName`. Since 1.7. |
+| `selected` | `boolean?` | Selected state for an `option` or `tab` row (`aria-selected`). Since 1.12. |
 
 ### UiTextProps
 
@@ -1754,6 +1758,7 @@ Also takes every field of [`UiLayoutProps`](#uilayoutprops).
 | `checked` | `boolean` | Ticked. |
 | `indeterminate` | `boolean?` | Some of what it stands for is ticked: the box shows a dash, as Desktop's `indeterminate`. A press still reports the opposite of `checked`. Since 1.11. |
 | `surface` | `("base" \| "layer-1")?` | The background the box sits on: `base` (the default) or `layer-1`, as Desktop's `surface`; an unticked box takes its fill. |
+| `presentation` | `boolean?` | Draws only the checkbox box visually with no role, focus or click handler, for use inside an `option` row (Desktop's `Checkbox presentation`). Since 1.12. |
 | `disabled` | `boolean?` | Cannot change; drawn at half opacity. |
 | `onChange` | `UiHandler?` | Runs with the new state in `event.checked`. |
 
@@ -1806,6 +1811,29 @@ One item of `ui.segmented`.
 | `icon` | `IconName` | Its icon. |
 | `label` | `string` | Its accessible name and tooltip. |
 | `key` | `string?` | Its element's key. Defaults to `id`. |
+
+### UiSelectOption
+
+One option of `ui.select`.
+
+| Field | Type | Description |
+|---|---|---|
+| `value` | `string` | What `onChange` receives in `event.value`. |
+| `label` | `string` | The option's visible text. |
+
+### UiSelectProps
+
+`ui.select` props: Desktop's `Select` dropdown control (`select-v2`). Desktop's plugin API calls it `Select`.
+
+Also takes every field of [`UiLayoutProps`](#uilayoutprops).
+
+| Field | Type | Description |
+|---|---|---|
+| `value` | `string?` | The selected option's `value`. |
+| `placeholder` | `string?` | Text shown when no option matches `value`. |
+| `options` | `{ UiSelectOption }` | The options, in order. |
+| `disabled` | `boolean?` | Cannot open; drawn at half opacity. |
+| `onChange` | `UiHandler?` | Runs when an option is picked, with its value in `event.value`. |
 
 ### UiSegmentedProps
 
