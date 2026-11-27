@@ -304,6 +304,15 @@ impl Histories {
             .collect()
     }
 
+    /// Retains histories on `server` only for sessions `keep` names (leaves other servers intact).
+    pub fn retain(&mut self, server: &str, keep: &dyn Fn(&str) -> bool) {
+        self.map.retain(|(s, id), _| s != server || keep(id));
+    }
+
+    pub fn forget(&mut self, server: &str, id: &str) {
+        self.map.remove(&(server.to_owned(), id.to_owned()));
+    }
+
     /// A new pool reads every history again.
     pub fn clear(&mut self) {
         self.map.clear();
