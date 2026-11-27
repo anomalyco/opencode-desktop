@@ -10,6 +10,7 @@ pub(crate) mod memory;
 pub(crate) mod plugin;
 mod redraw;
 pub mod sources;
+mod themes;
 pub mod trust;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod types;

@@ -66,9 +66,13 @@ pub fn setup(app: &mut App, waker: Waker) {
             app.plugins.dormant.kept(id, &hash).cloned()
         })
     });
-    let (now, later): (Vec<_>, Vec<_>) = builtins
-        .into_iter()
-        .partition(|f| first.as_ref().is_none_or(|ids| ids.contains(&f.manifest.id.as_str())));
+    // A theme is in the picker and paints the window from the moment it is published, whichever
+    // route the first screen draws (`first_screen`): its static contributors start with the first
+    // screen's.
+    let (now, later): (Vec<_>, Vec<_>) = builtins.into_iter().partition(|f| {
+        contributes_theme(&f.manifest.id, None)
+            || first.as_ref().is_none_or(|ids| ids.contains(&f.manifest.id.as_str()))
+    });
     let start_now = known && stores::answers();
     // The ones with a record of this build go to sleep with it just after the first frame
     // (`doze_owed`): nothing they contribute draws in it (`first_screen`).
@@ -121,14 +125,16 @@ pub(super) type SaveRecordCallback = Box<dyn FnOnce(&mut App, &mut Tx, Result<()
 
 /// Writes plugin `id`'s record (its off switch and the files it's trusted for) as the window holds
 /// it, in one durable commit; `then` gets how it went, on this window's thread.
-pub(super) fn save_record(
-    app: &App,
-    id: &str,
-    then: Option<SaveRecordCallback>,
-) {
-    let record = opencode_storage::PluginRecord {
+pub(super) fn save_record(app: &App, id: &str, grant: Option<(String, SaveRecordCallback)>) {
+    let (record, then) = match grant {
+        Some((hash, then)) => (opencode_storage::PluginRecord {
+            enabled: None,
+            trusted: Some(hash),
+        }, Some(then)),
+        None => (opencode_storage::PluginRecord {
         enabled: app.plugins.disabled.contains(id).then_some(false),
         trusted: app.plugins.trusted.get(id).cloned(),
+        }, None),
     };
     let (deliver, who) = (app.deliverer(), id.to_owned());
     let line = format!(
@@ -168,6 +174,9 @@ fn start_later(app: &mut App) {
     stores::load(app, ids, true, |app, tx| {
         // Stage B is in: what the record couldn't say about overrides and trust, it does now.
         refresh_records(app);
+        // Appearance lists the themes this window has live, so a queued theme contributor starts
+        // with the values rather than in its turn after the first frame.
+        adopt_later_kinds(app, &["Theme"]);
         settle_later(app);
         if app.kernel.slots.get(&crate::switcher::SWITCHER).is_open() {
             adopt_later_kinds(app, &["Command"]);
@@ -228,6 +237,14 @@ fn settle_later(app: &mut App) {
             None => app.plugins.boot.push_later(found),
         }
     }
+}
+
+/// Whether `id`, or the record saved for it (`record`), contributes a theme: Appearance lists it
+/// and the palette paints it, so it starts at boot and stays live instead of sleeping with its
+/// entries listed from the record (a recorded theme is not a live one).
+pub(super) fn contributes_theme(id: &str, record: Option<&dormant::Record>) -> bool {
+    sources::contributions(id).contains(&"Theme")
+        || record.is_some_and(|r| r.window.get("themes").is_some_and(|es| !es.is_empty()))
 }
 
 /// Adopts, now, any queued plugins still in `later` whose static contribution kinds intersect
@@ -431,16 +448,24 @@ fn start_one_later(app: &mut App, tx: &mut Tx) {
     // waits for one piece.
     let Some(first) = app.plugins.boot.later().first() else { return };
     if let Some(entry) = first.manifest.app.clone()
-        && !app_half::runs(&first.manifest.id)
+        && first.error.is_none()
+        && refusal(first.tier, &first.manifest).is_none()
+        && !app.plugins.disabled.contains(&first.manifest.id)
+        && !first.tier.needs_trust()
+        && app.plugins.find(&first.manifest.id).is_none()
         && stores::answers_for(&first.manifest.id)
     {
         let files = first.origin.files();
-        let (manifest, catalogs) = (first.manifest.clone(), first.origin.catalogs(&files));
-        let sources = sources::scripts(&first.origin, &files, &manifest.id, &entry);
-        app_half::ensure(app, first.tier, &manifest, &files, catalogs, sources);
-        app.later(Box::new(start_one_later));
-        tx.instant();
-        return;
+        let revision = app_half::Revision::new(&first.manifest, first.tier, &files);
+        if app_half::available(&revision) && !app_half::runs(&revision) {
+            let catalogs = first.origin.catalogs(&files);
+            let sources = sources::scripts(&first.origin, &files, &first.manifest.id, &entry);
+            app.plugins.shared_plugin_owners.stage(&revision);
+            app_half::ensure(app, revision, &files, catalogs, sources);
+            app.later(Box::new(start_one_later));
+            tx.instant();
+            return;
+        }
     }
     let Some(found) = app.plugins.boot.pop_front_later() else { return };
     adopt(app, vec![found]);
@@ -477,9 +502,17 @@ fn adopt(app: &mut App, found: Vec<sources::Found>) {
 
 /// [`adopt`] for one plugin; with `record`, one that may run sleeps until its first use instead.
 fn adopt_one(app: &mut App, found: sources::Found, record: Option<dormant::Record>) {
-    let builtins: Vec<&str> = sources::builtin_ids().collect();
+    let consumed = app.plugins.shared_plugin_owners.staged_for(&found.manifest.id)
+        .filter(|staged| *staged == app_half::Revision::new(&found.manifest, found.tier, &found.origin.files()));
+    adopt_slot(app, found, record);
+    if let Some(revision) = consumed {
+        app.plugins.shared_plugin_owners.discard_staged(&revision);
+    }
+}
+
+fn adopt_slot(app: &mut App, found: sources::Found, record: Option<dormant::Record>) {
     let id = found.manifest.id.clone();
-    let shadows = found.tier == Tier::User && builtins.contains(&id.as_str());
+    let shadows = shadows_builtin(found.tier, &id);
     let existing = app.plugins.find(&id);
     let replaces = existing.filter(|&i| app.plugins.list[i].tier > found.tier);
     if existing.is_some() && replaces.is_none() && !shadows {
@@ -490,12 +523,8 @@ fn adopt_one(app: &mut App, found: sources::Found, record: Option<dormant::Recor
         found.hash.as_deref().unwrap_or_default(),
         app.plugins.trusted.get(&id),
     );
-    let first = if let Some(e) = found.error {
-        LifeEvent::Refuse(e)
-    } else if shadows || id == "opencode" {
-        LifeEvent::Refuse("A built-in plugin already has this id".to_owned())
-    } else if !runs_here(&found.manifest) {
-        LifeEvent::Refuse("Not for this operating system".to_owned())
+    let first = if let Some(reason) = found.error.or_else(|| refusal(found.tier, &found.manifest)) {
+        LifeEvent::Refuse(reason)
     } else if app.plugins.disabled.contains(&id) {
         LifeEvent::Disable
     } else if !trust.allows() {
@@ -503,6 +532,12 @@ fn adopt_one(app: &mut App, found: sources::Found, record: Option<dormant::Recor
     } else {
         LifeEvent::Load
     };
+    if matches!(first, LifeEvent::Load)
+        && let Some(staged) = app.plugins.shared_plugin_owners.staged_for(&id)
+        && staged != app_half::Revision::new(&found.manifest, found.tier, &found.origin.files())
+    {
+        app.plugins.shared_plugin_owners.discard_staged(&staged);
+    }
     let plugin = Plugin {
         manifest: found.manifest,
         origin: found.origin,
@@ -515,7 +550,7 @@ fn adopt_one(app: &mut App, found: sources::Found, record: Option<dormant::Recor
     let i = match replaces {
         Some(i) => {
             drive(app, i, LifeEvent::Disable);
-            app_half::stop(&id);
+            app.plugins.shared_plugin_owners.release(&app.plugins.list[i].half.token);
             app.plugins.list[i] = plugin;
             i
         }
@@ -525,7 +560,10 @@ fn adopt_one(app: &mut App, found: sources::Found, record: Option<dormant::Recor
         }
     };
     match (first, record) {
-        (LifeEvent::Load, Some(record)) => dormant::doze(app, i, record, background(&id)),
+        // A theme contributor runs: asleep, its theme would leave the picker and the palette.
+        (LifeEvent::Load, Some(record)) if !contributes_theme(&id, Some(&record)) => {
+            dormant::doze(app, i, record, background(&id))
+        }
         (first, _) => drive(app, i, first),
     }
 }
@@ -547,6 +585,16 @@ fn folders_read(app: &mut App) {
     }
 }
 
-fn runs_here(m: &Manifest) -> bool {
-    opencode_plugin_runtime::boot::runs_here(m, services::app::channel())
+fn shadows_builtin(tier: Tier, id: &str) -> bool {
+    tier == Tier::User && sources::builtin_ids().any(|builtin| builtin == id)
+}
+
+pub(super) fn refusal(tier: Tier, manifest: &Manifest) -> Option<String> {
+    if manifest.id == "opencode" || shadows_builtin(tier, &manifest.id) {
+        Some("A built-in plugin already has this id".to_owned())
+    } else if !opencode_plugin_runtime::boot::runs_here(manifest, services::app::channel()) {
+        Some("Not for this operating system".to_owned())
+    } else {
+        None
+    }
 }

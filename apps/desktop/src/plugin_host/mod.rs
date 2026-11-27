@@ -162,6 +162,8 @@ pub(crate) type ModelBadgeMap = HashMap<String, (String, bool)>;
 #[derive(Default)]
 pub struct PluginHost {
     pub list: Vec<Plugin>,
+    pub(crate) themes: crate::themes::WindowThemes,
+    shared_plugin_owners: app_half::Owners,
     /// The plugins turned off in Settings › Plugins.
     disabled: BTreeSet<String>,
     /// Plugins from outside the app the user OKed: plugin id → the SHA-256 of their files.

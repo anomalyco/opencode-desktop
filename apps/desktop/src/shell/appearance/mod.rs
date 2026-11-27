@@ -178,8 +178,10 @@ impl App {
 
     /// Every theme in a menu from the Theme row's button, the current one checked.
     pub fn open_theme_menu(&mut self, tx: &mut Tx) {
-        let themes = crate::themes::all();
-        let menu = Menu::picker(opencode_i18n::t!("settings.general.row.theme.title"), themes.iter().map(|t| (t.id.clone(), t.name.clone())), &themes[crate::themes::index(&self.settings.theme)].id);
+        let menu = self.plugins.themes.with(&self.settings.theme, || {
+            let themes = crate::themes::all();
+            Menu::picker(opencode_i18n::t!("settings.general.row.theme.title"), themes.iter().map(|t| (t.id.clone(), t.name.clone())), &themes[crate::themes::index(&self.settings.theme)].id)
+        });
         popup::open(self, menu, "theme-select", tx, |s: &mut App, picked, tx| {
             if let Some(id) = picked {
                 s.set_theme(id, tx);
@@ -189,9 +191,11 @@ impl App {
 
     /// Swaps the theme in this frame, as Desktop does: no crossfade.
     pub fn set_theme(&mut self, id: &str, tx: &mut Tx) {
+        if !self.plugins.themes.with(&self.settings.theme, || crate::themes::all().iter().any(|theme| theme.id == id)) {
+            return;
+        }
         tx.instant();
-        let id = crate::themes::all()[crate::themes::index(id)].id.clone();
-        crate::themes::set_active(&id);
-        self.change_settings(|s| s.theme = id);
+        crate::themes::set_active(id);
+        self.change_settings(|s| id.clone_into(&mut s.theme));
     }
 }

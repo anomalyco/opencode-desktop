@@ -295,6 +295,12 @@ fn window(mut w: Window, frame: Option<Frame>, diagnostics: &crate::diagnostics:
         })
         .on_rest(crate::App::rest);
     let mut spec = WindowSpec::from_app(format!("window-{id}"), app);
+    // Window alpha is fixed when the native window is made. Glass themes need a transparent
+    // window for Rune's system material; opaque themes still paint their own full-window ground.
+    #[cfg(target_os = "macos")]
+    {
+        spec.options.transparent = true;
+    }
     // A harness's launch on the visible desktop: a process the user didn't start can't come to
     // the front, so its window would open behind theirs, covered, and stop drawing. Above every
     // window instead, without taking the focus.
