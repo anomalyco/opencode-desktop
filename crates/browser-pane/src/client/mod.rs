@@ -124,6 +124,15 @@ pub struct CdpEvent {
 /// Bounded queue capacity for unconsumed CDP events so diagnostics never grow unboundedly.
 const MAX_QUEUED_CDP_EVENTS: usize = 2_048;
 
+#[cfg(target_os = "linux")]
+fn host_is_wayland() -> bool {
+    if std::env::var_os("WINIT_UNIX_BACKEND").is_some_and(|v| v.eq_ignore_ascii_case("x11")) {
+        return false;
+    }
+    std::env::var_os("WAYLAND_DISPLAY").is_some_and(|v| !v.is_empty())
+        || std::env::var_os("WAYLAND_SOCKET").is_some_and(|v| !v.is_empty())
+}
+
 /// Result of forwarding a keyboard event to a browser tab.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum KeyForward {
@@ -133,6 +142,8 @@ pub(crate) enum KeyForward {
     Forwarded,
     /// Mutated browser-pane UI state (zoom, inspect, reload); requires a Rune view commit.
     StateChanged,
+    /// Paste should read Rune's host clipboard and send `HostMsg::PasteText` (#1308).
+    PasteHost,
 }
 
 pub struct BrowserHost {
@@ -181,6 +192,8 @@ pub struct BrowserHost {
     pub(crate) popup_opens: VecDeque<crate::prompts::PopupRequest>,
     /// The person's Copy image results (PNG, base64), drained by the app for its clipboard.
     pub(crate) copied_images: VecDeque<String>,
+    /// Host-bridged text copy/cut results, drained by the app for its clipboard (#1308).
+    pub(crate) copied_texts: VecDeque<String>,
     /// Tabs whose first navigation became the person's download, now placed: drained by the app.
     pub(crate) download_only_tabs: VecDeque<u64>,
     pub(crate) app_links: VecDeque<(u64, String)>,
@@ -268,6 +281,7 @@ impl BrowserHost {
             picked: VecDeque::new(),
             popup_opens: VecDeque::new(),
             copied_images: VecDeque::new(),
+            copied_texts: VecDeque::new(),
             download_only_tabs: VecDeque::new(),
             app_links: VecDeque::new(),
             context_menus: VecDeque::new(),
@@ -378,6 +392,30 @@ impl BrowserHost {
 
     pub fn set_shell_shortcut(&mut self, check: fn(&KeyEvent) -> bool) {
         self.shell_shortcut = Some(check);
+    }
+
+    /// Whether browser text Copy/Cut/Paste should route through Rune's host clipboard instead of
+    /// CEF's native clipboard. Active on Linux when Rune runs on Wayland while CEF runs under X11
+    /// Ozone (XWayland), where CEF touching the X11 clipboard breaks the Wayland host clipboard
+    /// until a window focus cycle (#1308).
+    pub fn uses_host_clipboard(&self) -> bool {
+        #[cfg(target_os = "linux")]
+        {
+            host_is_wayland() && self.caps.host_clipboard() && self.caps.x11_clipboard()
+        }
+        #[cfg(not(target_os = "linux"))]
+        {
+            false
+        }
+    }
+
+    /// Sends plain text read from Rune's host clipboard to `tab_id` without reading CEF's clipboard.
+    pub fn paste_host_clipboard(&mut self, tab_id: u64, text: &str) {
+        let known = self.tabs.iter().any(|t| t.id == tab_id) || self.popup_tab_id() == Some(tab_id);
+        if text.is_empty() || !known {
+            return;
+        }
+        self.send(HostMsg::PasteText { tab_id, text: text.to_owned() });
     }
 
     /// Whether this build has any way to run an engine: a download source, a trust rule for an
@@ -1115,10 +1153,33 @@ impl BrowserHost {
             }
             return KeyForward::Forwarded;
         }
+        if self.uses_host_clipboard() {
+            if ev.key == Key::Delete && ev.mods.shift && !ev.mods.ctrl && !ev.mods.cmd && !ev.mods.alt {
+                if down {
+                    self.send(HostMsg::CopySelection { tab_id, cut: true });
+                }
+                return KeyForward::Forwarded;
+            }
+            if down && let Key::Command(c) = ev.key && !ev.mods.alt {
+                match c {
+                    'c' if !ev.mods.shift => {
+                        self.send(HostMsg::CopySelection { tab_id, cut: false });
+                        return KeyForward::Forwarded;
+                    }
+                    'x' if !ev.mods.shift => {
+                        self.send(HostMsg::CopySelection { tab_id, cut: true });
+                        return KeyForward::Forwarded;
+                    }
+                    'v' => return KeyForward::PasteHost,
+                    _ => {}
+                }
+            }
+        }
         if down && let Key::Command(c) = ev.key {
             let cmd = match c {
                 'a' => Some("select_all"),
                 'c' => Some("copy"),
+                'v' if ev.mods.shift && self.caps.host_clipboard() => Some("paste_plain"),
                 'v' => Some("paste"),
                 'x' => Some("cut"),
                 'z' if ev.mods.shift => Some("redo"),

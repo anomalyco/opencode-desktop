@@ -60,6 +60,8 @@ impl BrowserHost {
                     menu_extras,
                     tab_lifecycle,
                     tab_hibernation,
+                    host_clipboard,
+                    x11_clipboard,
                     ..
                 } => {
                     if !matches!(
@@ -72,7 +74,7 @@ impl BrowserHost {
                         downloads, policy, prompts, popups, find, context_menu,
                         partitions, remote_proxy, agent_tools, preview, extensions,
                         permission_sync, frame_authority, cookies, agent_files, passkeys, trace_isolation,
-                        menu_extras, tab_lifecycle, tab_hibernation,
+                        menu_extras, tab_lifecycle, tab_hibernation, host_clipboard, x11_clipboard,
                     };
                     self.sync_site_permissions();
                     if cookies && self.share_sign_ins {
@@ -317,7 +319,7 @@ impl BrowserHost {
                 | EngineMsg::PopupOpen { .. } | EngineMsg::PopupBlocked { .. }
                 | EngineMsg::AppLinkBlocked { .. } | EngineMsg::PasskeyRefused { .. }
                 | EngineMsg::FileChooserBlocked { .. } | EngineMsg::CopiedImage { .. }
-                | EngineMsg::DownloadOnlyTab { .. } => {
+                | EngineMsg::CopiedText { .. } | EngineMsg::DownloadOnlyTab { .. } => {
                     changed |= self.handle_prompt_msg(msg);
                 }
                 EngineMsg::FindResult { tab_id, count, active_match, final_update } => {
