@@ -2,29 +2,29 @@
   "generated_at": "2026-11-28",
   "upstream_repo": "anomalyco/opencode",
   "upstream_reference_base": "f6e0c2d0833ffe772035f221fed923e1cd5fb408",
-  "upstream_head": "eb010a1a68b710acbc7800914d6ee4fe7fb9dd9b",
+  "upstream_head": "5d1f78844492ed36c771f2ec3d2d5e459ed90670",
   "upstream_pre_window_base": "3751be8138ebcf33343eb3f3d011b32fc814103c",
   "rune_desktop_repo": "anomalyco/opencode-rune",
-  "rune_desktop_head": "619f9fe5ca",
-  "post_1114_commit_count": 822,
-  "post_1114_in_ledger": 275,
-  "post_1114_skipped": 547,
+  "rune_desktop_head": "04d7c9c854",
+  "post_1114_commit_count": 824,
+  "post_1114_in_ledger": 276,
+  "post_1114_skipped": 548,
   "post_1114_skipped_breakdown": {
     "test-only": 39,
     "ci-bench-deps": 29,
     "docs-site-data": 84,
     "tui-only": 37,
     "cli-acp-only": 16,
-    "server-core-ai-codemode-internal": 342
+    "server-core-ai-codemode-internal": 343
   },
   "pre_1114_carryover_rows": 15,
-  "total_ledger_rows": 296,
+  "total_ledger_rows": 297,
   "status_counts": {
     "have it": 254,
     "not applicable": 39,
     "differs on purpose": 1,
     "partly": 1,
-    "missing": 1
+    "missing": 2
   },
   "rows": [
     {
@@ -7497,6 +7497,33 @@
       "pr_refs": [
         1444
       ]
+    },
+    {
+      "id": "UP-276",
+      "window": "post-1120",
+      "pr": 66618,
+      "sha": "ca43c2f68d",
+      "title": "feat(app): rename Component Lab to Lab, with pages and states",
+      "merged": "2026-11-27",
+      "packages": [
+        "app",
+        "gui-plugins"
+      ],
+      "main_files": [
+        "packages/gui-plugins/src/debug/bar.tsx",
+        "packages/gui-plugins/src/debug/i18n/en.ts",
+        "packages/app/src/runtime/i18n/en.ts"
+      ],
+      "summary": "Renames Component Lab to Lab in the debug bar (LAB button and tooltip) and updates lab.* strings across all 63 locale catalogs.",
+      "size": "XS",
+      "status": "missing",
+      "status_evidence": "Open PR #1446 (head ab732b3075, CI running): updates plugins/debug/init.luau to lab.label/lab.tip and syncs 126 debug/official locale JSON files.",
+      "pr_refs": [
+        1446
+      ],
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "UPSTREAM"
     }
   ],
   "browser_security_review": {
