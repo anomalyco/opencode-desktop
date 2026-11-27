@@ -3,6 +3,9 @@
 mod actions;
 pub mod flight;
 mod resolve;
+pub mod width_hold;
+
+pub use width_hold::{MouseClose, StripScroll, StripWidthHold, WidthHoldEvent, release_pane_width_hold, release_strip_width_holds};
 
 use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, HashSet};
@@ -540,6 +543,8 @@ pub struct SideState {
     /// Each pane's tab strip scroll (by `SessionPane as usize`): what its handlers read, which a
     /// build never does.
     pub strips: Rc<[StripScroll; 3]>,
+    /// Chrome-style mouse-close tab width holds per pane (`tab-strip-widths.ts`, `opencode#66887`).
+    pub width_holds: [StripWidthHold; 3],
     /// One side panel open state shared across sessions while `sharedSidePanel` is on (#64950).
     pub shared_open: Option<bool>,
     /// Sessions that mounted the side region while `shared_open` was true (transient, for smooth close).
@@ -577,6 +582,7 @@ impl Default for SideState {
             closing: Default::default(),
             menu: SideMenu::Closed,
             strips: Rc::default(),
+            width_holds: Default::default(),
             resolved: Default::default(),
             resolved_gen: Cell::new(0),
             tabs_stamp: Cell::new(None),
@@ -591,14 +597,6 @@ impl Default for SideState {
     }
 }
 
-/// A tab strip's scroll, as `tab-strip-scroll.ts` keeps it: the offset a wheel notch moves on
-/// from, and the session, width and lead tab it last laid out with, so a strip that grows glides
-/// to its new tab.
-#[derive(Default)]
-pub struct StripScroll {
-    pub x: Cell<f32>,
-    pub laid: RefCell<Option<(String, f32, bool)>>,
-}
 
 #[derive(Clone)]
 pub struct ResolvedEntry {

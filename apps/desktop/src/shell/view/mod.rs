@@ -151,6 +151,7 @@ pub fn app(s: &App, cx: &mut Cx<App>) -> El {
                 s.clear_preview(tx);
                 crate::tab_hints::window_left(s, tx);
                 crate::tabs::sections::window_left(s, tx);
+                crate::panels::release_strip_width_holds(s);
             }
             if focused { crate::launch::network_available(s, tx); }
             // The coordinator's `tip` opens on the window's `focus`.

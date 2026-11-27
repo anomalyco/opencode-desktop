@@ -130,6 +130,9 @@ fn compute_bar_hash(
             host.side().pane_drag.dragging(),
             entries.len(),
             live_new.len(),
+            host.side().width_holds[pane as usize]
+                .active(session_id, pane_w, entries.len() + live_new.len())
+                .to_bits(),
         ),
     )
         .hash(&mut h);
