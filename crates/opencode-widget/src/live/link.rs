@@ -102,6 +102,8 @@ pub(super) struct St {
     pub post_at: Option<(u32, u32)>,
     /// The last fetch rejection the program got, its kind and message.
     pub rejected: Option<(&'static str, String)>,
+    /// `widget.storage`: the run's copy, as the client last told it and its own writes left it.
+    pub storage: super::Storage,
 }
 
 impl St {
@@ -178,8 +180,10 @@ pub(super) struct Link {
 
 
 impl Link {
-    pub fn new(program: Arc<LiveProgram>, data: Value, setup: Setup, per_second: f64) -> Arc<Link> {
+    pub fn new(program: Arc<LiveProgram>, data: Value, mut setup: Setup, per_second: f64) -> Arc<Link> {
         let now = Instant::now();
+        // The run keeps the copy (`St::storage`).
+        let storage = std::mem::take(&mut setup.storage);
         let st = St {
             run: Run::Discarded,
             era: 0,
@@ -207,6 +211,7 @@ impl Link {
             failed_phase: None,
             post_at: None,
             rejected: None,
+            storage,
         };
         Arc::new_cyclic(|me| Link { st: Mutex::new(st), news: AtomicBool::new(false), program, data, setup, per_second, gpu: Mutex::default(), order: Mutex::default(), me: me.clone() })
     }

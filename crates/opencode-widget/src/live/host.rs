@@ -42,11 +42,16 @@ pub(super) fn runtime(link: &Arc<Link>, era: u64) -> Runtime {
         Some((first, last)) => Runtime::make().program_lines(first, last),
         None => Runtime::make(),
     };
+    // `storage`: the run's copy as of now (a run started again from `main` gets what it holds then).
+    let storage = link.lock().storage.input();
     runtime.limits(limits).translate(translate).globals(move |_run| {
         // `gpu`: whether this client replays the program's GPU batches, and its canvas format.
         let mut input = json!({ "data": link.data });
         if let Some(gpu) = link.gpu() {
             input["gpu"] = gpu.input();
+        }
+        if let Some(storage) = &storage {
+            input["storage"] = storage.clone();
         }
         let (l1, l2, l3, l4, l5) = (link.clone(), link.clone(), link.clone(), link.clone(), link.clone());
         let host = HostValue::object([
@@ -236,6 +241,26 @@ fn post(link: &Link, mut args: Vec<HostValue>, at: Option<(u32, u32)>) -> HostRe
         Some("dismiss") => Post::Dismiss,
         Some("capture") => Post::Capture(field("value").and_then(Arg::flag).unwrap_or(false)),
         Some("send") => Post::Send(SendMessage { value: json("value"), wake: field("wake").and_then(Arg::flag).unwrap_or(true) }),
+        // A write to the widget template's storage: checked again (the prelude checks it first), and
+        // the run's copy has it at once; a post that breaks a limit ends the run as invalid.
+        Some("storage") => {
+            let key = field("key").and_then(Arg::text);
+            let value = field("value").map(|v| v.text());
+            let mut st = link.lock();
+            let checked = st.storage.check(key.as_deref(), value.as_ref().map(|v| v.as_deref()));
+            let (key, value) = match checked {
+                Ok(write) => write,
+                Err(m) => {
+                    // Located at the post, as an invalid draw is.
+                    st.post_at = at;
+                    drop(st);
+                    return Err(link.fail_post(m));
+                }
+            };
+            st.storage.apply(&key, value.as_deref());
+            drop(st);
+            Post::Storage { key, value }
+        }
         _ => return Ok(HostValue::Undefined),
     };
     link.post(post);

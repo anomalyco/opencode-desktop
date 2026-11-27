@@ -110,6 +110,18 @@ impl WidgetsHost for App {
         (*self.waker).clone().unwrap_or_else(|| Arc::new(|| {}))
     }
 
+    fn widget_server(&self, session: &str) -> String {
+        crate::session::widget_storage::server_of(self, session)
+    }
+
+    fn storage_copy(&mut self, server: &str, name: &str, seen: u64) -> Option<StorageCopy> {
+        crate::session::widget_storage::copy(self, server, name, seen)
+    }
+
+    fn storage_write(&mut self, server: &str, name: &str, key: String, value: Option<String>) {
+        crate::session::widget_storage::write(self, server, name, key, value);
+    }
+
     fn post_message(&mut self, session: &str, message: &str, call: &str, value: Value, wake: bool) {
         let id = widget_key(message, call);
         // A fixture run or story has no server to take it: it is taken, as a server would.
@@ -180,6 +192,8 @@ impl Feature<App> for WidgetsFeature {
         // closes the frame it arrives, before the timeline derives its rows.
         builder.schedule(crate::tick::stage::INGEST_STREAM, "widgets.sync", |s, _, _| sync(s));
         builder.schedule(crate::tick::stage::INGEST_STREAM, "widgets.poll", |s, now, tx| poll(s, now, tx)).after("widgets.sync");
+        // The storage spaces followed take what came in, whether or not a widget of theirs runs.
+        builder.schedule(crate::tick::stage::INGEST_STREAM, "widgets.storage", |_, _, _| crate::session::widget_storage::poll()).after("widgets.poll");
         builder.add_rest("widgets.rest", |s, keep| rest(s, keep));
     }
 }

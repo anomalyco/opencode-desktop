@@ -8,3 +8,4 @@ pub mod timeline;
 pub mod pointer_lock;
 pub mod widgets;
 pub mod widget_gpu;
+pub mod widget_storage;

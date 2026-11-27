@@ -12,11 +12,27 @@ use crate::{WidgetTemplate, WidgetsHost, advance, engine};
 /// The window draws at most this often; a live program gets no more frames.
 const FRAME_S: f64 = 1.0 / 60.0;
 
+/// A storage widget's program waits at most this long for its space's first whole sync here.
+#[cfg(not(target_arch = "wasm32"))]
+const HOLD: std::time::Duration = std::time::Duration::from_secs(2);
+
+/// Where one widget's program is.
+#[derive(Default)]
+enum Program {
+    #[default]
+    Idle,
+    /// Its widget template's storage never synced whole in this window's space: it starts once
+    /// it has, or at `until` with what it has (`widgets-live.md`, Storage).
+    #[cfg(not(target_arch = "wasm32"))]
+    Syncing { until: std::time::Instant },
+    #[cfg(not(target_arch = "wasm32"))]
+    Running(engine::Live),
+}
+
 /// One widget's running program, as this window drives it.
 #[derive(Default)]
 pub struct Run {
-    #[cfg(not(target_arch = "wasm32"))]
-    live: Option<engine::Live>,
+    program: Program,
     /// It asked for a frame.
     frame_wanted: bool,
     /// The clock of the last frame it got.
@@ -28,30 +44,55 @@ pub struct Run {
 }
 
 impl Run {
-    #[cfg(not(target_arch = "wasm32"))]
-    fn running(&self) -> bool {
-        self.live.is_some()
+    /// Its program runs, or waits for its storage to start.
+    pub(crate) fn running(&self) -> bool {
+        !matches!(self.program, Program::Idle)
     }
 
-    #[cfg(target_arch = "wasm32")]
-    fn running(&self) -> bool {
-        false
+    /// Its program's thread, while it runs.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(crate) fn live(&self) -> Option<&engine::Live> {
+        match &self.program {
+            Program::Running(live) => Some(live),
+            _ => None,
+        }
     }
 }
 
-/// Starts widget `id`'s live program.
+/// Starts widget `id`'s live program; one whose widget template's storage never synced whole
+/// here waits for that first ([`HOLD`]).
 #[cfg(not(target_arch = "wasm32"))]
 pub(crate) fn start(host: &mut dyn WidgetsHost, id: &str) {
+    if let Some(place) = crate::storage::place(host, id)
+        && !crate::storage::refresh(host, &place)
+    {
+        if let Some(e) = host.widgets_mut().entries.get_mut(id) {
+            e.run = Run { program: Program::Syncing { until: std::time::Instant::now() + HOLD }, ..Run::default() };
+        }
+        return;
+    }
+    launch(host, id);
+}
+
+/// Starts widget `id`'s live program on its thread, with its storage's copy as the window has it.
+#[cfg(not(target_arch = "wasm32"))]
+fn launch(host: &mut dyn WidgetsHost, id: &str) {
     let notify = host.widget_notify();
     let allow_local_network = host.widget_dev_mode();
+    let place = crate::storage::place(host, id);
     let w = host.widgets_mut();
     let Some(e) = w.entries.get(id) else { return };
     let Some(WidgetTemplate::Ready(c)) = w.widget_templates.get(&e.widget_template) else { return };
     let engine::Kind::Live { program, grants } = &c.kind else { return };
     let transport: Option<std::sync::Arc<dyn opencode_widget::live::Transport>> = grants.https.as_ref().map(|_| std::sync::Arc::new(crate::transport::Ureq) as _);
-    let live = engine::Live::start(program.clone(), e.machine.data.clone(), engine::Setup { grants: grants.clone(), transport, notify, allow_local_network });
+    // This client has storage: a widget template that doesn't declare it gets `storage: null`.
+    let storage = match &place {
+        Some(place) => engine::Storage::Copy(crate::storage::entries(w, place)),
+        None => engine::Storage::Undeclared,
+    };
+    let live = engine::Live::start(program.clone(), e.machine.data.clone(), engine::Setup { grants: grants.clone(), transport, storage, notify, allow_local_network });
     if let Some(e) = w.entries.get_mut(id) {
-        e.run = Run { live: Some(live), ..Run::default() };
+        e.run = Run { program: Program::Running(live), ..Run::default() };
     }
 }
 
@@ -61,7 +102,7 @@ pub(crate) fn start(_host: &mut dyn WidgetsHost, _id: &str) {}
 /// Delivers what the user did to widget `id`'s program.
 pub(crate) fn deliver(host: &mut dyn WidgetsHost, id: &str, event: &WidgetEvent) {
     #[cfg(not(target_arch = "wasm32"))]
-    if let Some(live) = host.widgets().entries.get(id).and_then(|e| e.run.live.as_ref()) {
+    if let Some(live) = host.widgets().entries.get(id).and_then(|e| e.run.live()) {
         live.event(event);
     }
     #[cfg(target_arch = "wasm32")]
@@ -95,12 +136,36 @@ pub(crate) fn poll(host: &mut dyn WidgetsHost, now: f64, tx: &mut Tx) -> bool {
         }
         #[cfg(not(target_arch = "wasm32"))]
         {
+            if let Program::Syncing { until } = e.run.program {
+                synced(host, &id, until, now, tx);
+                continue;
+            }
             changed |= drive(host, &id, visible, now, tx);
         }
+    }
+    // What moved in the running storage widgets' spaces, their own writes this frame included,
+    // reaches them all.
+    #[cfg(not(target_arch = "wasm32"))]
+    for place in crate::storage::followed(host) {
+        crate::storage::refresh(host, &place);
     }
     #[cfg(target_arch = "wasm32")]
     let _ = (now, tx);
     changed
+}
+
+/// A storage widget waiting for its space's first whole sync: it starts once that's in, or at
+/// `until` with what it has; until then it asks to look again then.
+#[cfg(not(target_arch = "wasm32"))]
+fn synced(host: &mut dyn WidgetsHost, id: &str, until: std::time::Instant, now: f64, tx: &mut Tx) {
+    let complete = crate::storage::place(host, id).is_none_or(|place| crate::storage::refresh(host, &place));
+    let left = until.saturating_duration_since(std::time::Instant::now());
+    if complete || left.is_zero() {
+        launch(host, id);
+        tx.wake_at(now);
+    } else {
+        tx.wake_at(now + left.as_secs_f64());
+    }
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -113,7 +178,7 @@ fn drive(host: &mut dyn WidgetsHost, id: &str, visible: bool, now: f64, tx: &mut
     });
     let offset = offset.unwrap_or(0);
     let Some(e) = host.widgets_mut().entries.get_mut(id) else { return false };
-    let Some(live) = e.run.live.as_ref() else { return false };
+    let Some(live) = e.run.live() else { return false };
     let on = visible && tx.window_visible();
     if on && live.paused() {
         live.resume();
@@ -164,6 +229,14 @@ fn drive(host: &mut dyn WidgetsHost, id: &str, visible: bool, now: f64, tx: &mut
             Post::Submit(value) => Event::Answered(Response::Submit(value)),
             Post::Dismiss => Event::Answered(Response::Dismiss),
             Post::Send(message) => Event::Sending(message),
+            // A write to its storage: the space's pending writes carry it; what it changed reaches
+            // every running widget of the template at the end of this poll.
+            Post::Storage { key, value } => {
+                if let Some(place) = crate::storage::place(host, id) {
+                    host.storage_write(&place.0, &place.1, key, value);
+                }
+                continue;
+            }
             Post::Capture(on) => {
                 if let Some(e) = host.widgets_mut().entries.get_mut(id) {
                     e.capture_wanted = on;
@@ -209,7 +282,7 @@ fn drive(host: &mut dyn WidgetsHost, id: &str, visible: bool, now: f64, tx: &mut
         return true;
     }
     let Some(e) = host.widgets_mut().entries.get_mut(id) else { return changed };
-    let Some(live) = e.run.live.as_ref() else { return changed };
+    let Program::Running(live) = &e.run.program else { return changed };
     if let Some(canvases) = live.gpu() {
         // A canvas's placeholder shows or goes: the widget builds again. A new version needs a
         // frame, unless the window draws them already.

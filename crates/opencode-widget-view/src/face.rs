@@ -164,11 +164,12 @@ pub fn frame<S: 'static>(look: &Look, local: &Local, hooks: Option<&Hooks<S>>, f
     // A program error the server recorded (here or on another client): what it was, and the agent
     // told of it or the user's button to tell it.
     let body: Vec<El> = body.into_iter().chain(failure.map(|f| recorded(look, f))).collect();
-    // What the widget may do beyond drawing, granted (a live widget's `fetch`): "Network: api.github.com".
-    let chip = look.chip.map(|chip| {
-        row().key("capabilities").child(
-            text(chip.to_owned()).key("chip").font(k.ty.small.lh(16.0)).color(c.text_muted).truncate().px(8.0).py(2.0).radius(8.0).border(1.0, c.border_weak),
-        )
+    // What the widget may do beyond drawing, granted (a live widget's `fetch`, its storage):
+    // "Network: api.github.com", "Storage".
+    let chip = (!look.chips.is_empty()).then(|| {
+        row().key("capabilities").gap(6.0).children(look.chips.iter().enumerate().map(|(i, chip)| {
+            text(chip.to_owned()).key(format!("chip-{i}")).font(k.ty.small.lh(16.0)).color(c.text_muted).truncate().px(8.0).py(2.0).radius(8.0).border(1.0, c.border_weak)
+        }))
     });
     let mut frame = col()
         .w_full()

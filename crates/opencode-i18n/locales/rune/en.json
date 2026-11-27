@@ -451,6 +451,7 @@
   "rune.widget.fullscreen": "Full screen",
   "rune.widget.loading": "Loading widget…",
   "rune.widget.network": "Network: {{hosts}}",
+  "rune.widget.storage": "Storage",
   "rune.widget.next": "Next",
   "rune.widget.previous": "Previous",
   "rune.widget.release": "Esc to release",

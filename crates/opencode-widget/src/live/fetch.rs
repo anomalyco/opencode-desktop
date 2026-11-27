@@ -97,10 +97,12 @@ pub trait Transport: Send + Sync {
     fn send(&self, request: &Request, timeout: Duration) -> Result<Response, FetchError>;
 }
 
-/// The `https` capability as granted: the hosts a widget may reach (`["*"]`: any).
+/// The capabilities as granted: `https`, the hosts a widget may reach (`["*"]`: any), and
+/// `storage`, its widget template's storage (`widgets-live.md`, Storage).
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Grants {
     pub https: Option<Vec<String>>,
+    pub storage: bool,
 }
 
 impl Grants {
@@ -123,10 +125,10 @@ impl Grants {
         })
     }
 
-    /// The widget template's declared `capabilities` (`{ https?: { hosts } }`), all of them.
+    /// The widget template's declared `capabilities` (`{ https?: { hosts }, storage?: {} }`), all of them.
     pub fn declared(capabilities: &Value) -> Grants {
         let hosts = capabilities["https"]["hosts"].as_array().map(|a| a.iter().filter_map(Value::as_str).map(str::to_owned).collect::<Vec<_>>());
-        Grants { https: hosts.filter(|h| !h.is_empty()) }
+        Grants { https: hosts.filter(|h| !h.is_empty()), storage: capabilities["storage"].is_object() }
     }
 }
 

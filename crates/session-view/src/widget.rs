@@ -70,9 +70,9 @@ pub enum Place<S> {
 }
 
 /// Widget `id` (its key) of session `session`, called `label`, as `face` shows it, where
-/// `place` says; `chip` names the capabilities granted to it.
+/// `place` says; `chips` name the capabilities granted to it.
 #[allow(clippy::too_many_arguments)]
-pub fn frame<S: TimelineHost>(s: &S, p: &Pal, session: &str, id: &str, label: &str, face: Face<'_>, local: &Local, hooks: Option<&Hooks<S>>, place: Place<S>, chip: Option<&str>) -> El {
+pub fn frame<S: TimelineHost>(s: &S, p: &Pal, session: &str, id: &str, label: &str, face: Face<'_>, local: &Local, hooks: Option<&Hooks<S>>, place: Place<S>, chips: &[String]) -> El {
     let fullscreen = matches!(place, Place::Screen { .. });
     let width = match &place {
         Place::Screen { size, .. } => (size[0] - 2.0 * opencode_widget_view::PAD).max(200.0),
@@ -86,7 +86,7 @@ pub fn frame<S: TimelineHost>(s: &S, p: &Pal, session: &str, id: &str, label: &s
     let pad = if fullscreen { 0.0 } else { 2.0 * FRAME_PAD };
     let markdown = |src: &str| crate::style::markdown_tinted::<S>(p, src, 1.0, false, p.text, width - pad);
     let words = words();
-    let look = Look { kit: crate::palette::kit(p), markdown: &markdown, image: &image, words: &words, width, scale: crate::scroller::device_scale(), dark: p.dark, scope: id, chip, fullscreen };
+    let look = Look { kit: crate::palette::kit(p), markdown: &markdown, image: &image, words: &words, width, scale: crate::scroller::device_scale(), dark: p.dark, scope: id, chips, fullscreen };
     match place {
         Place::Inline(buttons) => opencode_widget_view::frame(&look, local, hooks, face, label, buttons).key(format!("widget-{id}")),
         Place::Elsewhere => opencode_widget_view::placeholder(&look, label).key(format!("widget-{id}")),
@@ -111,4 +111,9 @@ pub fn superseded<S: TimelineHost>(p: &Pal, id: &str) -> El {
 /// The chip naming a widget's granted network hosts.
 pub fn network_chip(hosts: &[String]) -> String {
     opencode_i18n::t!("rune.widget.network", hosts = hosts.join(", ")).to_string()
+}
+
+/// The chip saying a widget keeps data in its widget template's storage.
+pub fn storage_chip() -> String {
+    opencode_i18n::t!("rune.widget.storage").to_string()
 }

@@ -16,6 +16,7 @@ mod engine;
 pub mod fullscreen;
 pub mod input;
 mod live;
+mod storage;
 mod view;
 #[cfg(not(target_arch = "wasm32"))]
 mod transport;
@@ -31,6 +32,7 @@ use serde_json::Value;
 
 pub use engine::{Compiled, Grants, Kind, LoadError, Program, compile, compile_as, offset};
 pub use opencode_widget::{RespondError, fixtures};
+pub use storage::StorageCopy;
 pub use view::{screen_key, screen_view, view};
 /// The shader slots' GPU side, for the host's compositor.
 pub use opencode_widget_view::shader;
@@ -117,6 +119,8 @@ pub struct Widgets {
     pub focus: input::Focus,
     /// Where full screen was last laid out, `[x, y, w, h]` in window points.
     screen_rect: [f32; 4],
+    /// Each storage widget template's space (by server and name) as this window last told its runs.
+    told: HashMap<storage::Place, storage::Told>,
 }
 
 impl Widgets {
@@ -179,6 +183,15 @@ pub trait WidgetsHost {
     }
     /// Wakes the window from another thread: a live program posted or wants a frame.
     fn widget_notify(&self) -> Arc<dyn Fn() + Send + Sync>;
+    /// The server `session` is on, named so servers differ: a widget template's storage is its
+    /// server's (`widgets-live.md`, Storage).
+    fn widget_server(&self, session: &str) -> String;
+    /// Widget template `name`'s storage on `server` (its space `widget.<name>`), followed from the
+    /// first ask on: its copy, unless it hasn't moved since `seen` (an earlier copy's `moved`).
+    fn storage_copy(&mut self, server: &str, name: &str, seen: u64) -> Option<StorageCopy>;
+    /// Hands a storage write of widget template `name` on `server` (`value` none: a delete) to its
+    /// space's pending writes.
+    fn storage_write(&mut self, server: &str, name: &str, key: String, value: Option<String>);
 }
 
 /// The one place a widget template's declared capabilities become what it may use. For now every

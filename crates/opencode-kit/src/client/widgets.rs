@@ -49,7 +49,7 @@ pub struct WidgetProgram {
     pub source: String,
     /// `"step"` or `"live"`.
     pub mode: String,
-    /// What a live widget template may use beyond rendering (`{ https?: { hosts } }`).
+    /// What a live widget template may use beyond rendering (`{ https?: { hosts }, storage?: {} }`).
     pub capabilities: Value,
 }
 

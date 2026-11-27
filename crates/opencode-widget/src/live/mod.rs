@@ -18,6 +18,7 @@ pub mod fetch;
 pub mod gpu;
 mod host;
 mod link;
+pub mod storage;
 
 use std::fmt;
 use std::sync::Arc;
@@ -32,6 +33,7 @@ use crate::runner::Error;
 use crate::step::{SendMessage, WidgetEvent};
 
 pub use fetch::{Grants, Transport};
+pub use storage::Storage;
 use link::Link;
 
 /// The longest a program may run without awaiting the host (`Limits::slice_ms`): its thread's CPU
@@ -104,6 +106,9 @@ pub enum Post {
     Send(SendMessage),
     /// Pointer capture asked for (`widget.capturePointer()`) or given back.
     Capture(bool),
+    /// A write to the widget template's storage (`widgets-live.md`, Storage), checked: `value` is
+    /// JSON text; none deletes the key. Not counted toward the post rate.
+    Storage { key: String, value: Option<String> },
     /// Something the program asked of the host failed (`phase`: `fetch`), for the agent to hear.
     Failed { phase: &'static str, message: String },
     /// A GPU batch's error (`widgets-gpu.md`): the program's (phase `gpu`, reported) or this
@@ -142,6 +147,8 @@ pub struct Setup {
     /// Dev mode: `fetch` may also reach loopback, private and link-local hosts the widget template
     /// declares, over `http:` too (`allowLocalNetwork`). Off by default.
     pub allow_local_network: bool,
+    /// `widget.storage`: the copy it starts with, or why it has none.
+    pub storage: Storage,
     /// Wakes the client when the program posted, ended or a frame is due.
     pub notify: Arc<dyn Fn() + Send + Sync>,
 }
@@ -169,6 +176,17 @@ impl Live {
     /// (`psychoscript_gpu::clamp_size`), before the frame after it changed (`widgets-gpu.md`).
     pub fn canvas(&self, key: &str, width: u32, height: u32) {
         self.link.deliver(json!({ "type": "canvas", "key": key, "width": width, "height": height }));
+    }
+
+    /// A change of the widget template's storage (`value` none: deleted), from elsewhere or the
+    /// run's own write coming back: the run's copy follows it, and the program hears it.
+    pub fn storage(&self, key: &str, value: Option<&str>) {
+        self.link.lock().storage.apply(key, value);
+        let mut message = json!({ "type": "storage", "key": key });
+        if let Some(v) = value {
+            message["value"] = v.into();
+        }
+        self.link.deliver(message);
     }
 
     /// The run's GPU canvases, as the window shows them; none before it started.

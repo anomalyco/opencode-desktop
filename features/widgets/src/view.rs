@@ -45,10 +45,10 @@ pub fn view<H: WidgetsHost + TimelineHost>(s: &H, p: &Pal, session: &str, messag
             Some(how) => Face::Closed { view: None, how },
             None => Face::Loading,
         };
-        return Some(session_view::widget::frame(s, p, session, &key, label, face, &Local::default(), None, Place::Inline(Buttons::default()), None));
+        return Some(session_view::widget::frame(s, p, session, &key, label, face, &Local::default(), None, Place::Inline(Buttons::default()), &[]));
     };
     if s.widgets().screen.is(&key) {
-        return Some(session_view::widget::frame(s, p, session, &key, &e.label, e.machine.face(), &e.local, None, Place::Elsewhere, None));
+        return Some(session_view::widget::frame(s, p, session, &key, &e.label, e.machine.face(), &e.local, None, Place::Elsewhere, &[]));
     }
     let again = key.clone();
     let retry: opencode_widget_view::Action<H> = Rc::new(move |s: &mut H, _tx: &mut Tx| retry(s, &again));
@@ -63,7 +63,7 @@ pub fn view<H: WidgetsHost + TimelineHost>(s: &H, p: &Pal, session: &str, messag
     // A program of another protocol can't run: nothing to try again or restart.
     let refused = matches!(s.widgets().widget_templates.get(&e.widget_template), Some(WidgetTemplate::Ready(c)) if c.refused());
     let buttons = Buttons { retry: (!refused).then_some(retry), expand, failure };
-    Some(session_view::widget::frame(s, p, session, &key, &e.label, e.machine.face(), &e.local, Some(&hooks::<H>(&key)), Place::Inline(buttons), chip(s, e).as_deref()))
+    Some(session_view::widget::frame(s, p, session, &key, &e.label, e.machine.face(), &e.local, Some(&hooks::<H>(&key)), Place::Inline(buttons), &chips(s, e)))
 }
 
 /// Widget `key`'s recorded program error (`State.failure`, any client's) while it's open: its
@@ -105,15 +105,11 @@ fn offers(e: &Entry) -> bool {
     e.machine.view().is_some_and(|v| v.offers_fullscreen(live))
 }
 
-/// The hosts it may reach, when its widget template is granted the network.
-fn chip<H: WidgetsHost>(s: &H, e: &Entry) -> Option<String> {
-    match s.widgets().widget_templates.get(&e.widget_template) {
-        Some(WidgetTemplate::Ready(c)) => match &c.kind {
-            Kind::Live { grants: Grants { https: Some(hosts), .. }, .. } => Some(session_view::widget::network_chip(hosts)),
-            _ => None,
-        },
-        _ => None,
-    }
+/// What its widget template is granted: the hosts it may reach, and its storage.
+fn chips<H: WidgetsHost>(s: &H, e: &Entry) -> Vec<String> {
+    let Some(WidgetTemplate::Ready(c)) = s.widgets().widget_templates.get(&e.widget_template) else { return Vec::new() };
+    let Kind::Live { grants: Grants { https, storage }, .. } = &c.kind else { return Vec::new() };
+    https.iter().map(|hosts| session_view::widget::network_chip(hosts)).chain(storage.then(session_view::widget::storage_chip)).collect()
 }
 
 /// How a widget ended, from its state alone.
@@ -136,7 +132,7 @@ pub fn screen_view<H: WidgetsHost + TimelineHost>(s: &H, p: &Pal) -> Vec<El> {
     });
     let [_, _, w, h] = s.widgets().screen_rect;
     let place = Place::Screen { size: [w, h], close };
-    let screen = session_view::widget::frame(s, p, &e.session, id, &e.label, e.machine.face(), &e.local, Some(&hooks::<H>(id)), place, chip(s, e).as_deref());
+    let screen = session_view::widget::frame(s, p, &e.session, id, &e.label, e.machine.face(), &e.local, Some(&hooks::<H>(id)), place, &chips(s, e));
     // Its size follows the window's: a resize lays the widget out anew, its canvases with it.
     vec![screen.on_layout(|s: &mut H, rect| crate::fullscreen::laid(s, rect))]
 }

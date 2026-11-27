@@ -9,7 +9,7 @@ pub type Program = opencode_widget::Program;
 #[cfg(not(target_arch = "wasm32"))]
 pub type LiveProgram = opencode_widget::live::LiveProgram;
 #[cfg(not(target_arch = "wasm32"))]
-pub use opencode_widget::live::{Ended, Grants, Live, Post, Setup};
+pub use opencode_widget::live::{Ended, Grants, Live, Post, Setup, Storage};
 /// A widget's `data`, converted once for its program's steps and draws.
 #[cfg(not(target_arch = "wasm32"))]
 pub type Data = opencode_widget::runner::Data;
@@ -127,6 +127,7 @@ mod page {
     #[derive(Clone, Debug, Default)]
     pub struct Grants {
         pub https: Option<Vec<String>>,
+        pub storage: bool,
     }
 
     impl Grants {
