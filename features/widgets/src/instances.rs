@@ -135,12 +135,13 @@ impl Instances {
         &self.list
     }
 
-    /// The widgets one can still use, last updated first: neither dismissed nor with a failure the
-    /// server recorded. A replaced widget is already its newest replacement, so a chain whose newest
-    /// is dismissed or failed isn't among them. Submitted ones are. What lists widgets to pick from
-    /// reads these; what shows a widget already picked (a dashboard tile) shows it whatever it is.
+    /// The widgets one can still use, last updated first: open, with no failure the server
+    /// recorded. A submitted or dismissed widget is closed (it shows only how it ended), so it isn't
+    /// one. A replaced widget is already its newest replacement, so each replace chain counts once,
+    /// and only when its newest is open and hasn't failed. What lists widgets to pick from reads
+    /// these; what shows a widget already picked (a dashboard tile) shows it whatever it is.
     pub fn usable(&self) -> impl Iterator<Item = &WidgetInstance> {
-        self.list.iter().filter(|i| i.state.status != WidgetStatus::Dismissed && i.state.failure.is_none())
+        self.list.iter().filter(|i| i.state.status == WidgetStatus::Open && i.state.failure.is_none())
     }
 
     /// Moves on every change: a view reads again when it moved since it last read.
