@@ -79,16 +79,13 @@ impl Default for State {
 
 pub(crate) static AUTOMATIONS: Slot<State> = Slot::new();
 
-/// Whether the experimental Automations feature is enabled (source.ts:available).
-pub fn available(s: &App) -> bool {
-    s.settings.automations()
+/// Automations shipped in every build (`opencode#66899`).
+pub fn available(_s: &App) -> bool {
+    true
 }
 
 /// Active automation count shown on the sidebar Automations action (source.ts:active).
 pub fn active_count(s: &App) -> usize {
-    if !available(s) {
-        return 0;
-    }
     s.kernel
         .slots
         .get(&AUTOMATIONS)
@@ -198,8 +195,7 @@ impl Feature<App> for AutomationsFeature {
                 crate::commands::order::AUTOMATIONS,
                 toggle,
             )
-            .section("view")
-            .when(available),
+            .section("view"),
         );
         builder.register_overlay(
             OverlayRegistration::<App>::new(DELETE_OVERLAY_ID)

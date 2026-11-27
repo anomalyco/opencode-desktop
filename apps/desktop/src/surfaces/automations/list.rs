@@ -2,7 +2,7 @@
 //! until asked for (packages/app/src/automations/route.tsx, view.tsx:AutomationListRow).
 
 use opencode_i18n::t;
-use opencode_kit::model::{AutomationOutcome, AutomationStatus};
+use opencode_kit::model::{AutomationOutcome, AutomationStatus, AutomationTrigger};
 use opencode_ui::palette::Pal;
 use opencode_ui::widgets::BODY;
 use rune::{Anim, Color, Direction, El, TextStyle, Tx, col, el, icon, row, text};
@@ -12,7 +12,7 @@ use session_view::focus::FocusExt as _;
 use crate::App;
 
 use super::AUTOMATIONS;
-use super::format::relative_time;
+use super::format::short_duration;
 use super::source::Entry;
 
 /// A group's name, set as the sidebar's section headers are (`sidebar/sections/header.rs`: 11.5,
@@ -25,7 +25,7 @@ const GROUP_H: f32 = 24.0;
 /// The spine every header, rule and row keeps: 10 pt inside a row's pill, under the page title.
 const SPINE: f32 = 10.0;
 const ROW_TITLE: TextStyle = TextStyle::new(13.0, 530.0).lh(20.0).tracking(-0.04);
-const ROW_NOTE: TextStyle = TextStyle::new(12.0, 440.0).lh(20.0);
+const ROW_CHIP: TextStyle = TextStyle::new(12.0, 530.0).lh(16.0).features("\"tnum\"");
 const ROW_SUB: TextStyle = TextStyle::new(12.0, 440.0).lh(16.0);
 
 const STATUSES: [AutomationStatus; 3] = [AutomationStatus::Active, AutomationStatus::Paused, AutomationStatus::Done];
@@ -119,33 +119,80 @@ fn group_header(p: &Pal, label: &'static str, count: usize, fold: Option<bool>) 
         .child(el().size(12.0, 12.0).ml(-5.0).center().a11y_hidden().child(triangle))
 }
 
-fn list_row(s: &App, p: &Pal, entry: &Entry, selected: bool, mut context: Vec<String>) -> El {
+enum Chip {
+    Failed,
+    Ended,
+    Live,
+    Due(String),
+}
+
+fn chip_view(p: &Pal, chip: Chip) -> El {
+    let (border, fg, lead, label) = match chip {
+        Chip::Failed => (
+            p.v2.danger.border,
+            p.danger,
+            Some(icon(&ic::WARNING, 14.0).color(p.danger).a11y_hidden()),
+            t!("automations.note.failed").to_owned(),
+        ),
+        Chip::Ended => (
+            p.border,
+            p.muted,
+            Some(icon(&super::CLOCK, 14.0).color(p.muted).a11y_hidden()),
+            t!("automations.note.ended").to_owned(),
+        ),
+        Chip::Live => (
+            p.v2.success.border,
+            p.success,
+            Some(el().size(6.0, 6.0).radius(3.0).fill(p.success).a11y_hidden()),
+            t!("automations.note.live").to_owned(),
+        ),
+        Chip::Due(text) => (p.border, p.muted, None, text),
+    };
+    row()
+        .key("auto-row-chip")
+        .h(24.0)
+        .min_w(40.0)
+        .px(8.0)
+        .gap(4.0)
+        .center()
+        .radius(12.0)
+        .border(1.0, border)
+        .border_layout()
+        .children(lead)
+        .child(text(label).font(ROW_CHIP).color(fg))
+}
+
+fn list_row(s: &App, p: &Pal, entry: &Entry, selected: bool, context: Vec<String>) -> El {
     let info = &entry.row;
-    let failed = info.status == AutomationStatus::Paused && info.last_outcome == Some(AutomationOutcome::Failed);
-    let note = if failed {
-        Some(t!("automations.note.failed").to_owned())
+    let chip = if info.status == AutomationStatus::Paused && info.last_outcome == Some(AutomationOutcome::Failed) {
+        Some(Chip::Failed)
     } else if info.status == AutomationStatus::Done && info.last_outcome == Some(AutomationOutcome::Expired) {
-        Some(t!("automations.status.expired").to_owned())
+        Some(Chip::Ended)
     } else if info.status == AutomationStatus::Active {
-        info.next_due_at.map(|at| relative_time(at, *s.now_ms))
+        if matches!(info.trigger, AutomationTrigger::Event { .. }) {
+            Some(Chip::Live)
+        } else {
+            info.next_due_at.map(|at| Chip::Due(short_duration(at, *s.now_ms)))
+        }
     } else {
         None
     };
-    context.push(entry.trigger.clone());
-    // A finished automation steps back: its name in the muted ink.
+    // Trigger leads the subtitle, followed by project context when multi-project (`view.tsx:44`).
+    let mut sub_parts = Vec::with_capacity(1 + context.len());
+    sub_parts.push(entry.trigger.clone());
+    sub_parts.extend(context);
     let name_ink = if info.status == AutomationStatus::Done { p.muted } else { p.text };
-    let note_ink = if failed { p.danger } else { p.muted };
 
     let key = entry.key.clone();
-    let top = row()
-        .w_full()
+    let left = col()
+        .grow(1.0)
+        .shrink()
         .min_w(0.0)
-        .gap(12.0)
-        .center_y()
-        .child(text(info.name.clone()).font(ROW_TITLE).color(name_ink).grow(1.0).shrink().min_w(0.0).truncate().dir(Direction::Auto))
-        .children(note.map(|n| text(n).font(ROW_NOTE.features("\"tnum\"")).color(note_ink)));
+        .gap(2.0)
+        .child(text(info.name.clone()).font(ROW_TITLE).color(name_ink).w_full().truncate().dir(Direction::Auto))
+        .child(text(sub_parts.join(" · ")).font(ROW_SUB).color(p.faint).w_full().truncate());
 
-    col()
+    row()
         .key(format!("auto-row-{}", info.id))
         .role("button")
         .label(info.name.clone())
@@ -153,7 +200,8 @@ fn list_row(s: &App, p: &Pal, entry: &Entry, selected: bool, mut context: Vec<St
         .w_full()
         .px(SPINE)
         .py(8.0)
-        .gap(2.0)
+        .gap(12.0)
+        .center_y()
         .radius(7.0)
         .focus_inset(p)
         .fill(if selected { p.layer2 } else { Color::TRANSPARENT })
@@ -162,6 +210,6 @@ fn list_row(s: &App, p: &Pal, entry: &Entry, selected: bool, mut context: Vec<St
             tx.instant();
             s.kernel.slots.get_mut(&AUTOMATIONS).selected = Some(key.clone());
         })
-        .child(top)
-        .child(text(context.join(" · ")).font(ROW_SUB).color(p.faint).w_full().truncate())
+        .child(left)
+        .children(chip.map(|c| chip_view(p, c)))
 }

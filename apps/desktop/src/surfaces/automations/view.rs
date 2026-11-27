@@ -100,12 +100,9 @@ fn header(s: &App, p: &Pal, has_draft: bool, show_search: bool) -> El {
 }
 
 fn empty_state(s: &App, p: &Pal, has_draft: bool) -> El {
-    let available = super::available(s);
     let loading = source::is_loading(s);
     let failed = source::is_failed(s);
-    let heading = if !available {
-        t!("automations.off")
-    } else if failed {
+    let heading = if failed {
         t!("automations.failed")
     } else if loading {
         t!("automations.loading")
@@ -139,17 +136,13 @@ fn empty_state(s: &App, p: &Pal, has_draft: bool) -> El {
 }
 
 fn split_body(s: &App, p: &Pal, all: &[Entry], filtered: &[Entry], selected: Option<&Entry>, wide: bool) -> El {
-    // Server and project names only tell rows apart when they differ (model.ts:context).
-    let (multi_srv, multi_proj) = (source::multi_server(s), source::multi_project(all));
+    // Project names only tell rows apart when they differ (model.ts:150, opencode#66899).
+    let multi_proj = source::multi_project(all);
     let context = |entry: &Entry| {
         let mut parts = Vec::new();
-        if multi_srv {
-            parts.push(entry.server_label.clone());
-        }
-        if multi_proj {
+        if multi_proj && !entry.project_name.trim().is_empty() {
             parts.push(entry.project_name.clone());
         }
-        parts.retain(|part| !part.trim().is_empty());
         parts
     };
     let detail = match selected {

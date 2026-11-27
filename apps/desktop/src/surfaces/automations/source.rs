@@ -163,7 +163,6 @@ pub fn filtered_entries(s: &App, all: &[Entry]) -> Vec<Entry> {
             if let Some(r) = &e.recipient { push(r); }
             if let Some(id) = &e.row.session_id { push(id); }
             if let AutomationAction::Prompt { to: opencode_kit::model::AutomationTarget::Session(id), .. } = &e.row.action { push(id); }
-            push(&e.server_label);
             if let opencode_kit::model::AutomationTrigger::Event { server, .. } = &e.row.trigger {
                 push(server);
             }
@@ -182,10 +181,6 @@ pub fn selected_entry(s: &App, filtered: &[Entry]) -> Option<Entry> {
     let sel = s.kernel.slots.get(&AUTOMATIONS).selected.as_deref();
     sel.and_then(|k| filtered.iter().find(|e| e.key == k).cloned())
         .or_else(|| filtered.first().cloned())
-}
-
-pub fn multi_server(s: &App) -> bool {
-    s.kernel.slots.get(&AUTOMATIONS).servers.len() > 1
 }
 
 pub fn multi_project(all: &[Entry]) -> bool {
@@ -366,15 +361,6 @@ pub fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     if s.kernel.slots.untracked(&AUTOMATIONS).fixture_mode {
         return changed;
     }
-    if !s.settings.automations() {
-        if !s.kernel.slots.untracked(&AUTOMATIONS).servers.is_empty() {
-            let st = s.kernel.slots.get_mut(&AUTOMATIONS);
-            st.servers.clear();
-            changed = true;
-        }
-        return changed;
-    }
-
     let listed = crate::servers::runtime::listed();
     let open = *s.route == Route::Automations && !s.settings_open();
     let interval = if open { OPEN_INTERVAL_SECS } else { BG_INTERVAL_SECS };

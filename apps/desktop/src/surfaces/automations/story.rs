@@ -14,10 +14,9 @@ use super::source;
 const VARIANTS: &[(&str, usize)] = &[
     ("Default", 0),
     ("Empty", 1),
-    ("Setting off", 2),
-    ("Delete confirm", 3),
-    ("Long prompt", 4),
-    ("Long prompt open", 5),
+    ("Delete confirm", 2),
+    ("Long prompt", 3),
+    ("Long prompt open", 4),
 ];
 
 const KEYS: &[Trigger] = &[
@@ -143,29 +142,28 @@ fn sample_rows(now_ms: i64) -> Vec<AutomationInfo> {
     ]
 }
 
-fn setup_base(s: &mut App, enabled: bool) {
+fn setup_base(s: &mut App) {
     crate::scenes::open_scene(s);
     s.finish_stream();
     crate::scenes::side_tabs(s);
-    s.settings.automations = Some(enabled);
     *s.route = Route::Automations;
 }
 
 fn setup_default(s: &mut App) {
-    setup_base(s, true);
+    setup_base(s);
     let now_ms = *s.now_ms;
     let rows = sample_rows(now_ms);
     source::seed_fixture(s, "release-runner-03", rows, &["/workspace/lumen/release", "/workspace/harbor"]);
 }
 
 fn setup_empty(s: &mut App) {
-    setup_base(s, true);
+    setup_base(s);
     source::seed_fixture(s, "release-runner-03", Vec::new(), &["/workspace/lumen/release"]);
 }
 
 /// A prompt of many paragraphs on a server with no name, as a local one has.
 fn setup_long(s: &mut App) {
-    setup_base(s, true);
+    setup_base(s);
     let rows = super::samples::long_rows(*s.now_ms);
     source::seed_fixture(s, "", rows, &super::samples::DIRS);
     let key = source::entry_key(crate::servers::runtime::active(s), super::samples::LONG_ID);
@@ -181,24 +179,18 @@ fn setup_long_open(s: &mut App) {
     }
 }
 
-fn setup_off(s: &mut App) {
-    setup_base(s, false);
-    source::seed_fixture(s, "release-runner-03", Vec::new(), &[]);
-}
-
 fn open(s: &mut App, _play: &mut rune::Play<'_, App>) {
     match *s.fixture_run.variant {
         1 => setup_empty(s),
-        2 => setup_off(s),
-        3 => {
+        2 => {
             setup_default(s);
             let entries = source::entries(s);
             if let Some(first) = entries.first() {
                 super::ask_delete(s, first.key.clone(), first.server.clone(), first.row.id.clone(), first.row.name.clone());
             }
         }
-        4 => setup_long(s),
-        5 => setup_long_open(s),
+        3 => setup_long(s),
+        4 => setup_long_open(s),
         _ => setup_default(s),
     }
 }
@@ -219,7 +211,6 @@ rune_register::register!(crate::stories::STORY_LIST: Story = [
 rune_register::register!(crate::scenes::SCENE_LIST: crate::scenes::Scene = [
     ("automations", setup_default),
     ("automations-empty", setup_empty),
-    ("automations-off", setup_off),
     ("automations-long-prompt", setup_long),
     ("automations-long-prompt-open", setup_long_open),
 ]);

@@ -40,21 +40,12 @@ pub(super) fn inspector(s: &App, p: &Pal, entry: &Entry, context: &[String]) -> 
         // A path's end names the folder: the cut falls at its start, the whole path on hover.
         text(folder).key("auto-detail-folder").font(CODE).color(p.muted).dir(Direction::Ltr).truncate_head().help(info.directory.clone()),
     ));
-    if let Some(id) = &info.session_id {
+    if let (Some(id), Some(creator)) = (&info.session_id, &entry.creator) {
         meta = meta.child(field(
             p,
             t!("automations.creator"),
             META,
-            row().child(session_link(p, "auto-creator-link", entry.server.clone(), id, entry.creator.clone(), META_MED)),
-        ));
-    }
-    // A server with no name (this machine's own) has nothing to say here.
-    if !entry.server_label.trim().is_empty() {
-        meta = meta.child(field(
-            p,
-            t!("automations.runsOn"),
-            META,
-            text(entry.server_label.clone()).key("auto-detail-server").font(META).color(p.muted).truncate(),
+            row().child(session_link(p, "auto-creator-link", entry.server.clone(), id, Some(creator.clone()), META_MED)),
         ));
     }
 
@@ -197,7 +188,8 @@ fn do_block(s: &App, p: &Pal, entry: &Entry) -> El {
         AutomationAction::Prompt { prompt, to } => {
             let summary = match to {
                 AutomationTarget::Session(id) => {
-                    let link = session_link(p, "auto-recipient-link", entry.server.clone(), id, entry.recipient.clone(), BODY_MED);
+                    let label = entry.recipient.clone().unwrap_or_else(|| t!("automations.session.unknown").to_owned());
+                    let link = session_link(p, "auto-recipient-link", entry.server.clone(), id, Some(label), BODY_MED);
                     sentence(p, t!("automations.do.prompt", session = SLOT), link)
                 }
                 AutomationTarget::Subagent(agent) => text(t!("automations.do.subagent", agent = agent)).font(BODY).color(p.text).wrap(),

@@ -72,10 +72,7 @@ fn describe_cron(cron: &str) -> Option<String> {
         if weekdays.is_empty()
             && let Some(step) = even_step(&hours, 24).filter(|step| *step > 1)
         {
-            if minute == 0 {
-                return Some(t!("rune.automations.trigger.hours", count = step));
-            }
-            return Some(t!("rune.automations.trigger.hoursAt", count = step, minute = format!("{minute:02}")));
+            return Some(t!("automations.trigger.hours", count = step, minute = format!("{minute:02}")));
         }
         if hours.len() > MAX_TIMES {
             return None;
@@ -233,6 +230,21 @@ fn civil_from_days(z: i64) -> (i32, u32, u32) {
     let m = if mp < 10 { mp + 3 } else { mp - 9 };
     let y = y + i64::from(m <= 2);
     (y as i32, m, d)
+}
+
+/// Compact duration until the next run ("5m", "2h", "3d") for the list pill chip
+/// (`packages/app/src/automations/format.ts:108-120`, `opencode#66899`).
+pub fn short_duration(at: i64, now_ms: i64) -> String {
+    let minutes = (((at - now_ms) as f64) / 60_000.0).round().max(1.0) as i64;
+    if minutes < 60 {
+        format!("{minutes}m")
+    } else if minutes < 1440 {
+        let hours = ((minutes as f64) / 60.0).round().max(1.0) as i64;
+        format!("{hours}h")
+    } else {
+        let days = ((minutes as f64) / 1440.0).round().max(1.0) as i64;
+        format!("{days}d")
+    }
 }
 
 /// Relative time matching Intl.RelativeTimeFormat(locale, { numeric: "auto" })

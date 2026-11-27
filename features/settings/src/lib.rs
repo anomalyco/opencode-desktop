@@ -118,8 +118,6 @@ pub struct Settings {
     pub question_composer: Option<bool>,
     /// Experimental side tab groups (`general.tabGroups`, #64407): opt-in (`false` by default).
     pub tab_groups: Option<bool>,
-    /// Experimental Automations screen (`general.automations`, opencode#66393): opt-in.
-    pub automations: Option<bool>,
     /// Experimental › Sidebar sections (`rune.settings`): opt-in.
     pub sidebar_sections: Option<bool>,
     /// Ease a live delivery into place: the Pending label, the tray's room and joined prompts.
@@ -208,7 +206,6 @@ impl Default for Settings {
             shared_side_panel: false,
             question_composer: None,
             tab_groups: None,
-            automations: None,
             sidebar_sections: None,
             smooth_timeline: false,
             terminal_option_meta: false,
@@ -248,7 +245,6 @@ impl Settings {
             m.insert("keepServiceRunning".into(), json!(self.keep_service_running));
             m.insert("backgroundNoticeShown".into(), json!(self.background_notice_shown));
             if let Some(on) = self.tab_groups { m.insert("tabGroups".into(), json!(on)); }
-            if let Some(on) = self.automations { m.insert("automations".into(), json!(on)); }
         if let Some(on) = self.question_composer { m.insert("questionComposer".into(), json!(on)); }
             if let Some(on) = self.sidebar_sections { m.insert("sidebarSections".into(), json!(on)); }
         }
@@ -264,11 +260,6 @@ impl Settings {
     /// every build while preserving any explicit `Some(true)` / `Some(false)` saved by the user.
     pub fn tab_groups(&self) -> bool {
         self.tab_groups.unwrap_or(false)
-    }
-
-    /// Experimental › Automations (`general.automations`, opencode#66393): opt-in (`false` by default).
-    pub fn automations(&self) -> bool {
-        self.automations.unwrap_or(false)
     }
 
     fn to_json_base(&self) -> Value {
@@ -353,7 +344,6 @@ impl Settings {
             shared_side_panel: v["sharedSidePanel"].as_bool().unwrap_or(false),
             question_composer: v["questionComposer"].as_bool(),
             tab_groups: v["tabGroups"].as_bool(),
-            automations: v["automations"].as_bool(),
             sidebar_sections: v["sidebarSections"].as_bool(),
             smooth_timeline: v["smoothTimeline"].as_bool().unwrap_or(false),
             terminal_option_meta: v["terminal"]["optionAsMeta"].as_bool().unwrap_or(false),
