@@ -301,6 +301,8 @@
   "rune.session.untitled": "Untitled session",
   "rune.settings.developer.rewind.title": "Rewind",
   "rune.settings.developer.title": "Developer",
+  "rune.settings.experimental.row.pinSync.description": "Keep which sessions are pinned in step with other apps on the same server. Order and groups stay on this device.",
+  "rune.settings.experimental.row.pinSync.title": "Sync pinned sessions",
   "rune.settings.experimental.row.sidebarSections.description": "Select multiple side tabs with ⌘/⇧-click, run batch actions, and group them under minimal collapsible headers.",
   "rune.settings.experimental.row.sidebarSections.title": "Sidebar sections",
   "rune.settings.experimental.row.smoothTimeline.description": "Ease pending and queued messages into place as they arrive.",

@@ -554,6 +554,9 @@ fn register_core_systems(b: &mut KernelBuilder<App>) {
     b.schedule(stage::REACT_SHELL, "auto_tab_groups.poll", |s, _, _| {
         crate::tabs::auto_groups::poll(s)
     });
+    b.schedule(stage::REACT_SHELL, "pin_sync.poll", |s, _, _| {
+        crate::tabs::pin_sync::poll(s)
+    });
     // Known: reads `tab_layout()` and `settings_open()` settled by `layout_state.poll` -> `narrow.poll`.
     b.schedule(stage::REACT_SHELL, "session_status.poll", |s, now, tx| {
         crate::session_status::poll(s, now, tx)

@@ -42,6 +42,7 @@ mod reach;
 #[cfg(not(target_arch = "wasm32"))]
 mod streams;
 pub mod rewrite;
+pub mod spaces;
 mod upload;
 #[cfg(target_arch = "wasm32")]
 pub mod web;
@@ -76,6 +77,7 @@ impl Server {
         false
     }
 }
+pub use spaces::Space;
 pub use upload::UploadError;
 pub use wire::{Incoming, Request, Ticket, TicketKind, Write};
 pub use worker::{connect, connect_with_idle};
