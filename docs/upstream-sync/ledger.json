@@ -2,29 +2,29 @@
   "generated_at": "2026-11-27",
   "upstream_repo": "anomalyco/opencode",
   "upstream_reference_base": "f6e0c2d0833ffe772035f221fed923e1cd5fb408",
-  "upstream_head": "449c128a5b225efcf986201d57519697d8bb7fe1",
+  "upstream_head": "740bd1d732fc857957f3d3ea1f1ce2c682d9b18e",
   "upstream_pre_window_base": "3751be8138ebcf33343eb3f3d011b32fc814103c",
   "rune_desktop_repo": "anomalyco/opencode-rune",
-  "rune_desktop_head": "cae3029ef",
-  "post_1114_commit_count": 769,
-  "post_1114_in_ledger": 260,
-  "post_1114_skipped": 509,
+  "rune_desktop_head": "f837fd50f",
+  "post_1114_commit_count": 799,
+  "post_1114_in_ledger": 269,
+  "post_1114_skipped": 530,
   "post_1114_skipped_breakdown": {
-    "test-only": 34,
+    "test-only": 35,
     "ci-bench-deps": 26,
     "docs-site-data": 84,
-    "tui-only": 32,
-    "cli-acp-only": 14,
-    "server-core-ai-codemode-internal": 319
+    "tui-only": 34,
+    "cli-acp-only": 15,
+    "server-core-ai-codemode-internal": 336
   },
   "pre_1114_carryover_rows": 15,
-  "total_ledger_rows": 281,
+  "total_ledger_rows": 290,
   "status_counts": {
     "have it": 239,
     "not applicable": 39,
     "differs on purpose": 1,
     "partly": 2,
-    "missing": 0
+    "missing": 9
   },
   "rows": [
     {
@@ -6336,7 +6336,7 @@
       "summary": "The browser's import dialog in two groups: what comes over (Sign-ins, Browsing history) and from which sites: a radio choice 'All sites' (with the count) or 'Only sites I choose', which shows the search and the site list under it with nothing ticked; one box in the list's header ticks or clears every shown site (mixed when some are ticked) in place of the Select all / Select none buttons; the 'Choose sites' disclosure in the footer is gone; a profile picker ('From') shows only where the dialog has several profiles to offer, and a Settings row opens it for its own profile, named in the title with the profile as a badge; a new dialog size 'tall' (480 x 600, fixed top edge); the Settings row's button says 'Import', not 'Import...', and a browser's profile name beside it is a badge.",
       "size": "L",
       "status": "partly",
-      "status_evidence": "Ported in opencode-rune #1202 (56bd7bb4; plugin contract 1.11): the browser Import dialog is organized into two groups (Include: Sign-ins and Browsing history; Sites: All sites with count, or Only sites I choose with search, select-all checkbox and site list), with the profile shown as a badge beside the browser title when opened from a Settings row, and the dialog keeping its top edge when the list opens; Return on a checkbox starts the import. Two older faults were fixed in the same change: Settings > Browser now lists profiles on its first open without leaving the page, and working copies of another browser's cookie database left behind if the app ended during a read are claimed by an OS lock file and swept once after launch (official packages/gui-plugins/src/browser/profile/index.ts:102, database.ts:62-86). Official: packages/gui-plugins/src/browser/site-chooser.tsx, settings.tsx, panel.tsx. Run headless on Windows x64 CI builds under sealed scratch roots (wall clock only, every process environment verified under the root before the first tap): cases 7, 1, 2, 3 (400 sites, tall and short windows) and 6 (Return on checkbox) held on b7edbacba beside before build cc991c6505; on the merged head 0e3df708a beside before build 278f9aaf38: shared strings, press on the words of Only sites I choose (140 wide, label 116) and press beside, first-open frame check (16.9 ms before, 41.0 ms new; an earlier 2.3 s frame did not recur), sweep cases 8-10 (planted copy+lock removed; no-lock copy waits 10 min; real lock swept after quick end; mid-read Cookies copy not caught, case 8 stands for it), and all three shared-file samples (Add extension framed list, address field, /rename row). Not run: case 4 (pane offer) and case 5 (cookie import). Partly because three named differences from official remain open (follow-ups owed): (1) the From picker is a menu button rather than a select (needs a select in the plugin kit, select.css:22-45); (2) the Import button while importing uses the kit's loading look rather than a disabled primary button with a 14 pt spinner (site-chooser.tsx:682-694); (3) list rows are list items with checkboxes rather than a listbox of options (site-chooser.tsx:570-591). Closing all 3 remaining gaps in opencode-rune #1385 (head d01fd2487d, CI running, contract 1.12): adds ui.select (rune_kit::Select + Menu::picker) for the From profile picker, renders the busy Import primary button disabled with a 14 pt ink-colored spinner and not-allowed cursor, and switches the site chooser to role=listbox with role=option rows (selected=chosen) and presentation-only checkboxes.",
+      "status_evidence": "Ported in opencode-rune #1202 (56bd7bb4; plugin contract 1.11): the browser Import dialog is organized into two groups (Include: Sign-ins and Browsing history; Sites: All sites with count, or Only sites I choose with search, select-all checkbox and site list), with the profile shown as a badge beside the browser title when opened from a Settings row, and the dialog keeping its top edge when the list opens; Return on a checkbox starts the import. Two older faults were fixed in the same change: Settings > Browser now lists profiles on its first open without leaving the page, and working copies of another browser's cookie database left behind if the app ended during a read are claimed by an OS lock file and swept once after launch (official packages/gui-plugins/src/browser/profile/index.ts:102, database.ts:62-86). Official: packages/gui-plugins/src/browser/site-chooser.tsx, settings.tsx, panel.tsx. Run headless on Windows x64 CI builds under sealed scratch roots (wall clock only, every process environment verified under the root before the first tap): cases 7, 1, 2, 3 (400 sites, tall and short windows) and 6 (Return on checkbox) held on b7edbacba beside before build cc991c6505; on the merged head 0e3df708a beside before build 278f9aaf38: shared strings, press on the words of Only sites I choose (140 wide, label 116) and press beside, first-open frame check (16.9 ms before, 41.0 ms new; an earlier 2.3 s frame did not recur), sweep cases 8-10 (planted copy+lock removed; no-lock copy waits 10 min; real lock swept after quick end; mid-read Cookies copy not caught, case 8 stands for it), and all three shared-file samples (Add extension framed list, address field, /rename row). Not run: case 4 (pane offer) and case 5 (cookie import). Partly because three named differences from official remain open (follow-ups owed): (1) the From picker is a menu button rather than a select (needs a select in the plugin kit, select.css:22-45); (2) the Import button while importing uses the kit's loading look rather than a disabled primary button with a 14 pt spinner (site-chooser.tsx:682-694); (3) list rows are list items with checkboxes rather than a listbox of options (site-chooser.tsx:570-591). Closing all 3 remaining gaps in opencode-rune #1385 (head 8c67700b80, CI running, contract 1.12): adds ui.select (rune_kit::Select + Menu::picker) for the From profile picker, renders the busy Import primary button disabled with a 14 pt ink-colored spinner and not-allowed cursor, and switches the site chooser to dedicated ui.listbox / ui.option host nodes (selected=chosen) with presentation-only checkboxes.",
       "depends_on": "none",
       "risks": "none",
       "workstream": "UPSTREAM"
@@ -6872,7 +6872,7 @@
       "summary": "Adds an experimental Automations view (Settings > Experimental toggle + Automations sidebar/titlebar entry + /automations route) showing each server's scheduled/event automations, where they run, which session they wake, and pause/resume/delete controls.",
       "size": "L",
       "status": "have it",
-      "status_evidence": "Ported in opencode-rune #1377 (506b5822e, head b2d53dd655, CI run 45919467456 green across guardrails + macOS/Win x64/Win arm64/Linux x64; Linux arm64 skipped): adds opencode-kit automation model/client, Settings > Experimental > Automations toggle + search + 51 i18n keys, Route::Automations + AutomationsFeature split list/inspector + delete confirmation dialog + sidebar/titlebar/Home entry points (including #66635 93e053ff89 prop-passing shape) + --scene automations/automations-empty/automations-off. Official: packages/app/src/automations/{format,model,route,source,view}.*, settings/experimental/experimental.tsx, shell/{routes/routes,tabs/tabs,titlebar/titlebar}.tsx, home/{route,projects/*}.tsx, runtime/i18n/en.ts. Post-merge bulk headless verification queued.",
+      "status_evidence": "Ported in opencode-rune #1377 (506b5822e, head b2d53dd655, CI run 45919467456 green across guardrails + macOS/Win x64/Win arm64/Linux x64; Linux arm64 skipped): adds opencode-kit automation model/client, Settings > Experimental > Automations toggle + search + 51 i18n keys, Route::Automations + AutomationsFeature split list/inspector + delete confirmation dialog + sidebar/titlebar/Home entry points (including #66635 93e053ff89 prop-passing shape) + --scene automations/automations-empty/automations-off. Official: packages/app/src/automations/{format,model,route,source,view}.*, settings/experimental/experimental.tsx, shell/{routes/routes,tabs/tabs,titlebar/titlebar}.tsx, home/{route,projects/*}.tsx, runtime/i18n/en.ts. Post-merge verified headless on Windows x64 PR build (run 45919467456, 13/13 passes exit 0), all 5/5 cases pass: --scene automations sidebar count/groups/inspector, Pause/Resume/Delete dialog, prompt/shell/subagent rows + Done toggle + search filter, New automation & empty example pre-fill /automation, and --scene automations-off + Settings > Experimental toggle. Not run: real window, macOS, Linux.",
       "depends_on": "none",
       "risks": "none",
       "workstream": "UPSTREAM"
@@ -7024,6 +7024,212 @@
       "size": "S",
       "status": "have it",
       "status_evidence": "Ported in opencode-rune #1357 (d1489639c, head 46a8006530, CI run 45904428317 green across guardrails + macOS/Win x64/Win arm64/Linux x64; Linux arm64 skipped): regenerated apps/desktop/assets/themes.json (47 themes total) via apps/desktop/tools/themes.ts against official d382c66c6d packages/ui/src/theme, adding Dune, E-Ink, Espresso, Sakura, and Witch Hazel, updating Poimandres light palette, and applying v2/resolve.ts light neutral & monochrome hue scales. Official: packages/ui/src/theme/{context.tsx,v2/resolve.ts,themes/{dune,eink,espresso,poimandres,sakura,witchhazel}.json}. Verified headless on Windows x64 PR build (5a027d8785, run 45901077585) beside before build (14fec3dcb2), all 2/2 cases pass (11/11 launches exit 0): Theme picker lists 47 items (OpenCode first, rest alphabetical) including all 5 new themes (before: 42 items), and all 5 new palettes plus updated Poimandres light render distinctly while oc-2 dark stays unchanged. Not run: real window, macOS, Linux.",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "UPSTREAM"
+    },
+    {
+      "id": "UP-261",
+      "window": "post-1120",
+      "pr": 66736,
+      "sha": "93e15e2557",
+      "title": "fix: use the same provider order in desktop, the TUI and auth login",
+      "merged": "2026-11-27",
+      "packages": [
+        "app",
+        "cli",
+        "tui"
+      ],
+      "main_files": [
+        "packages/app/src/providers/catalog/order.ts",
+        "packages/app/src/providers/connect/dialog.tsx"
+      ],
+      "summary": "Aligns desktop provider catalog and Connect dialog provider ordering with TUI and CLI auth login.",
+      "size": "XS",
+      "status": "missing",
+      "status_evidence": "Claimed by UPSTREAM-f. Official: packages/app/src/providers/catalog/order.ts, packages/app/src/providers/connect/dialog.tsx.",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "UPSTREAM"
+    },
+    {
+      "id": "UP-262",
+      "window": "post-1120",
+      "pr": 66558,
+      "sha": "2535f4a2b0",
+      "title": "fix(app): open the row below after archiving the open inbox session",
+      "merged": "2026-11-27",
+      "packages": [
+        "app"
+      ],
+      "main_files": [
+        "packages/app/src/shell/tabs/tabs.tsx",
+        "packages/app/src/shell/titlebar/inbox.tsx",
+        "packages/app/src/shell/titlebar/inbox-successor.ts"
+      ],
+      "summary": "After archiving the currently open session from the sidebar inbox list, selects and opens the next row below it (or above if last) instead of jumping away.",
+      "size": "S",
+      "status": "missing",
+      "status_evidence": "Claimed by UPSTREAM-f. Official: packages/app/src/shell/tabs/tabs.tsx, titlebar/inbox.tsx, titlebar/inbox-successor.ts.",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "UPSTREAM"
+    },
+    {
+      "id": "UP-263",
+      "window": "post-1120",
+      "pr": 66500,
+      "sha": "30db303dc5",
+      "title": "fix(app): keep the selected session in the collapsed Working section",
+      "merged": "2026-11-27",
+      "packages": [
+        "app"
+      ],
+      "main_files": [
+        "packages/app/src/shell/titlebar/inbox.tsx"
+      ],
+      "summary": "Keeps the active/selected session row visible inside the collapsed Working section of the sidebar inbox list rather than hiding it.",
+      "size": "XS",
+      "status": "missing",
+      "status_evidence": "Claimed by UPSTREAM-f. Official: packages/app/src/shell/titlebar/inbox.tsx.",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "UPSTREAM"
+    },
+    {
+      "id": "UP-264",
+      "window": "post-1120",
+      "pr": 66547,
+      "sha": "b64f928fd0",
+      "title": "fix(app): keep the inbox list in place when a focused session changes section",
+      "merged": "2026-11-27",
+      "packages": [
+        "app",
+        "ui"
+      ],
+      "main_files": [
+        "packages/app/src/shell/titlebar/inbox.tsx",
+        "packages/ui/src/context/focus-rescue.tsx"
+      ],
+      "summary": "Prevents the sidebar inbox list from jumping scroll position when a focused session moves between inbox sections.",
+      "size": "S",
+      "status": "missing",
+      "status_evidence": "Claimed by UPSTREAM-f. Official: packages/app/src/shell/titlebar/inbox.tsx, packages/ui/src/context/focus-rescue.tsx.",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "UPSTREAM"
+    },
+    {
+      "id": "UP-265",
+      "window": "post-1120",
+      "pr": 66499,
+      "sha": "5ca42a3e0c",
+      "title": "feat(desktop): first-quit notice that OpenCode keeps running, and a setting to stop it on quit",
+      "merged": "2026-11-27",
+      "packages": [
+        "app",
+        "desktop"
+      ],
+      "main_files": [
+        "packages/app/src/settings/general/general.tsx",
+        "packages/app/src/runtime/i18n/en.ts",
+        "packages/desktop/src/main/lifecycle/background-notice.ts",
+        "packages/desktop/src/main/service/keep-running.ts"
+      ],
+      "summary": "Shows a first-quit notice explaining that OpenCode's background service keeps running after quit, and adds a Settings > General toggle to stop the background service on quit.",
+      "size": "M",
+      "status": "missing",
+      "status_evidence": "Handed to UPSTREAM-g. Official: packages/app/src/settings/general/general.tsx, runtime/i18n/{en,desktop-native}.ts, packages/desktop/src/main/{lifecycle/background-notice*.ts,service/keep-running.ts}.",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "UPSTREAM"
+    },
+    {
+      "id": "UP-266",
+      "window": "post-1120",
+      "pr": 66494,
+      "sha": "80bd09332b",
+      "title": "fix(app): show the Recent header in the inbox sidebar again",
+      "merged": "2026-11-27",
+      "packages": [
+        "app"
+      ],
+      "main_files": [
+        "packages/app/src/shell/titlebar/inbox.tsx"
+      ],
+      "summary": "Restores the Recent section header in the sidebar inbox list when Recent sessions are shown.",
+      "size": "XS",
+      "status": "missing",
+      "status_evidence": "Claimed by UPSTREAM-f. Official: packages/app/src/shell/titlebar/inbox.tsx.",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "UPSTREAM"
+    },
+    {
+      "id": "UP-267",
+      "window": "post-1120",
+      "pr": 66751,
+      "sha": "9b1992045a",
+      "title": "fix(session-ui): group a script's file changes into one patch group",
+      "merged": "2026-11-27",
+      "packages": [
+        "session-ui"
+      ],
+      "main_files": [
+        "packages/session-ui/src/tools/tool-renderer.tsx",
+        "packages/session-ui/src/timeline-next/timeline-next.css"
+      ],
+      "summary": "Groups a Code Mode execute script's multiple file changes into a single patch group card matching direct multi-file patches.",
+      "size": "S",
+      "status": "missing",
+      "status_evidence": "Claimed by UPSTREAM-f. Official: packages/session-ui/src/tools/tool-renderer.tsx, timeline-next/timeline-next.css.",
+      "depends_on": "UP-255",
+      "risks": "none",
+      "workstream": "UPSTREAM"
+    },
+    {
+      "id": "UP-268",
+      "window": "post-1120",
+      "pr": 66789,
+      "sha": "0a4e0109b5",
+      "title": "feat(ui): taller tooltip lines and colored tooltip text",
+      "merged": "2026-11-27",
+      "packages": [
+        "ui"
+      ],
+      "main_files": [
+        "packages/ui/src/overlays/tooltip/tooltip.css",
+        "packages/ui/src/overlays/tooltip/tooltip.tsx"
+      ],
+      "summary": "Updates tooltip line-height for readability and adds tone/colored tooltip text styling.",
+      "size": "XS",
+      "status": "missing",
+      "status_evidence": "Claimed by UPSTREAM-f. Official: packages/ui/src/overlays/tooltip/tooltip.{css,tsx}.",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "UPSTREAM"
+    },
+    {
+      "id": "UP-269",
+      "window": "post-1120",
+      "pr": 66608,
+      "sha": "b7a7135bb9",
+      "title": "feat(app): choose a model from a searchable list after connecting a provider",
+      "merged": "2026-11-27",
+      "packages": [
+        "app"
+      ],
+      "main_files": [
+        "packages/app/src/providers/connect/connected-models.tsx",
+        "packages/app/src/providers/connect/dialog.tsx",
+        "packages/app/src/providers/connect/dialog-machine.ts",
+        "packages/app/src/providers/connect/controller.ts",
+        "packages/app/src/providers/connect/remote.tsx"
+      ],
+      "summary": "Replaces the post-connect provider models grid with a searchable model list allowing direct model selection after connecting a provider.",
+      "size": "M",
+      "status": "missing",
+      "status_evidence": "Handed to UPSTREAM-g. Official: packages/app/src/providers/connect/{connected-models,dialog,dialog-machine,controller,remote}.*, runtime/i18n/en.ts.",
       "depends_on": "none",
       "risks": "none",
       "workstream": "UPSTREAM"
