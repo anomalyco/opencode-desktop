@@ -271,8 +271,8 @@ fn window(mut w: Window, frame: Option<Frame>, diagnostics: &crate::diagnostics:
         .on_focus(|s, focused, _| {
             s.window.hidden &= !focused;
             s.window.focused = focused;
+            super::set_focused(&s.window.id, focused);
             if focused {
-                super::focused(&s.window.id);
                 s.taskbar_focused();
             }
         })

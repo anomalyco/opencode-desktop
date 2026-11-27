@@ -7,8 +7,8 @@
 //!
 //! Only a live window with a person at it posts (`NotificationsHost::persists`), through
 //! `rune_notify`: Notification Center on macOS, toasts on Windows (`identify` gives the app its
-//! name and icon there). On `wasm32` and Linux where `rune_notify::available()` is `false`,
-//! platform calls are safe no-ops.
+//! name and icon there), and `org.freedesktop.Notifications` on Linux. Where
+//! `rune_notify::available()` is `false`, platform calls are safe no-ops.
 
 #![forbid(unsafe_code)]
 
@@ -493,7 +493,7 @@ pub fn poll(host: &mut dyn NotificationsHost, tx: &mut Tx) -> bool {
             let notif_id = click.get("ext_notif_id").unwrap_or("").to_owned();
             if !ext_id.is_empty() && !notif_id.is_empty() {
                 if host.is_live() {
-                    rune_notify::bring_to_front();
+                    host.activate_window(click.activation_token());
                 }
                 host.notifier_mut().take_out(&click.id);
                 host.on_extension_notification_clicked(&ext_id, &notif_id);
@@ -518,7 +518,7 @@ pub fn poll(host: &mut dyn NotificationsHost, tx: &mut Tx) -> bool {
             continue;
         }
         if host.is_live() {
-            rune_notify::bring_to_front();
+            host.activate_window(click.activation_token());
         }
         let own_base = host.own_server_base();
         let server = click_server(own_base.as_deref(), from);
