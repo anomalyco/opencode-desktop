@@ -339,7 +339,7 @@ pub fn popover_view(app: &App, p: &Pal) -> Vec<El> {
             .elevate(p.floating)
             .on_press(|_: &mut App| {})
             .child(content);
-        return vec![scrim, crate::popover::place(&app.diag.knobs, card, anchor, rune::Side::Top, rune::Align::Start, 8.0)];
+        return wrap_popover_modal(app, vec![scrim, crate::popover::place(&app.diag.knobs, card, anchor, rune::Side::Top, rune::Align::Start, 8.0)]);
     }
     let Overlay::Popover { anchor, side, align, gap, flyout, .. } = &app.plugins.overlay else { return Vec::new() };
     let found = half.contribs.borrow().popovers.iter().find(|c| c.spec.id == *id).map(|c| (c.key, c.f("render").cloned()));
@@ -348,7 +348,27 @@ pub fn popover_view(app: &App, p: &Pal) -> Vec<El> {
     let content = col().key(format!("plugin-popover-{key}")).on_press(|_: &mut App| {}).child(content);
     let mut out = vec![scrim, crate::popover::place(&app.diag.knobs, content, anchor, *side, *align, *gap)];
     out.extend(flyout_view(app, p, i, flyout));
-    out
+    wrap_popover_modal(app, out)
+}
+
+/// Wraps a plugin popover's scrim and surface in a raised modal scope when another Rune modal sits
+/// beneath `PLUGIN_TOP` and no `CHROME_POPUP` menu is open above the dialog, so outside clicks and
+/// the popover surface are not blocked by the modal underneath.
+fn wrap_popover_modal(app: &App, out: Vec<El>) -> Vec<El> {
+    if !crate::popup::modal_open_below_popup(app) || app.popup.is_open() {
+        return out;
+    }
+    vec![
+        el().key("plugin-popover-modal")
+            .role("none")
+            .absolute(0.0, 0.0)
+            .w_full()
+            .h_full()
+            .transition(rune::Transition::none())
+            .modal_tx(false, requests::close_popover)
+            .children(out)
+            .raise(),
+    ]
 }
 
 /// The list a popover row opened, hung beside its row (drawn after the popover that holds the

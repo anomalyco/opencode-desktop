@@ -2,12 +2,12 @@
   "generated_at": "2026-11-28",
   "upstream_repo": "anomalyco/opencode",
   "upstream_reference_base": "f6e0c2d0833ffe772035f221fed923e1cd5fb408",
-  "upstream_head": "68ea328db1978f31bc0ab42e1cba618d79eeac92",
+  "upstream_head": "36bfb85cd147dcef9b5cf86b011d37d321cf2af8",
   "upstream_pre_window_base": "3751be8138ebcf33343eb3f3d011b32fc814103c",
   "rune_desktop_repo": "anomalyco/opencode-rune",
-  "rune_desktop_head": "250b33c516",
-  "post_1114_commit_count": 831,
-  "post_1114_in_ledger": 276,
+  "rune_desktop_head": "831b1b1560",
+  "post_1114_commit_count": 832,
+  "post_1114_in_ledger": 277,
   "post_1114_skipped": 555,
   "post_1114_skipped_breakdown": {
     "test-only": 39,
@@ -18,13 +18,13 @@
     "server-core-ai-codemode-internal": 347
   },
   "pre_1114_carryover_rows": 15,
-  "total_ledger_rows": 297,
+  "total_ledger_rows": 298,
   "status_counts": {
     "have it": 256,
     "not applicable": 39,
     "differs on purpose": 1,
     "partly": 1,
-    "missing": 0
+    "missing": 1
   },
   "rows": [
     {
@@ -7536,6 +7536,31 @@
         "plugins/debug/locales/en.json",
         "crates/opencode-i18n/locales/official/en.json"
       ]
+    },
+    {
+      "id": "UP-277",
+      "window": "post-1120",
+      "pr": 66887,
+      "sha": "36bfb85cd1",
+      "title": "fix(app): keep tab widths while closing tabs with the mouse",
+      "merged": "2026-11-27",
+      "packages": [
+        "app"
+      ],
+      "main_files": [
+        "packages/app/src/runtime/plugin/tab-strip-widths.ts",
+        "packages/app/src/runtime/plugin/side-region.tsx"
+      ],
+      "summary": "Holds side panel tab widths while closing tabs with the mouse (Chrome-style) so the next tab's close button slides under the pointer, releasing when leaving the strip, resizing, blurring, or opening/moving tabs.",
+      "size": "S",
+      "status": "missing",
+      "status_evidence": "Open PR #1460 (head 1a0debf608, CI running): adds StripWidthHold explicit state machine in features/panels/src/state/width_hold.rs, wired into strip.rs and window blur in apps/desktop/src/shell/view/mod.rs.",
+      "pr_refs": [
+        1460
+      ],
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "UPSTREAM"
     }
   ],
   "browser_security_review": {
