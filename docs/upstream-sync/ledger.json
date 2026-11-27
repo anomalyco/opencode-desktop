@@ -2,12 +2,12 @@
   "generated_at": "2026-11-28",
   "upstream_repo": "anomalyco/opencode",
   "upstream_reference_base": "f6e0c2d0833ffe772035f221fed923e1cd5fb408",
-  "upstream_head": "568ce4871c4ef8e34985c46014b1599dd7e62171",
+  "upstream_head": "999950b2fc3d865304271b7b483eea05a5929add",
   "upstream_pre_window_base": "3751be8138ebcf33343eb3f3d011b32fc814103c",
   "rune_desktop_repo": "anomalyco/opencode-rune",
-  "rune_desktop_head": "bdd7143045",
-  "post_1114_commit_count": 818,
-  "post_1114_in_ledger": 273,
+  "rune_desktop_head": "62337c34a6",
+  "post_1114_commit_count": 819,
+  "post_1114_in_ledger": 274,
   "post_1114_skipped": 545,
   "post_1114_skipped_breakdown": {
     "test-only": 39,
@@ -18,9 +18,9 @@
     "server-core-ai-codemode-internal": 342
   },
   "pre_1114_carryover_rows": 15,
-  "total_ledger_rows": 294,
+  "total_ledger_rows": 295,
   "status_counts": {
-    "have it": 252,
+    "have it": 253,
     "not applicable": 39,
     "differs on purpose": 1,
     "partly": 1,
@@ -7437,6 +7437,31 @@
         1435
       ],
       "depends_on": "UP-258",
+      "risks": "none",
+      "workstream": "UPSTREAM"
+    },
+    {
+      "id": "UP-274",
+      "window": "post-1120",
+      "pr": 61288,
+      "sha": "999950b2fc",
+      "title": "fix(client): treat an empty XDG_STATE_HOME as unset",
+      "merged": "2026-11-27",
+      "packages": [
+        "client"
+      ],
+      "main_files": [
+        "packages/client/src/service-probe.ts"
+      ],
+      "summary": "Treats an empty XDG_STATE_HOME environment variable as unset when resolving opencode/service.json, matching the XDG specification.",
+      "size": "XS",
+      "status": "have it",
+      "rune_files": [
+        "apps/desktop/src/workspace/servers/sidecar/service.rs",
+        "crates/opencode-kit/src/local_service.rs"
+      ],
+      "status_evidence": "Already holds by construction: both apps/desktop/src/workspace/servers/sidecar/service.rs:112 (std::env::var_os(\"XDG_STATE_HOME\").filter(|v| !v.is_empty())) and crates/opencode-kit/src/local_service.rs:55 (var(k).filter(|v| !v.is_empty())) treat empty XDG_STATE_HOME as unset and fall back to <home>/.local/state.",
+      "depends_on": "none",
       "risks": "none",
       "workstream": "UPSTREAM"
     }
