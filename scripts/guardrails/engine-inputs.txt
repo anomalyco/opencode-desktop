@@ -1,6 +1,6 @@
 # Written by scripts/guardrails/engine-revision.mjs --write: the engine's inputs at this ENGINE_REVISION.
 # Inputs: apps/browser-engine, crates/browser-policy, crates/browser-pane/src/device.rs
-revision 26
+revision 27
 0a006ceedcb72b86a2aa4d7497ff9a21fddfd428 apps/browser-engine/Cargo.lock
 931b2a947cc75a343a0577a9e903596a6c147ee0 apps/browser-engine/Cargo.toml
 528bfc2bc7bfcd5183505505f91f9750e57e325b apps/browser-engine/build.rs
@@ -20,13 +20,13 @@ b58a42fb56a761fc9fc7b64343c3be78f7831b8f apps/browser-engine/src/clear_storage.r
 2470fa0979751c67220010b3cfb8d38b6f0d9956 apps/browser-engine/src/cookies.rs
 44d471956c44a1cca6e68551e3b119577cbd6a84 apps/browser-engine/src/d3d_frames.rs
 28ee51e2c48eb44b7a02101aa0c1c8550891a537 apps/browser-engine/src/diagnostics.rs
-9ac08dd3167f2dccddfec1787641f4d47f4c84e4 apps/browser-engine/src/dmabuf_frames/egl.rs
-90efea18ac44e7f1e2d8005593ca627b67519d8e apps/browser-engine/src/dmabuf_frames/mod.rs
+4fcf7afc2e5e90e5dbc5991a4a60e4709b5be6e1 apps/browser-engine/src/dmabuf_frames/egl.rs
+a644848bfd9e7c11e2bfcd4fa1a007748b5ab4ad apps/browser-engine/src/dmabuf_frames/mod.rs
 7f0007b384bb5b2b616d3210a4359b93579c8cfd apps/browser-engine/src/downloads.rs
 9bafc2f920da34a6cecf927afa9e0408d6916a87 apps/browser-engine/src/engine.rs
 48671e17e89e28f8fbc679c6cde73e671482525b apps/browser-engine/src/engine/emulation.rs
 1d42990934f103e2fda93c6695474f049d028089 apps/browser-engine/src/engine/extensions.rs
-a0f89d091c6b50d21dca35b73025e82e94a81cdf apps/browser-engine/src/engine/frames.rs
+dcfe300f29ca6f642d10cab85fb666f611c1403b apps/browser-engine/src/engine/frames.rs
 d9f4ea729c5fe80cd391699b858bea8f3c199744 apps/browser-engine/src/engine/lifecycle.rs
 bfd20043c6e6cb3ccafc1adca97bfeabc3f5305f apps/browser-engine/src/engine/picks.rs
 aca1409aedd0a611e27c396526e639256224ebaa apps/browser-engine/src/engine/profile_cookies.rs
@@ -51,7 +51,7 @@ f0fbf32cc33baa0d950e67cd4649f45cfa39aa69 apps/browser-engine/src/input_fps.rs
 861b67493c42d26866a24fd0b572568f6521da0f apps/browser-engine/src/input_guard.rs
 481532e61011fdf5ca5886751a5f9ee708800683 apps/browser-engine/src/keys.rs
 1913bbb9e46b4d4ebc2ad6e4219af61157aac6d2 apps/browser-engine/src/lib.rs
-c0b1bd94059bdd2d1d9771784b5ba56791c7f2a9 apps/browser-engine/src/linux_gpu.rs
+6702da571eca8c33d104e94e6efc95686ec5ee87 apps/browser-engine/src/linux_gpu.rs
 52fab419cb461a5a3665d8840d3400b978c07645 apps/browser-engine/src/mac_app.rs
 fe6d276a9baad3d6e67bcf0f6676df8ee265f100 apps/browser-engine/src/main.rs
 9f5064bd039e357b085b575cfefa04311f1fe937 apps/browser-engine/src/media_gate.rs
