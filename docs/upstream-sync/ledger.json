@@ -2,26 +2,26 @@
   "generated_at": "2026-11-28",
   "upstream_repo": "anomalyco/opencode",
   "upstream_reference_base": "f6e0c2d0833ffe772035f221fed923e1cd5fb408",
-  "upstream_head": "36bfb85cd147dcef9b5cf86b011d37d321cf2af8",
+  "upstream_head": "6f1e4d1fc742a783fb6d102e8545a16a9bece6c5",
   "upstream_pre_window_base": "3751be8138ebcf33343eb3f3d011b32fc814103c",
   "rune_desktop_repo": "anomalyco/opencode-rune",
-  "rune_desktop_head": "e5935c1037",
-  "post_1114_commit_count": 832,
-  "post_1114_in_ledger": 277,
-  "post_1114_skipped": 555,
+  "rune_desktop_head": "1850382a09",
+  "post_1114_commit_count": 833,
+  "post_1114_in_ledger": 284,
+  "post_1114_skipped": 549,
   "post_1114_skipped_breakdown": {
-    "test-only": 39,
+    "test-only": 37,
     "ci-bench-deps": 32,
     "docs-site-data": 84,
-    "tui-only": 37,
-    "cli-acp-only": 16,
-    "server-core-ai-codemode-internal": 347
+    "tui-only": 36,
+    "cli-acp-only": 17,
+    "server-core-ai-codemode-internal": 343
   },
   "pre_1114_carryover_rows": 15,
-  "total_ledger_rows": 298,
+  "total_ledger_rows": 305,
   "status_counts": {
-    "have it": 257,
-    "not applicable": 39,
+    "have it": 260,
+    "not applicable": 43,
     "differs on purpose": 1,
     "partly": 1,
     "missing": 0
@@ -7567,6 +7567,183 @@
         "features/panels/src/view/pane.rs",
         "apps/desktop/src/shell/view/mod.rs"
       ]
+    },
+    {
+      "id": "UP-278",
+      "window": "post-1120",
+      "pr": 66469,
+      "sha": "1f66f5f4ad",
+      "title": "feat(server): expose resolved feature flags at /api/experimental/flag",
+      "merged": "2026-11-25",
+      "packages": [
+        "app",
+        "server"
+      ],
+      "main_files": [
+        "packages/app/src/session/timeline/cache.ts",
+        "packages/app/src/shell/routes/session-ui-provider.tsx"
+      ],
+      "summary": "Exposes resolved server feature flags (including full_codemode) at GET /api/experimental/flag and reads them in the desktop timeline provider.",
+      "size": "S",
+      "status": "have it",
+      "rune_files": [
+        "apps/desktop/src/workspace/servers/runtime.rs",
+        "crates/session-view/src/lib.rs"
+      ],
+      "pr_refs": [
+        1329
+      ],
+      "status_evidence": "Merged in #1329 (dev 5fc2a6de94, alongside UP-255): fetches GET /api/experimental/flag per server and passes full_codemode through TimelineHost::full_codemode. Verified headless on Windows x64 PR build (3/3 PASS).",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "UPSTREAM"
+    },
+    {
+      "id": "UP-279",
+      "window": "post-1120",
+      "pr": 66635,
+      "sha": "93e053ff89",
+      "title": "fix(app): pass the Home automations entry into the projects view instead of reading contexts there",
+      "merged": "2026-11-26",
+      "packages": [
+        "app"
+      ],
+      "main_files": [
+        "packages/app/src/home/projects/controller.tsx",
+        "packages/app/src/home/projects/region.tsx",
+        "packages/app/src/home/projects/view.tsx"
+      ],
+      "summary": "Passes the Home automations entry directly into the projects view rather than reading SolidJS contexts inside the view component.",
+      "size": "XS",
+      "status": "have it",
+      "rune_files": [
+        "apps/desktop/src/shell/view/home.rs",
+        "apps/desktop/src/surfaces/automations/mod.rs"
+      ],
+      "pr_refs": [
+        1377
+      ],
+      "status_evidence": "Merged in #1377 (dev 506b5822e8, alongside UP-254): Home automations entry is passed cleanly into the Home projects/sidebar views. Verified headless on Windows x64 PR build (5/5 PASS).",
+      "depends_on": "UP-254",
+      "risks": "none",
+      "workstream": "UPSTREAM"
+    },
+    {
+      "id": "UP-280",
+      "window": "post-1120",
+      "pr": 66694,
+      "sha": "9c3f8311a6",
+      "title": "feat(server): sync and write several experimental spaces in one request",
+      "merged": "2026-11-27",
+      "packages": [
+        "server",
+        "client"
+      ],
+      "main_files": [
+        "packages/client/src/effect/api/api.ts",
+        "packages/client/src/effect/generated/client.ts",
+        "packages/client/src/promise/generated/client.ts"
+      ],
+      "summary": "Server experimental spaces batch sync/write endpoint plus regenerated TypeScript SDK clients; no desktop UI consumer.",
+      "size": "XS",
+      "status": "not applicable",
+      "status_evidence": "Not applicable to Rune desktop: server-side experimental spaces API and regenerated TS SDK clients (packages/client/src/{effect,promise}/generated/) with no desktop UI behavior.",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "UPSTREAM"
+    },
+    {
+      "id": "UP-281",
+      "window": "post-1120",
+      "pr": 66717,
+      "sha": "ace8a5302e",
+      "title": "fix(core): read effort and system update flags from models.dev",
+      "merged": "2026-11-27",
+      "packages": [
+        "core",
+        "client"
+      ],
+      "main_files": [
+        "packages/client/src/promise/generated/types.ts"
+      ],
+      "summary": "Server model-resolver reads effort and system update flags from models.dev and updates generated OpenAPI/TS client types.",
+      "size": "XS",
+      "status": "not applicable",
+      "status_evidence": "Not applicable to Rune desktop: server-side packages/core/src/{models-dev,model-resolver}.ts and regenerated TS SDK types only; desktop UI reads model metadata from server API.",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "UPSTREAM"
+    },
+    {
+      "id": "UP-282",
+      "window": "post-1120",
+      "pr": 66768,
+      "sha": "740bd1d732",
+      "title": "feat(ui): add icon audits to Components Lab",
+      "merged": "2026-11-27",
+      "packages": [
+        "ui"
+      ],
+      "main_files": [
+        "packages/ui/package.json",
+        "packages/ui/script/generate-icon-usage.ts",
+        "packages/ui/src/icons/icon/icon-audit-data.ts"
+      ],
+      "summary": "Adds icon usage generation script and audit stories to SolidJS Components Lab.",
+      "size": "XS",
+      "status": "not applicable",
+      "status_evidence": "Not applicable to Rune desktop: SolidJS/Storybook Components Lab developer icon-usage generator and audit stories only; no runtime desktop UI change.",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "UPSTREAM"
+    },
+    {
+      "id": "UP-283",
+      "window": "post-1120",
+      "pr": 66813,
+      "sha": "138cc9aedb",
+      "title": "fix(tui): second batch of small TUI bug fixes",
+      "merged": "2026-11-27",
+      "packages": [
+        "tui",
+        "client"
+      ],
+      "main_files": [
+        "packages/client/src/solid/data.ts"
+      ],
+      "summary": "TUI bug fixes plus a shared Solid client fix to refresh catalogs when provider/model/agent/command/skill.updated SSE events arrive without a location.",
+      "size": "XS",
+      "status": "have it",
+      "rune_files": [
+        "apps/desktop/src/session/events/mod.rs"
+      ],
+      "status_evidence": "TUI hunks are TUI-only; the shared desktop/client hunk in packages/client/src/solid/data.ts:1522-1532 (refreshing catalogs when provider.updated/model.updated/agent.updated arrive with no eventLocation) already holds in apps/desktop/src/session/events/mod.rs:553-572 (loc.is_none() triggers picker_reads::schedule). Pending independent hunk verification.",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "UPSTREAM"
+    },
+    {
+      "id": "UP-284",
+      "window": "post-1120",
+      "pr": 66806,
+      "sha": "c02e6ecc1a",
+      "title": "fix: fix a batch of Windows tooling and test harness issues",
+      "merged": "2026-11-27",
+      "packages": [
+        "app",
+        "core"
+      ],
+      "main_files": [
+        "packages/app/package.json",
+        "packages/app/src/custom-elements.d.ts"
+      ],
+      "summary": "Fixes Bun/Windows test harness scripts, packages/app/package.json scripts, and TypeScript custom-elements.d.ts declarations.",
+      "size": "XS",
+      "status": "not applicable",
+      "status_evidence": "Not applicable to Rune desktop: Bun/TypeScript test harness, package.json scripts, and custom-elements.d.ts web type declarations only; no desktop runtime behavior change.",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "UPSTREAM"
     }
   ],
   "browser_security_review": {
