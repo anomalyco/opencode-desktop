@@ -5,7 +5,7 @@
   "upstream_head": "449c128a5b225efcf986201d57519697d8bb7fe1",
   "upstream_pre_window_base": "3751be8138ebcf33343eb3f3d011b32fc814103c",
   "rune_desktop_repo": "anomalyco/opencode-rune",
-  "rune_desktop_head": "8c18bbc0d",
+  "rune_desktop_head": "54f5b476f",
   "post_1114_commit_count": 769,
   "post_1114_in_ledger": 260,
   "post_1114_skipped": 509,
@@ -20,11 +20,11 @@
   "pre_1114_carryover_rows": 15,
   "total_ledger_rows": 281,
   "status_counts": {
-    "have it": 233,
+    "have it": 236,
     "not applicable": 39,
     "differs on purpose": 1,
     "partly": 4,
-    "missing": 4
+    "missing": 1
   },
   "rows": [
     {
@@ -5791,8 +5791,8 @@
       ],
       "summary": "In the composer's \"Session location unavailable\" card (a session whose folder is gone), the worktree list is a popover whose search field keeps focus while the pointer moves over rows (it was a menu, whose hovered item took focus); ten or more other worktrees add the search field.",
       "size": "M",
-      "status": "missing",
-      "status_evidence": "Not applicable as ours stands, and not decided: ours has no such card. A session whose folder is gone is moved to its project's main checkout on the next send, with a first line saying so (crates/opencode-kit/src/session_home.rs), where official lets the person choose a worktree or a directory (session/composer/location-missing.tsx, since opencode#56087). Owner question sent 24 Nov: keep ours or port the card; this row follows his answer. Port in draft opencode-rune #1376 (head 970c5e4070, CI running, not yet run; carries forward #1022 onto dev): Session location unavailable card with shared worktree dialog keeping focus in search while hovering rows.",
+      "status": "have it",
+      "status_evidence": "Ported in opencode-rune #1376 (54f5b476f, head 970c5e4070, CI run 45916469768 green across guardrails + macOS/Win x64/Win arm64/Linux x64; Linux arm64 skipped; supersedes draft #1022): Session location unavailable card in composer slot (apps/desktop/src/session/composer/location_missing/{mod,sync,card,view}.rs) with Choose worktree opening the shared worktree dialog (features/switcher/src/project/mod.rs) where the search field keeps focus while hovering rows. Official: packages/app/src/session/composer/location-missing.tsx, new-session/location/{dialog.tsx,machine.ts}. Post-merge bulk headless verification queued.",
       "depends_on": "none",
       "risks": "none",
       "workstream": "UPSTREAM"
@@ -5837,8 +5837,8 @@
       ],
       "summary": "The \"Session location unavailable\" card's Choose worktree opens the shared new-session location dialog (its worktree step) instead of a list of its own; the card's own popover, search and machine states for the list are gone, and one string is removed.",
       "size": "M",
-      "status": "missing",
-      "status_evidence": "Part of the card port (UP-CARD, decided 24 Nov under the parity rule): ours has no card yet (crates/opencode-kit/src/session_home.rs moves the session by itself). Port the card from this commit's shape. Port in draft opencode-rune #1376 (head 970c5e4070, CI running, not yet run; carries forward #1022 onto dev): Choose worktree opens shared new-session location dialog directly on the worktree step.",
+      "status": "have it",
+      "status_evidence": "Ported in opencode-rune #1376 (54f5b476f, head 970c5e4070, CI run 45916469768 green across guardrails + macOS/Win x64/Win arm64/Linux x64; Linux arm64 skipped; supersedes draft #1022): Choose worktree opens the shared new-session location dialog directly on the project's worktree step (open_worktree_dialog in features/switcher/src/project/mod.rs), removing the old silent auto-move (crates/opencode-kit/src/session_home.rs) and adding Server::move_session + session.moved SSE handling. Official: packages/app/src/new-session/location/{dialog.tsx,machine.ts}, session/composer/location-missing.tsx. Post-merge bulk headless verification queued.",
       "depends_on": "none",
       "risks": "none",
       "workstream": "UPSTREAM"
@@ -6453,8 +6453,8 @@
       ],
       "summary": "In the Review and file panels, Shift+F10 with the focus on the file tree toggle opens the 'Sidebar position' menu (Left, Right) under the toggle, at its start corner; Escape or a choice gives the focus back to the toggle, and the arrow keys walk into the submenu, where Return picks. The file tree's filter field keeps its own menu. A patch to the menu library keeps a submenu's first item from taking the focus back after a key moved it.",
       "size": "XS",
-      "status": "missing",
-      "status_evidence": "Run on a build of dev on the Rune pin d5c7a5ad (opencode-rune #1192's own Windows x64 PR build, head cc991c65; headless, the app's fixture file, no server), the toggle focused by pressing it twice: Shift+F10 opens the menu with its one row, Sidebar position, and the focus is on that row; Escape closes it and the toggle has the focus again, with its ring; Shift+F10, Down, Right opens the submenu with Left checked and the focus on it, and Down, Return puts the tree on the right, both menus gone and the focus on the toggle. What differs, and keeps this missing: the menu opens at the window's bottom-left corner, over the composer, where official opens it at the toggle's own corner (its left and bottom, its right in a right-to-left page: packages/session-ui/src/v2/components/session-file-panel-v2.tsx:101-115). The app passes the point it is given through unchanged (apps/desktop/src/plugin_host/native/sidebar.rs:150-158, crates/opencode-ui/src/popup/view.rs:62-64), so the point Rune handed it was the window's corner, where Rune's rule as written gives the focused element's left and bottom (Rune runtime/input/secondary.rs:446-498, selection/links.rs:203, at the pin); why it did not is not determined: a pass on another focused control decides whether every keyboard menu opens there. Not run: Shift+F10 in the filter field, which has its own menu; a right-to-left layout; a real window. Official's test: packages/app/component-tests/panel-sidebar-side.spec.ts:62-91. Fix in draft opencode-rune #1374 (head 68529d4c09, CI running, not yet run): keyboard Shift+F10 / Menu key (tx.by_keys()) on chrome::sidebar_toggle anchors Sidebar position to PopupAnchor::Key(toggle_key) at the toggle's start-bottom corner, while sidebar body ignores tx.by_keys() so the filter field keeps its own menu.",
+      "status": "have it",
+      "status_evidence": "Ported in opencode-rune #1374 (e12d405ab, head 68529d4c09, CI run 45915758641 green across guardrails + macOS/Win x64/Win arm64/Linux x64; Linux arm64 skipped): apps/desktop/src/plugin_host/native/sidebar.rs anchors Shift+F10 / Menu key (tx.by_keys()) on chrome::sidebar_toggle directly to PopupAnchor::Key(toggle_key) with Align::Start (toggle's start-bottom corner, left in LTR / right in RTL), while the sidebar body ignores tx.by_keys() so the filter field keeps its own menu. Official: packages/session-ui/src/v2/components/session-file-panel-v2.tsx:35,96-117. Post-merge bulk headless verification queued.",
       "depends_on": "none",
       "risks": "none",
       "workstream": "UPSTREAM"
