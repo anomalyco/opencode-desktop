@@ -281,11 +281,15 @@ fn sweep_current_server(s: &mut App, other_unreported: bool, full_rest: bool, is
         .iter()
         .map(|id| (*id).to_owned())
         .chain(s.sessions.iter().filter(|sess| kept(&sess.id)).map(|sess| sess.id.clone()))
-        .chain(s.transcripts.keys().filter(|id| other_unreported || kept(id)).cloned())
         .collect();
     let removed = !gone.is_empty();
     if full_rest || removed {
-        let keep_id = |id: &str| kept_ids.contains(id);
+        let keep_pages: HashSet<String> = kept_ids
+            .iter()
+            .cloned()
+            .chain(s.transcripts.keys().filter(|id| other_unreported || kept(id)).cloned())
+            .collect();
+        let keep_id = |id: &str| keep_pages.contains(id);
         s.pages.rest(&keep_id);
         s.context_windows.retain(active_server.as_str(), &keep_id);
     }

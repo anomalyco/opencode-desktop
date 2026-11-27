@@ -109,7 +109,8 @@ impl State {
                 *n = id.clone();
                 drop(n);
                 // The scroll may have stopped on this frame; poll without waiting for another.
-                if let Some(wake) = wake.borrow().as_ref() { wake(); }
+                let wake = wake.borrow().clone();
+                if let Some(wake) = wake { wake(); }
             } else if !is && *n == id { n.clear(); }
         }
     }
@@ -137,6 +138,11 @@ impl State {
     /// Whether a page before `id`'s oldest loaded message is still to read.
     pub fn more_above(&self, id: &str) -> bool {
         matches!(self.histories.get(self.server(), id), Some(History::Idle { .. } | History::Loading { .. } | History::Failed { .. }))
+    }
+
+    /// Whether session `id`'s history state is awaiting a `Before(cursor)` page.
+    pub(super) fn awaits_history(&self, id: &str, cursor: &str) -> bool {
+        self.histories.awaits(self.server(), id, cursor)
     }
 
 }
@@ -308,8 +314,9 @@ impl Pages {
         if speculative && q.failed.contains_key(&job.key) { return; }
         if speculative && q.ready.iter().any(|p| p.key == job.key) { return; }
         if q.active.contains(&(job.key.clone(), job.cursor.clone())) { return; }
-        if let Some(old) = q.jobs.iter_mut().find(|j| j.key.id == job.key.id && j.cursor == job.cursor) {
+        if let Some(old) = q.jobs.iter_mut().find(|j| j.key.id == job.key.id && j.cursor == job.cursor && j.one == job.one) {
             old.foreground |= job.foreground;
+            old.limit = old.limit.max(job.limit);
             if job.key.updated > old.key.updated { old.key = job.key; }
         } else {
             // A pointer sweeping the list cannot leave an unbounded speculative backlog, and must
@@ -535,14 +542,14 @@ impl crate::App {
             self.timeline_fx.ends.progress(id);
         }
         if page.history {
-            // A page that returned no raw messages and added nothing (or repeated its own cursor)
-            // stops paging instead of looping (`history-machine.ts` `stalled`). Counting raw server
-            // `stubs` keeps paging across pages of non-rendered message types (`synthetic`, `system`,
-            // `idle`) and when history re-enters on an already-populated shared transcript.
+            // A page whose oldest raw server message didn't move strictly earlier (or repeated its
+            // own cursor) stops paging instead of looping (`history-machine.ts` `stalled`). Tracking
+            // raw server `stubs` keeps paging across pages of non-rendered message types (`synthetic`,
+            // `system`, `idle`) and when history re-enters on an already-populated shared transcript.
             let id = id.clone();
             if let bridge::ReadOf::Before(sent) = &page.read_of {
-                let progressed = added > 0 || !page.stubs.is_empty();
-                self.step_history(&id, HistoryEvent::Landed { sent, cursor: page.cursor.clone(), progressed }, tx);
+                let oldest = crate::context_window::oldest_position(&page.stubs);
+                self.step_history(&id, HistoryEvent::Landed { sent, cursor: page.cursor.clone(), oldest, added }, tx);
             }
             // Where the page leaves the reader is reported next frame; read on only from there.
             let mut near = self.pages.near_top.borrow_mut();
@@ -559,7 +566,8 @@ impl crate::App {
         if self.route == crate::Route::here(id.clone()) && !page.history && let Some(cursor) = &page.cursor {
             // Give the latest page its first frame before expanding history.
             let id = id.clone();
-            self.step_history(&id, HistoryEvent::Latest { key: page.key.clone(), cursor, now: Instant::now() }, tx);
+            let oldest = crate::context_window::oldest_position(&page.stubs);
+            self.step_history(&id, HistoryEvent::Latest { key: page.key.clone(), cursor, oldest, now: Instant::now() }, tx);
         }
     }
 
@@ -575,7 +583,11 @@ impl crate::App {
                     if let Some(pages) = &self.pages.pool { pages.history(key, cursor, limit); }
                 }
                 HistoryEffect::WakeAfter(after) => tx.wake_after(after),
-                HistoryEffect::Settle => session_view::jump::settle(self, tx),
+                HistoryEffect::Settle => {
+                    if self.route == crate::Route::here(id.to_owned()) {
+                        session_view::jump::settle(self, tx);
+                    }
+                }
                 HistoryEffect::Repaint => changed = true,
             }
         }

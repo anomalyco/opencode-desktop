@@ -73,7 +73,8 @@ impl App {
                 let meets = self.transcripts.get(&id).is_none_or(|t| !apart(t, &messages));
                 self.step_bridge(Some(&held.bridge), held.newest, messages, BridgeEvent::Landed { meets, cursor: page.cursor.clone() }, tx);
             }
-            ReadOf::Before(_) => self.merge_joined(page, tx),
+            ReadOf::Before(cursor) if self.pages.awaits_history(&id, cursor) => self.merge_joined(page, tx),
+            ReadOf::Before(_) => {}
             ReadOf::Newest => {
                 // A newer read takes the place of one still on its way to the loaded messages.
                 self.pages.bridges.remove(&id);

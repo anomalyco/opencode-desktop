@@ -42,6 +42,16 @@ enum Kind {
     Other,
 }
 
+/// Oldest server message position `(time.created, id)` in `stubs`, matching server pagination
+/// order (`opencode_kit::model::parse_messages`).
+pub(crate) fn oldest_position(stubs: &[Stub]) -> Option<(i64, String)> {
+    stubs
+        .iter()
+        .filter(|s| !s.id.is_empty())
+        .min_by(|a, b| (a.created, a.id.as_str()).cmp(&(b.created, b.id.as_str())))
+        .map(|s| (s.created, s.id.clone()))
+}
+
 /// A page's messages as stubs, in the page's order.
 pub fn stubs(page: &Value) -> Vec<Stub> {
     page["data"].as_array().into_iter().flatten().map(|m| Stub {

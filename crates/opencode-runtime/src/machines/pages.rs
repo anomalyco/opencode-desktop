@@ -125,36 +125,39 @@ pub const COOLDOWN: Duration = Duration::from_secs(2);
 /// The latest page gets its first frame before the history behind it is read.
 pub const EXPAND_AFTER: Duration = Duration::from_millis(50);
 
+/// Oldest raw server message position `(time.created, id)` seen so far, matching server
+/// pagination order (`opencode_kit::model::parse_messages`).
+pub type Oldest = (i64, String);
+
 /// One session's history above its latest page.
 #[derive(Clone, Debug, PartialEq)]
 pub enum History {
     /// The latest page painted; the first history page (`key`, before `cursor`) is read at `due`.
-    Expanding { due: Instant, key: Key, cursor: String },
+    Expanding { due: Instant, key: Key, cursor: String, oldest: Option<Oldest> },
     /// That first page before `cursor` is on its way: its landing pins the timeline to its end,
     /// and a failure or timeout falls back to `Failed` so scrolling up retries instead of
     /// permanently exhausting history.
-    Filling { cursor: String, attempt: Attempt, at: Instant },
+    Filling { cursor: String, oldest: Option<Oldest>, attempt: Attempt, at: Instant },
     /// More waits above `cursor`.
-    Idle { cursor: String },
+    Idle { cursor: String, oldest: Option<Oldest> },
     /// An older page is on its way; `slow` once it outlasts the hold (its row shows).
-    Loading { cursor: String, attempt: Attempt, at: Instant, slow: bool },
+    Loading { cursor: String, oldest: Option<Oldest>, attempt: Attempt, at: Instant, slow: bool },
     /// The last page failed; the reader's scroll retries after `until`.
-    Failed { cursor: String, until: Instant },
+    Failed { cursor: String, oldest: Option<Oldest>, until: Instant },
     /// Nothing more above: the server's cursor ran out, or a page made no backward progress.
     Exhausted,
 }
 
 pub enum HistoryEvent<'a> {
     /// The latest page painted, leaving `cursor` above it.
-    Latest { key: Key, cursor: &'a str, now: Instant },
+    Latest { key: Key, cursor: &'a str, oldest: Option<Oldest>, now: Instant },
     /// The reader stands near the top.
     NearTop { now: Instant },
     /// The window polls.
     Tick { now: Instant },
-    /// The history page asked for with `sent` landed with `cursor` above it (`None`: the start).
-    /// `progressed` is true when the page carried at least one message from the server (including
-    /// non-rendered raw messages or messages already held in a shared transcript).
-    Landed { sent: &'a str, cursor: Option<String>, progressed: bool },
+    /// The history page asked for with `sent` landed with `cursor` above it (`None`: the start),
+    /// raw server oldest position `oldest`, and `added` newly-inserted UI messages.
+    Landed { sent: &'a str, cursor: Option<String>, oldest: Option<Oldest>, added: usize },
     /// The history read for `sent` failed.
     Failed { sent: &'a str, now: Instant },
     /// The transcript was replaced by a newer read that does not adjoin what was loaded, leaving
@@ -181,60 +184,95 @@ impl History {
         use HistoryEffect::*;
         let keep = || state.cloned();
         match (state, event) {
-            (_, HistoryEvent::Replaced { cursor }) => (Some(cursor.map_or(History::Exhausted, |cursor| History::Idle { cursor })), Effects::none()),
-            (None, HistoryEvent::Latest { key, cursor, now }) => {
-                (Some(History::Expanding { due: now + EXPAND_AFTER, key, cursor: cursor.to_owned() }), Effects::one(WakeAfter(EXPAND_AFTER)))
-            }
-            (Some(History::Expanding { due, key, cursor }), HistoryEvent::Tick { now }) if *due <= now => (
-                Some(History::Filling { cursor: cursor.clone(), attempt: seq.next(), at: now }),
-                Effects::two(Read { key: Some(key.clone()), cursor: cursor.clone(), limit: FIRST }, WakeAfter(LOAD_TIMEOUT)),
+            (_, HistoryEvent::Replaced { cursor }) => (Some(cursor.map_or(History::Exhausted, |cursor| History::Idle { cursor, oldest: None })), Effects::none()),
+            (None, HistoryEvent::Latest { key, cursor, oldest, now }) => (
+                Some(History::Expanding { due: now + EXPAND_AFTER, key, cursor: cursor.to_owned(), oldest }),
+                Effects::one(WakeAfter(EXPAND_AFTER)),
             ),
-            (Some(History::Filling { cursor: expected, .. }), HistoryEvent::Landed { sent, cursor, progressed }) if sent == expected => {
-                (Some(above(expected, cursor, progressed)), Effects::one(Settle))
+            (Some(History::Expanding { due, key, cursor, oldest }), HistoryEvent::Tick { now }) => {
+                if *due <= now {
+                    (
+                        Some(History::Filling { cursor: cursor.clone(), oldest: oldest.clone(), attempt: seq.next(), at: now }),
+                        Effects::two(Read { key: Some(key.clone()), cursor: cursor.clone(), limit: FIRST }, WakeAfter(LOAD_TIMEOUT)),
+                    )
+                } else {
+                    (keep(), Effects::one(WakeAfter(due.saturating_duration_since(now))))
+                }
             }
-            (Some(History::Filling { cursor: expected, .. }), HistoryEvent::Failed { sent, now }) if sent == expected => {
-                (Some(History::Failed { cursor: expected.clone(), until: now + COOLDOWN }), Effects::one(WakeAfter(COOLDOWN)))
+            (Some(History::Filling { cursor: expected, oldest: prev, .. }), HistoryEvent::Landed { sent, cursor, oldest, added }) if sent == expected => {
+                (Some(above(expected, prev.as_ref(), cursor, oldest, added)), Effects::one(Settle))
             }
-            (Some(History::Filling { cursor, at, .. }), HistoryEvent::Tick { now }) if now.saturating_duration_since(*at) >= LOAD_TIMEOUT => {
-                (Some(History::Failed { cursor: cursor.clone(), until: now + COOLDOWN }), Effects::one(WakeAfter(COOLDOWN)))
-            }
-            (Some(History::Idle { cursor }), HistoryEvent::NearTop { now }) => (
-                Some(History::Loading { cursor: cursor.clone(), attempt: seq.next(), at: now, slow: false }),
-                Effects::two(Read { key: None, cursor: cursor.clone(), limit: OLDER }, WakeAfter(HOLD)),
+            (Some(History::Filling { cursor: expected, oldest, .. }), HistoryEvent::Failed { sent, now }) if sent == expected => (
+                Some(History::Failed { cursor: expected.clone(), oldest: oldest.clone(), until: now + COOLDOWN }),
+                Effects::two(Repaint, WakeAfter(COOLDOWN)),
             ),
-            (Some(History::Failed { cursor, until }), HistoryEvent::NearTop { now }) if *until <= now => (
-                Some(History::Loading { cursor: cursor.clone(), attempt: seq.next(), at: now, slow: false }),
-                Effects::two(Read { key: None, cursor: cursor.clone(), limit: OLDER }, WakeAfter(HOLD)),
-            ),
-            (Some(History::Loading { cursor: expected, .. }), HistoryEvent::Landed { sent, cursor, progressed }) if sent == expected => {
-                (Some(above(expected, cursor, progressed)), Effects::one(Repaint))
-            }
-            (Some(History::Loading { cursor: expected, .. }), HistoryEvent::Failed { sent, now }) if sent == expected => {
-                (Some(History::Failed { cursor: expected.clone(), until: now + COOLDOWN }), Effects::two(Repaint, WakeAfter(COOLDOWN)))
-            }
-            (Some(History::Loading { cursor, attempt, at, slow }), HistoryEvent::Tick { now }) => {
+            (Some(History::Filling { cursor, oldest, at, .. }), HistoryEvent::Tick { now }) => {
                 let waited = now.saturating_duration_since(*at);
                 if waited >= LOAD_TIMEOUT {
-                    return (Some(History::Failed { cursor: cursor.clone(), until: now + COOLDOWN }), Effects::two(Repaint, WakeAfter(COOLDOWN)));
+                    (
+                        Some(History::Failed { cursor: cursor.clone(), oldest: oldest.clone(), until: now + COOLDOWN }),
+                        Effects::two(Repaint, WakeAfter(COOLDOWN)),
+                    )
+                } else {
+                    (keep(), Effects::one(WakeAfter(LOAD_TIMEOUT - waited)))
+                }
+            }
+            (Some(History::Idle { cursor, oldest }), HistoryEvent::NearTop { now }) => (
+                Some(History::Loading { cursor: cursor.clone(), oldest: oldest.clone(), attempt: seq.next(), at: now, slow: false }),
+                Effects::two(Read { key: None, cursor: cursor.clone(), limit: OLDER }, WakeAfter(HOLD)),
+            ),
+            (Some(History::Failed { cursor, oldest, until }), HistoryEvent::NearTop { now }) => {
+                if *until <= now {
+                    (
+                        Some(History::Loading { cursor: cursor.clone(), oldest: oldest.clone(), attempt: seq.next(), at: now, slow: false }),
+                        Effects::two(Read { key: None, cursor: cursor.clone(), limit: OLDER }, WakeAfter(HOLD)),
+                    )
+                } else {
+                    (keep(), Effects::one(WakeAfter(until.saturating_duration_since(now))))
+                }
+            }
+            (Some(History::Loading { cursor: expected, oldest: prev, .. }), HistoryEvent::Landed { sent, cursor, oldest, added }) if sent == expected => {
+                (Some(above(expected, prev.as_ref(), cursor, oldest, added)), Effects::one(Repaint))
+            }
+            (Some(History::Loading { cursor: expected, oldest, .. }), HistoryEvent::Failed { sent, now }) if sent == expected => (
+                Some(History::Failed { cursor: expected.clone(), oldest: oldest.clone(), until: now + COOLDOWN }),
+                Effects::two(Repaint, WakeAfter(COOLDOWN)),
+            ),
+            (Some(History::Loading { cursor, oldest, attempt, at, slow }), HistoryEvent::Tick { now }) => {
+                let waited = now.saturating_duration_since(*at);
+                if waited >= LOAD_TIMEOUT {
+                    return (
+                        Some(History::Failed { cursor: cursor.clone(), oldest: oldest.clone(), until: now + COOLDOWN }),
+                        Effects::two(Repaint, WakeAfter(COOLDOWN)),
+                    );
                 }
                 if !slow && waited >= HOLD {
                     return (
-                        Some(History::Loading { cursor: cursor.clone(), attempt: *attempt, at: *at, slow: true }),
+                        Some(History::Loading { cursor: cursor.clone(), oldest: oldest.clone(), attempt: *attempt, at: *at, slow: true }),
                         Effects::two(Repaint, WakeAfter(LOAD_TIMEOUT - waited)),
                     );
                 }
-                (keep(), Effects::none())
+                let rem = if *slow { LOAD_TIMEOUT - waited } else { HOLD - waited };
+                (keep(), Effects::one(WakeAfter(rem)))
             }
             _ => (keep(), Effects::none()),
         }
     }
 }
 
-/// What a landed page leaves: its next cursor when the server made backward progress (returned
-/// messages and advanced past `sent`), else `Exhausted` so a server repeating a cursor can't loop.
-fn above(sent: &str, cursor: Option<String>, progressed: bool) -> History {
+/// What a landed page leaves: its next cursor when the server made strict backward progress (the
+/// page's oldest raw message position moved strictly earlier than `prev`, or a fixture page with
+/// no raw stubs added UI messages) and advanced past `sent`, else `Exhausted` so a server
+/// cycling cursors or repeating messages can't loop (`history-machine.ts` `stalled`).
+fn above(sent: &str, prev: Option<&Oldest>, cursor: Option<String>, oldest: Option<Oldest>, added: usize) -> History {
+    let progressed = match (&oldest, prev) {
+        (Some((c, id)), Some((pc, pid))) => (*c, id.as_str()) < (*pc, pid.as_str()),
+        (Some(_), None) => true,
+        (None, _) => added > 0,
+    };
+    let next_oldest = oldest.or_else(|| prev.cloned());
     match cursor.filter(|next| progressed && next != sent) {
-        Some(cursor) => History::Idle { cursor },
+        Some(cursor) => History::Idle { cursor, oldest: next_oldest },
         None => History::Exhausted,
     }
 }
@@ -298,6 +336,11 @@ pub struct Histories {
 impl Histories {
     pub fn get(&self, server: &str, id: &str) -> Option<&History> {
         self.map.get(&(server.to_owned(), id.to_owned()))
+    }
+
+    /// Whether session `id` on `server` is actively awaiting a history read for `cursor`.
+    pub fn awaits(&self, server: &str, id: &str, cursor: &str) -> bool {
+        matches!(self.get(server, id), Some(History::Filling { cursor: c, .. } | History::Loading { cursor: c, .. }) if c == cursor)
     }
 
     pub fn step(&mut self, server: &str, id: &str, event: HistoryEvent<'_>) -> Effects<HistoryEffect> {
