@@ -130,7 +130,7 @@ impl ProjectsHost for App {
 
     fn current_route(&self) -> KitRoute {
         match &*self.route {
-            Route::Home => KitRoute::Home,
+            Route::Home | Route::Automations => KitRoute::Home,
             Route::Draft(id) => KitRoute::Draft(id.clone()),
             Route::Session { server, id } => KitRoute::Session { server: server.clone(), session_id: id.clone() },
         }

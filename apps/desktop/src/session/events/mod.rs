@@ -560,7 +560,7 @@ impl App {
             let active_dir = match &*self.route {
                 Route::Session { id, .. } => self.session(id).map(|i| i.directory.as_str()),
                 Route::Draft(_) => Some(self.draft_dir()),
-                Route::Home => None,
+                Route::Home | Route::Automations => None,
             };
             if loc.is_none() || loc == crate::start_location::server_directory(self) || loc == active_dir {
                 let now = *self.clock;

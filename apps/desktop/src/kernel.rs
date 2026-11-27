@@ -95,6 +95,7 @@ pub fn build() -> Kernel<App> {
     b.add_overlay_key_bands(crate::overlays::key_band::ALL);
     b.add_escape_bands(crate::overlays::escape_band::ALL);
     register_core_systems(&mut b);
+    b.with_feature(&crate::surfaces::automations::AutomationsFeature);
     b.with_feature(&crate::surfaces::egg::EggFeature);
     #[cfg(feature = "office")]
     b.with_feature(&crate::surfaces::office::OfficeFeature);

@@ -20,6 +20,7 @@ use serde_json::Value;
 use crate::model::{self, Delivery, Pending, SessionInfo};
 use crate::wire_error::{WireError, WireKind};
 
+mod automations;
 pub mod browser_rpc;
 mod downloads;
 mod http;
@@ -48,6 +49,7 @@ pub mod web;
 mod wire;
 mod worker;
 
+pub use automations::{AutomationEndpoint, is_automation_endpoint_unsupported};
 pub use downloads::{export_filename, save_download, set_download_dir};
 pub use hub::{EventHub, HUB_AT, connect_workers, heard_at};
 pub use ids::{message_id, session_id};

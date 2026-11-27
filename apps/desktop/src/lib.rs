@@ -98,6 +98,7 @@ pub use app::{App, Source, TabStatus};
 pub(crate) use app::{FIXTURE, arg, attended, auto_focus_composer, flag, harness_writes, headless, realtime};
 pub use shell::nav::route::Route;
 pub use shell::panels;
+pub use surfaces::automations;
 pub use surfaces::code_view;
 pub(crate) use stories::scenes::open_scene;
 pub(crate) use tick::{poll, setup, visibility};

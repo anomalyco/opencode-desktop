@@ -541,7 +541,7 @@ pub fn desired(s: &App) -> ServerKey {
     match &*s.route {
         Route::Session { server, .. } => server.clone(),
         Route::Draft(id) => s.tabs.iter().find(|t| t.id == *id).map_or_else(|| crate::projects::home::server(s), |t| t.server.clone()),
-        Route::Home => crate::projects::home::server(s),
+        Route::Home | Route::Automations => crate::projects::home::server(s),
     }
 }
 
