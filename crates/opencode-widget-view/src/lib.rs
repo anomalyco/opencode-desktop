@@ -84,7 +84,15 @@ pub struct Look<'a> {
     /// It fills the window (full screen): its root fills it, and a `fill` canvas takes
     /// the height left.
     pub fullscreen: bool,
+    /// Where its timeline's scroll viewport shows, `[top, bottom]` in window points: the widget
+    /// counts as shown while any of it is within [`ROOT_MARGIN`] of it. `None` where there's no
+    /// such viewport: shown is half of it in the window (`El::on_visible`).
+    pub band: Option<[f32; 2]>,
 }
+
+/// How far past its viewport a widget still counts as shown, as the official client's
+/// `IntersectionObserver` (`packages/widgets-rs/web/src/host.ts`, `rootMargin: "200px 0px"`).
+pub const ROOT_MARGIN: f32 = 200.0;
 
 /// A lens from the host's state to a widget's [`Local`].
 pub type Lens<S> = Rc<dyn for<'a> Fn(&'a mut S) -> &'a mut Local>;

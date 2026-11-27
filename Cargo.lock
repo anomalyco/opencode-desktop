@@ -4395,7 +4395,7 @@ dependencies = [
  "objc2-metal 0.3.2",
  "opencode-widget",
  "rune",
- "rune-gpu 0.0.1 (git+https://github.com/anomalyco/rune?rev=be1c763842bce8166cc9a949c49c3dab6a2bc64e)",
+ "rune-gpu",
  "rune-kit",
  "serde_json",
  "wgpu",
@@ -5154,9 +5154,9 @@ dependencies = [
 
 [[package]]
 name = "psychoscript-gpu"
-version = "0.1.0"
+version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b0b893763c16cf57bb94d37ca6ba61c17bbd819354d4d6f8ce8e4285c9e62071"
+checksum = "0032cd5b5b99c0d47e27de9fc664660360cfb71aa59343676071ee5d380dcf0d"
 dependencies = [
  "serde_json",
  "wgpu",
@@ -5523,14 +5523,14 @@ dependencies = [
  "procwatch",
  "raw-window-handle",
  "rfd",
- "rune-core 0.0.1 (git+https://github.com/anomalyco/rune?rev=9391c20d56daa8508c6b825c973157be5eb4a89a)",
+ "rune-core",
  "rune-edit",
- "rune-gpu 0.0.1 (git+https://github.com/anomalyco/rune?rev=9391c20d56daa8508c6b825c973157be5eb4a89a)",
+ "rune-gpu",
  "rune-image",
  "rune-media",
- "rune-motion 0.1.0 (git+https://github.com/anomalyco/rune?rev=9391c20d56daa8508c6b825c973157be5eb4a89a)",
+ "rune-motion",
  "rune-spell",
- "rune-staging 0.0.1 (git+https://github.com/anomalyco/rune?rev=9391c20d56daa8508c6b825c973157be5eb4a89a)",
+ "rune-staging",
  "rune-taffy",
  "rune-text",
  "rustc-demangle",
@@ -5567,26 +5567,7 @@ dependencies = [
  "js-sys",
  "libc",
  "portable-atomic",
- "rune-motion 0.1.0 (git+https://github.com/anomalyco/rune?rev=9391c20d56daa8508c6b825c973157be5eb4a89a)",
- "rustc-hash 2.1.3",
- "serde",
- "serde_json",
- "wasm-bindgen",
- "wasm-bindgen-futures",
- "web-sys",
- "web-time",
- "windows-sys 0.61.2",
-]
-
-[[package]]
-name = "rune-core"
-version = "0.0.1"
-source = "git+https://github.com/anomalyco/rune?rev=be1c763842bce8166cc9a949c49c3dab6a2bc64e#be1c763842bce8166cc9a949c49c3dab6a2bc64e"
-dependencies = [
- "js-sys",
- "libc",
- "portable-atomic",
- "rune-motion 0.1.0 (git+https://github.com/anomalyco/rune?rev=be1c763842bce8166cc9a949c49c3dab6a2bc64e)",
+ "rune-motion",
  "rustc-hash 2.1.3",
  "serde",
  "serde_json",
@@ -5604,7 +5585,7 @@ source = "git+https://github.com/anomalyco/rune?rev=9391c20d56daa8508c6b825c9731
 dependencies = [
  "js-sys",
  "parley",
- "rune-core 0.0.1 (git+https://github.com/anomalyco/rune?rev=9391c20d56daa8508c6b825c973157be5eb4a89a)",
+ "rune-core",
  "rune-text",
  "serde_json",
  "unicode-segmentation",
@@ -5627,36 +5608,9 @@ dependencies = [
  "parking_lot",
  "pollster",
  "raw-window-metal",
- "rune-core 0.0.1 (git+https://github.com/anomalyco/rune?rev=9391c20d56daa8508c6b825c973157be5eb4a89a)",
- "rune-motion 0.1.0 (git+https://github.com/anomalyco/rune?rev=9391c20d56daa8508c6b825c973157be5eb4a89a)",
- "rune-staging 0.0.1 (git+https://github.com/anomalyco/rune?rev=9391c20d56daa8508c6b825c973157be5eb4a89a)",
- "wayland-client",
- "wayland-protocols",
- "wgpu",
- "wgpu-naga-bridge",
- "windows",
- "windows-sys 0.61.2",
-]
-
-[[package]]
-name = "rune-gpu"
-version = "0.0.1"
-source = "git+https://github.com/anomalyco/rune?rev=be1c763842bce8166cc9a949c49c3dab6a2bc64e#be1c763842bce8166cc9a949c49c3dab6a2bc64e"
-dependencies = [
- "blake3",
- "bytemuck",
- "libc",
- "objc2 0.6.5",
- "objc2-core-foundation",
- "objc2-foundation 0.3.2",
- "objc2-metal 0.3.2",
- "objc2-quartz-core 0.3.2",
- "parking_lot",
- "pollster",
- "raw-window-metal",
- "rune-core 0.0.1 (git+https://github.com/anomalyco/rune?rev=be1c763842bce8166cc9a949c49c3dab6a2bc64e)",
- "rune-motion 0.1.0 (git+https://github.com/anomalyco/rune?rev=be1c763842bce8166cc9a949c49c3dab6a2bc64e)",
- "rune-staging 0.0.1 (git+https://github.com/anomalyco/rune?rev=be1c763842bce8166cc9a949c49c3dab6a2bc64e)",
+ "rune-core",
+ "rune-motion",
+ "rune-staging",
  "wayland-client",
  "wayland-protocols",
  "wgpu",
@@ -5706,7 +5660,7 @@ dependencies = [
  "objc2 0.6.5",
  "objc2-foundation 0.3.2",
  "resvg 0.45.1",
- "rune-core 0.0.1 (git+https://github.com/anomalyco/rune?rev=9391c20d56daa8508c6b825c973157be5eb4a89a)",
+ "rune-core",
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "windows-sys 0.61.2",
@@ -5724,7 +5678,7 @@ dependencies = [
  "rune",
  "rune-highlights",
  "rune-mermaid",
- "rune-motion 0.1.0 (git+https://github.com/anomalyco/rune?rev=9391c20d56daa8508c6b825c973157be5eb4a89a)",
+ "rune-motion",
  "skrifa",
  "tiny-skia 0.11.4",
  "unicode-segmentation",
@@ -5787,10 +5741,10 @@ dependencies = [
  "objc2-metal 0.3.2",
  "opuscule",
  "pollster",
- "rune-core 0.0.1 (git+https://github.com/anomalyco/rune?rev=9391c20d56daa8508c6b825c973157be5eb4a89a)",
- "rune-gpu 0.0.1 (git+https://github.com/anomalyco/rune?rev=9391c20d56daa8508c6b825c973157be5eb4a89a)",
+ "rune-core",
+ "rune-gpu",
  "rune-image",
- "rune-staging 0.0.1 (git+https://github.com/anomalyco/rune?rev=9391c20d56daa8508c6b825c973157be5eb4a89a)",
+ "rune-staging",
  "symphonia",
  "wgpu",
  "windows",
@@ -5809,11 +5763,6 @@ dependencies = [
 name = "rune-motion"
 version = "0.1.0"
 source = "git+https://github.com/anomalyco/rune?rev=9391c20d56daa8508c6b825c973157be5eb4a89a#9391c20d56daa8508c6b825c973157be5eb4a89a"
-
-[[package]]
-name = "rune-motion"
-version = "0.1.0"
-source = "git+https://github.com/anomalyco/rune?rev=be1c763842bce8166cc9a949c49c3dab6a2bc64e#be1c763842bce8166cc9a949c49c3dab6a2bc64e"
 
 [[package]]
 name = "rune-notify"
@@ -5863,7 +5812,7 @@ dependencies = [
  "js-sys",
  "objc2-app-kit 0.3.2",
  "objc2-foundation 0.3.2",
- "rune-core 0.0.1 (git+https://github.com/anomalyco/rune?rev=9391c20d56daa8508c6b825c973157be5eb4a89a)",
+ "rune-core",
  "rustc-hash 2.1.3",
  "spellbook",
  "unicode-segmentation",
@@ -5878,15 +5827,6 @@ dependencies = [
 name = "rune-staging"
 version = "0.0.1"
 source = "git+https://github.com/anomalyco/rune?rev=9391c20d56daa8508c6b825c973157be5eb4a89a#9391c20d56daa8508c6b825c973157be5eb4a89a"
-dependencies = [
- "wgpu",
- "windows",
-]
-
-[[package]]
-name = "rune-staging"
-version = "0.0.1"
-source = "git+https://github.com/anomalyco/rune?rev=be1c763842bce8166cc9a949c49c3dab6a2bc64e#be1c763842bce8166cc9a949c49c3dab6a2bc64e"
 dependencies = [
  "wgpu",
  "windows",
@@ -5914,9 +5854,9 @@ dependencies = [
  "objc2-core-text",
  "parley",
  "parley_engine",
- "rune-core 0.0.1 (git+https://github.com/anomalyco/rune?rev=9391c20d56daa8508c6b825c973157be5eb4a89a)",
+ "rune-core",
  "rune-image",
- "rune-motion 0.1.0 (git+https://github.com/anomalyco/rune?rev=9391c20d56daa8508c6b825c973157be5eb4a89a)",
+ "rune-motion",
  "rune-tiny-skia-path",
  "rustc-hash 2.1.3",
  "skrifa",
