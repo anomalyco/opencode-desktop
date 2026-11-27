@@ -135,6 +135,14 @@ impl Instances {
         &self.list
     }
 
+    /// The widgets one can still use, last updated first: neither dismissed nor with a failure the
+    /// server recorded. A replaced widget is already its newest replacement, so a chain whose newest
+    /// is dismissed or failed isn't among them. Submitted ones are. What lists widgets to pick from
+    /// reads these; what shows a widget already picked (a dashboard tile) shows it whatever it is.
+    pub fn usable(&self) -> impl Iterator<Item = &WidgetInstance> {
+        self.list.iter().filter(|i| i.state.status != WidgetStatus::Dismissed && i.state.failure.is_none())
+    }
+
     /// Moves on every change: a view reads again when it moved since it last read.
     pub fn revision(&self) -> u64 {
         self.revision

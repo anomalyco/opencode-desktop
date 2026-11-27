@@ -263,25 +263,25 @@ fn list(s: &App, p: &Pal) -> El {
         return w;
     }
     let store = &s.widgets().instances;
-    if store.list().is_empty() {
+    if store.usable().next().is_none() {
         return notice(p, "mini-apps-none", t!("rune.miniApps.none"), None, None);
     }
-    let keys: Rc<Vec<String>> = Rc::new(store.list().iter().map(|i| i.state.instance_key()).collect());
+    // Only the widgets one can still use: none dismissed, none with a recorded failure.
+    let keys: Rc<Vec<String>> = Rc::new(store.usable().map(|i| i.state.instance_key()).collect());
     let (by_key, built) = (keys.clone(), keys.clone());
     let pal = *p;
+    // The rows are the viewport's own child, as a virtual list needs; the column of `LIST_W`
+    // centres by the padding either side of it (the page's width less the dashboard's 20 each side).
+    let page = s.kernel.slots.get(&MINI_APPS).width + 40.0;
+    let side = ((page - LIST_W) / 2.0).max(20.0);
     let rows = col()
         .key("mini-apps-rows")
         .w_full()
+        .px(side)
         .growth(rune::GrowthSpec::default())
         .virtual_rows(keys.len(), PREVIEW_H + 72.0, move |_: &App, i| by_key[i].clone().into(), move |s: &App, i| list_row(s, &pal, &built[i]))
         .virtual_rows_version((store.revision(), s.kernel.slots.get(&MINI_APPS).board.tiles.len()));
-    col()
-        .key("mini-apps-list")
-        .w_full()
-        .grow(1.0)
-        .min_h(0.0)
-        .scroll(ScrollSpec::default())
-        .child(row().key("mini-apps-measure").w_full().justify_center().px(20.0).child(col().w_full().max_w(LIST_W).child(rows)))
+    col().key("mini-apps-list").w_full().grow(1.0).min_h(0.0).scroll(ScrollSpec::default()).child(rows)
 }
 
 fn list_row(s: &App, p: &Pal, key: &str) -> El {
