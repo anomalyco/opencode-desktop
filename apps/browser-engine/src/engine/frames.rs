@@ -76,6 +76,9 @@ impl EngineManager {
                     tab.download_alive.store(false, Ordering::Release);
                     tab.host.close_browser(1);
                     self.downloads.close_tab(tab_id, tab.download_gen);
+                    for old_gen in tab.prior_download_gens {
+                        self.downloads.close_tab(tab_id, old_gen);
+                    }
                     if !tab.isolated && !tab.is_popup
                         && let Some(ext) = &mut self.extensions
                     {

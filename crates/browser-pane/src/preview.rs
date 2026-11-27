@@ -287,6 +287,7 @@ impl BrowserHost {
             prompts.agent_driven = true;
             prompts.driver = Some(crate::prompts::TabDriver::Agent);
         }
+        let residency = self.initial_residency(id);
         self.tabs.push(BrowserTab {
             id,
             url: initial_url,
@@ -320,6 +321,7 @@ impl BrowserHost {
             sent_resize: can_send.then_some((width_pt, height_pt, scale)),
             has_engine_tab: send_open || !can_send,
             engine_confirmed: false,
+            residency,
         });
         self.sync_has_tabs();
         self.focused_tab = Some(id);
@@ -382,6 +384,15 @@ impl BrowserHost {
                 t.refusal = None;
                 t.has_engine_tab = true;
             }
+            let awake = self.visible_tabs.contains(&tab_id) || self.unthrottled_tabs.contains(&tab_id);
+            crate::residency::step(
+                &mut t.residency,
+                crate::residency::ResidencyEvent::ContextReopened {
+                    has_engine_tab: t.has_engine_tab,
+                    awake,
+                    now: rune::time::Instant::now(),
+                },
+            );
             (t.viewport_pt, t.scale, had, t.prompts.agent_driven)
         };
         if refused.is_none() && !had_engine_tab && self.tabs.iter().filter(|t| t.has_engine_tab).count() == 1 {
@@ -453,6 +464,15 @@ impl BrowserHost {
             t.engine_confirmed = false;
             t.prompts.reset_for_context_switch();
             t.has_engine_tab = !(connected && ready && !engine_preview);
+            let awake = self.visible_tabs.contains(&tab_id) || self.unthrottled_tabs.contains(&tab_id);
+            crate::residency::step(
+                &mut t.residency,
+                crate::residency::ResidencyEvent::ContextReopened {
+                    has_engine_tab: t.has_engine_tab,
+                    awake,
+                    now: rune::time::Instant::now(),
+                },
+            );
             (t.viewport_pt, t.scale, had, t.prompts.agent_driven)
         };
         self.sync_has_tabs();
@@ -560,6 +580,7 @@ impl BrowserHost {
             sent_resize: None,
             has_engine_tab: false,
             engine_confirmed: false,
+            residency: crate::residency::TabResidency::Active,
         });
         self.focused_tab = Some(id);
         id
@@ -666,6 +687,7 @@ impl BrowserHost {
             sent_resize: None,
             has_engine_tab: false,
             engine_confirmed: false,
+            residency: crate::residency::TabResidency::Active,
         });
         self.focused_tab = Some(id);
         self.last_polled_status = status.clone();
