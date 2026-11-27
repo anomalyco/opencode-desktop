@@ -36,6 +36,13 @@ pub fn media_gate_script(binding: &str, answer: &str) -> String {
   const gate = globalThis[{binding_json}]
   if (typeof gate !== "function") return
   delete globalThis[{binding_json}]
+  const reflectConstruct = Reflect.construct
+  const WeakRefCtor = typeof WeakRef === "function" ? WeakRef : null
+  const WeakSetCtor = typeof WeakSet === "function" ? WeakSet : null
+  const MediaCtor = typeof HTMLMediaElement === "function" ? HTMLMediaElement : null
+  const nowFn = Date.now
+  const setTimer = typeof globalThis.setTimeout === "function" ? globalThis.setTimeout.bind(globalThis) : null
+  const clearTimer = typeof globalThis.clearTimeout === "function" ? globalThis.clearTimeout.bind(globalThis) : null
   const proto = globalThis.MediaDevices && MediaDevices.prototype
   if (proto && !Object.getOwnPropertyDescriptor(globalThis, {answer_json})) {{
     const original = proto.getUserMedia
@@ -69,10 +76,47 @@ pub fn media_gate_script(binding: &str, answer: &str) -> String {
       Object.defineProperty(Navigator.prototype, name, {{ value: legacy, writable: true, configurable: true, enumerable: true }})
     }}
   }}
-  // Passive audio-playback monitor: reports state transitions only (zero polling, zero audio hijack).
-  const mediaEls = new Set()
-  const audioCtxs = new Set()
-  let lastPlayback = false
+  // Passive audio-playback monitor: WeakRef-backed, zero polling, 250 ms coalescing throttle.
+  const mediaRefs = new Set()
+  const trackedEls = WeakSetCtor ? new WeakSetCtor() : new Set()
+  const audioCtxRefs = new Set()
+  let lastEmitted = false
+  let desiredPlayback = false
+  let lastEmitMs = 0
+  let flushTimer = null
+  const emitNow = (active) => {{
+    if (flushTimer !== null && clearTimer) {{
+      clearTimer(flushTimer)
+      flushTimer = null
+    }}
+    if (active === lastEmitted) return
+    lastEmitted = active
+    lastEmitMs = nowFn()
+    try {{
+      gate(active ? '{{"playback":true}}' : '{{"playback":false}}')
+    }} catch (_) {{}}
+  }}
+  const scheduleEmit = (active) => {{
+    desiredPlayback = active
+    if (desiredPlayback === lastEmitted) {{
+      if (flushTimer !== null && clearTimer) {{
+        clearTimer(flushTimer)
+        flushTimer = null
+      }}
+      return
+    }}
+    const elapsed = nowFn() - lastEmitMs
+    if (!setTimer || elapsed >= 250) {{
+      emitNow(desiredPlayback)
+      return
+    }}
+    if (flushTimer === null) {{
+      flushTimer = setTimer(() => {{
+        flushTimer = null
+        emitNow(desiredPlayback)
+      }}, 250 - elapsed)
+    }}
+  }}
   const isAudibleMedia = (el) => {{
     try {{
       return !!el && !el.paused && !el.ended && !el.muted && el.volume > 0
@@ -80,89 +124,120 @@ pub fn media_gate_script(binding: &str, answer: &str) -> String {
       return false
     }}
   }}
+  const ctxState = (ctx) => {{
+    try {{
+      return ctx ? ctx.state : ""
+    }} catch (_) {{
+      return ""
+    }}
+  }}
   const recompute = () => {{
     let active = false
-    for (const el of mediaEls) {{
-      if (isAudibleMedia(el)) {{
-        active = true
-      }} else if (el.paused || el.ended) {{
-        mediaEls.delete(el)
+    for (const ref of mediaRefs) {{
+      const el = WeakRefCtor ? ref.deref() : ref
+      if (!el) {{
+        mediaRefs.delete(ref)
+        continue
       }}
+      if (isAudibleMedia(el)) active = true
     }}
-    if (!active && audioCtxs.size > 0) {{
-      for (const ref of audioCtxs) {{
-        const ctx = typeof WeakRef === "function" ? ref.deref() : ref
-        if (!ctx || ctx.state === "closed") {{
-          audioCtxs.delete(ref)
-        }} else if (ctx.state === "running") {{
+    if (!active && audioCtxRefs.size > 0) {{
+      for (const ref of audioCtxRefs) {{
+        const ctx = WeakRefCtor ? ref.deref() : ref
+        if (!ctx) {{
+          audioCtxRefs.delete(ref)
+          continue
+        }}
+        const st = ctxState(ctx)
+        if (st === "closed") {{
+          audioCtxRefs.delete(ref)
+        }} else if (st === "running") {{
           active = true
         }}
       }}
     }}
-    if (active !== lastPlayback) {{
-      lastPlayback = active
-      try {{
-        gate(JSON.stringify({{ playback: active }}))
-      }} catch (_) {{}}
-    }}
+    scheduleEmit(active)
   }}
   const trackEl = (el) => {{
     if (!el || typeof el !== "object") return
-    if (!mediaEls.has(el)) {{
-      mediaEls.add(el)
-      for (const ev of ["pause", "ended", "emptied", "volumechange", "playing"]) {{
-        try {{
-          el.addEventListener(ev, recompute, {{ passive: true }})
-        }} catch (_) {{}}
+    try {{
+      if (!trackedEls.has(el)) {{
+        trackedEls.add(el)
+        mediaRefs.add(WeakRefCtor ? new WeakRefCtor(el) : el)
+        const onElEv = (e) => {{
+          if (e && (e.type === "play" || e.type === "playing")) {{
+            if (WeakRefCtor) {{
+              let present = false
+              for (const r of mediaRefs) {{
+                if (r.deref() === el) {{ present = true; break }}
+              }}
+              if (!present) mediaRefs.add(new WeakRefCtor(el))
+            }} else {{
+              mediaRefs.add(el)
+            }}
+          }}
+          recompute()
+        }}
+        for (const ev of ["play", "playing", "pause", "ended", "emptied", "volumechange"]) {{
+          try {{
+            el.addEventListener(ev, onElEv, {{ passive: true }})
+          }} catch (_) {{}}
+        }}
       }}
-    }}
+    }} catch (_) {{}}
     recompute()
   }}
-  if (globalThis.HTMLMediaElement && HTMLMediaElement.prototype && typeof HTMLMediaElement.prototype.play === "function") {{
-    const origPlay = HTMLMediaElement.prototype.play
-    HTMLMediaElement.prototype.play = function play() {{
-      trackEl(this)
+  if (MediaCtor && MediaCtor.prototype && typeof MediaCtor.prototype.play === "function") {{
+    const origPlay = MediaCtor.prototype.play
+    MediaCtor.prototype.play = function play() {{
+      try {{
+        if (this instanceof MediaCtor) trackEl(this)
+      }} catch (_) {{}}
       return origPlay.apply(this, arguments)
     }}
   }}
   if (typeof document !== "undefined" && document && typeof document.addEventListener === "function") {{
     const onMediaEv = (e) => {{
-      const t = e && e.target
-      if (t && (t instanceof HTMLMediaElement || typeof t.paused === "boolean")) {{
-        if (e.type === "play" || e.type === "playing") trackEl(t)
-        else recompute()
-      }}
+      try {{
+        const t = e && e.target
+        if (t && ((MediaCtor && t instanceof MediaCtor) || typeof t.paused === "boolean")) {{
+          trackEl(t)
+        }}
+      }} catch (_) {{}}
     }}
     for (const ev of ["play", "playing", "pause", "ended", "emptied", "volumechange"]) {{
       document.addEventListener(ev, onMediaEv, {{ capture: true, passive: true }})
     }}
   }}
-  for (const name of ["AudioContext", "webkitAudioContext"]) {{
-    const Ctor = globalThis[name]
-    if (typeof Ctor !== "function") continue
+  const wrapAudioCtx = (Ctor) => new Proxy(Ctor, {{
+    construct(target, args, newTarget) {{
+      const ctx = reflectConstruct(target, args, newTarget)
+      audioCtxRefs.add(WeakRefCtor ? new WeakRefCtor(ctx) : ctx)
+      try {{
+        ctx.addEventListener("statechange", recompute, {{ passive: true }})
+      }} catch (_) {{}}
+      recompute()
+      return ctx
+    }},
+  }})
+  const StdCtx = globalThis.AudioContext
+  const WebkitCtx = globalThis.webkitAudioContext
+  let stdProxy = null
+  if (typeof StdCtx === "function") {{
     try {{
-      globalThis[name] = new Proxy(Ctor, {{
-        construct(target, args, newTarget) {{
-          const ctx = Reflect.construct(target, args, newTarget)
-          const ref = typeof WeakRef === "function" ? new WeakRef(ctx) : ctx
-          audioCtxs.add(ref)
-          try {{
-            ctx.addEventListener("statechange", recompute, {{ passive: true }})
-          }} catch (_) {{}}
-          recompute()
-          return ctx
-        }},
-      }})
+      stdProxy = wrapAudioCtx(StdCtx)
+      globalThis.AudioContext = stdProxy
+    }} catch (_) {{}}
+  }}
+  if (typeof WebkitCtx === "function") {{
+    try {{
+      globalThis.webkitAudioContext = WebkitCtx === StdCtx && stdProxy ? stdProxy : wrapAudioCtx(WebkitCtx)
     }} catch (_) {{}}
   }}
   if (typeof globalThis.addEventListener === "function") {{
     globalThis.addEventListener("pagehide", () => {{
-      if (lastPlayback) {{
-        lastPlayback = false
-        try {{
-          gate(JSON.stringify({{ playback: false }}))
-        }} catch (_) {{}}
-      }}
+      desiredPlayback = false
+      emitNow(false)
     }}, {{ passive: true }})
   }}
 }})()"#
@@ -190,8 +265,10 @@ pub struct MediaAsk {
 pub struct MediaGateOutcome {
     pub consumed: bool,
     pub ask: Option<MediaAsk>,
-    /// `Some(audible)` whenever combined media capture/playback audibility transitioned.
-    pub audible_changed: Option<bool>,
+    /// `Some(audible)` whenever combined `snap.audible` (`capture || playback`) transitioned.
+    pub snap_audible_changed: Option<bool>,
+    /// `Some(audible)` whenever sound playback (`ExtTab.audible`) transitioned.
+    pub playback_audible_changed: Option<bool>,
 }
 
 #[derive(Default)]
@@ -200,13 +277,17 @@ struct ContextState {
     contexts: HashMap<(String, i64), String>,
     /// Active camera/microphone capture from CEF `DisplayHandler::on_media_access_change`.
     capture: bool,
-    /// CDP session IDs (`""` for root main frame, child `sessionId` for OOPIFs) actively playing audio.
-    playback_sessions: HashSet<String>,
+    /// `(session_id, execution_context_id)` pairs actively playing audio.
+    playback_contexts: HashSet<(String, i64)>,
 }
 
 impl ContextState {
-    fn is_audible(&self) -> bool {
-        self.capture || !self.playback_sessions.is_empty()
+    fn is_playback_audible(&self) -> bool {
+        !self.playback_contexts.is_empty()
+    }
+
+    fn is_snap_audible(&self) -> bool {
+        self.capture || self.is_playback_audible()
     }
 }
 
@@ -228,23 +309,24 @@ impl TabMediaGate {
     }
 
     /// Updates active camera/microphone capture state and returns `Some(audible)` when the
-    /// tab's combined audible state changed.
+    /// tab's combined `snap.audible` state changed (not forwarded to `ExtTab.audible`).
     pub fn set_capture(&self, active: bool) -> Option<bool> {
         let mut st = self.state.lock().unwrap();
-        let prev = st.is_audible();
+        let prev = st.is_snap_audible();
         st.capture = active;
-        let next = st.is_audible();
+        let next = st.is_snap_audible();
         (next != prev).then_some(next)
     }
 
     /// Clears capture and playback tracking (on main-frame navigation or renderer crash).
-    /// Returns `true` if the tab was previously audible.
-    pub fn reset_audible(&self) -> bool {
+    /// Returns `(was_snap_audible, was_playback_audible)`.
+    pub fn reset_audible(&self) -> (bool, bool) {
         let mut st = self.state.lock().unwrap();
-        let was = st.is_audible();
+        let was_snap = st.is_snap_audible();
+        let was_playback = st.is_playback_audible();
         st.capture = false;
-        st.playback_sessions.clear();
-        was
+        st.playback_contexts.clear();
+        (was_snap, was_playback)
     }
 
     fn build_cdp(&self, method: &str, params: Value, session_id: Option<&str>) -> String {
@@ -283,24 +365,25 @@ impl TabMediaGate {
         )
     }
 
-    /// Observes a CDP event. Returns consumed status, any held `getUserMedia` ask, and whether the
-    /// tab's combined audible state transitioned.
+    /// Observes a CDP event. Returns consumed status, any held `getUserMedia` ask, and whether
+    /// `snap.audible` or `ExtTab.audible` transitioned.
     pub fn observe_event(&self, method: &str, params: &Value, session_id: Option<&str>) -> MediaGateOutcome {
         let sid = session_id.unwrap_or("").to_owned();
         match method {
             "Target.detachedFromTarget" => {
-                let mut audible_changed = None;
+                let mut outcome = MediaGateOutcome::default();
                 if let Some(detached) = params.get("sessionId").and_then(Value::as_str) {
                     let mut st = self.state.lock().unwrap();
-                    let prev = st.is_audible();
+                    let prev_snap = st.is_snap_audible();
+                    let prev_play = st.is_playback_audible();
                     st.contexts.retain(|(s, _), _| s != detached);
-                    st.playback_sessions.remove(detached);
-                    let next = st.is_audible();
-                    if next != prev {
-                        audible_changed = Some(next);
-                    }
+                    st.playback_contexts.retain(|(s, _)| s != detached);
+                    let next_snap = st.is_snap_audible();
+                    let next_play = st.is_playback_audible();
+                    outcome.snap_audible_changed = (next_snap != prev_snap).then_some(next_snap);
+                    outcome.playback_audible_changed = (next_play != prev_play).then_some(next_play);
                 }
-                MediaGateOutcome { consumed: false, ask: None, audible_changed }
+                outcome
             }
             "Runtime.executionContextCreated" => {
                 let ctx = &params["context"];
@@ -313,21 +396,33 @@ impl TabMediaGate {
                 MediaGateOutcome::default()
             }
             "Runtime.executionContextDestroyed" => {
+                let mut outcome = MediaGateOutcome::default();
                 if let Some(id) = params["executionContextId"].as_i64() {
-                    self.state.lock().unwrap().contexts.remove(&(sid, id));
+                    let mut st = self.state.lock().unwrap();
+                    let prev_snap = st.is_snap_audible();
+                    let prev_play = st.is_playback_audible();
+                    st.contexts.remove(&(sid.clone(), id));
+                    st.playback_contexts.remove(&(sid, id));
+                    let next_snap = st.is_snap_audible();
+                    let next_play = st.is_playback_audible();
+                    outcome.snap_audible_changed = (next_snap != prev_snap).then_some(next_snap);
+                    outcome.playback_audible_changed = (next_play != prev_play).then_some(next_play);
                 }
-                MediaGateOutcome::default()
+                outcome
             }
             "Runtime.executionContextsCleared" => {
                 let mut st = self.state.lock().unwrap();
-                let prev = st.is_audible();
+                let prev_snap = st.is_snap_audible();
+                let prev_play = st.is_playback_audible();
                 st.contexts.retain(|(s, _), _| s != &sid);
-                st.playback_sessions.remove(&sid);
-                let next = st.is_audible();
+                st.playback_contexts.retain(|(s, _)| s != &sid);
+                let next_snap = st.is_snap_audible();
+                let next_play = st.is_playback_audible();
                 MediaGateOutcome {
                     consumed: false,
                     ask: None,
-                    audible_changed: (next != prev).then_some(next),
+                    snap_audible_changed: (next_snap != prev_snap).then_some(next_snap),
+                    playback_audible_changed: (next_play != prev_play).then_some(next_play),
                 }
             }
             "Runtime.bindingCalled" => {
@@ -338,26 +433,29 @@ impl TabMediaGate {
                 if payload.len() > 256 {
                     return MediaGateOutcome { consumed: true, ..Default::default() };
                 }
+                let Some(ctx_id) = params["executionContextId"].as_i64() else {
+                    return MediaGateOutcome { consumed: true, ..Default::default() };
+                };
                 match serde_json::from_str::<BindingPayload>(payload) {
                     Ok(BindingPayload::Playback { playback }) => {
                         let mut st = self.state.lock().unwrap();
-                        let prev = st.is_audible();
+                        let prev_snap = st.is_snap_audible();
+                        let prev_play = st.is_playback_audible();
                         if playback {
-                            st.playback_sessions.insert(sid);
+                            st.playback_contexts.insert((sid, ctx_id));
                         } else {
-                            st.playback_sessions.remove(&sid);
+                            st.playback_contexts.remove(&(sid, ctx_id));
                         }
-                        let next = st.is_audible();
+                        let next_snap = st.is_snap_audible();
+                        let next_play = st.is_playback_audible();
                         MediaGateOutcome {
                             consumed: true,
                             ask: None,
-                            audible_changed: (next != prev).then_some(next),
+                            snap_audible_changed: (next_snap != prev_snap).then_some(next_snap),
+                            playback_audible_changed: (next_play != prev_play).then_some(next_play),
                         }
                     }
                     Ok(BindingPayload::Ask { id, audio, video }) => {
-                        let Some(ctx_id) = params["executionContextId"].as_i64() else {
-                            return MediaGateOutcome { consumed: true, ..Default::default() };
-                        };
                         if id == 0 || (!audio && !video) {
                             return MediaGateOutcome { consumed: true, ..Default::default() };
                         }
@@ -383,7 +481,8 @@ impl TabMediaGate {
                                 allow_msg: self.answer_msg(id, true, ctx_id, session),
                                 deny_msg: self.answer_msg(id, false, ctx_id, session),
                             }),
-                            audible_changed: None,
+                            snap_audible_changed: None,
+                            playback_audible_changed: None,
                         }
                     }
                     Err(_) => MediaGateOutcome { consumed: true, ..Default::default() },

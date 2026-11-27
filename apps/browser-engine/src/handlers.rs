@@ -525,13 +525,6 @@ wrap_display_handler! {
                 if s.audible != audible {
                     s.audible = audible;
                     let _ = self.out_tx.send(EngineMsg::TabUpdate { tab: s.clone() });
-                    let _ = self.events.send(crate::Event::TabMeta {
-                        tab_id: self.tab_id,
-                        url: None,
-                        title: None,
-                        loading: None,
-                        audible: Some(audible),
-                    });
                 }
             }
         }
@@ -593,13 +586,12 @@ wrap_load_handler! {
             emit_web_nav(&self.events, self.tab_id, Some(frame), url.clone(), crate::extensions::web_nav::WebNavKind::Committed);
             if frame.is_main() == 1 {
                 self.prompts.clear_all_ext_frame_tracking();
-                let was_audible = self.media_gate.reset_audible();
+                let (_, was_playback) = self.media_gate.reset_audible();
                 let mut s = self.snap.lock().unwrap();
                 s.document += 1;
-                let cleared = s.audible || was_audible;
                 s.audible = false;
                 let _ = self.out_tx.send(EngineMsg::TabUpdate { tab: s.clone() });
-                if cleared {
+                if was_playback {
                     let _ = self.events.send(crate::Event::TabMeta {
                         tab_id: self.tab_id,
                         url: None,
@@ -1289,18 +1281,17 @@ wrap_request_handler! {
                 .unwrap()
                 .reset_all(self.tab_id, &self.out_tx, "The page crashed before input completed.");
             let err_str = error_string.map(CefString::to_string).unwrap_or_default();
-            let was_audible = self.media_gate.reset_audible();
-            let (url, was_loading, cleared_audible) = {
+            let (_, was_playback) = self.media_gate.reset_audible();
+            let (url, was_loading) = {
                 let mut s = self.snap.lock().unwrap();
                 let was_loading = s.loading;
-                let cleared = s.audible || was_audible;
                 s.loading = false;
                 s.audible = false;
                 s.load_error = Some("page_crashed".into());
                 let _ = self.out_tx.send(EngineMsg::TabUpdate { tab: s.clone() });
-                (s.url.clone(), was_loading, cleared)
+                (s.url.clone(), was_loading)
             };
-            if cleared_audible {
+            if was_playback {
                 let _ = self.events.send(crate::Event::TabMeta {
                     tab_id: self.tab_id,
                     url: None,

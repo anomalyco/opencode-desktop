@@ -4,7 +4,7 @@
 //! Centralizes `was_hidden`, windowless FPS throttling (1 FPS hidden vs display-matched
 //! `pane_fps()` awake), late-frame blocking (`ManagedTab::awake`), keyboard focus restore,
 //! Windows D3D11 / Linux dmabuf GPU frame ring release, Chromium Page Lifecycle freeze/unfreeze
-//! (`Page.setWebLifecycleState` + `Memory.forciblyPurgeJavaScriptMemory`), and Tier 3 renderer
+//! (`Page.setWebLifecycleState`), and Tier 3 renderer
 //! teardown (`HibernateTab`) while preserving completed downloads, staged uploads, and extension
 //! discarded tab state.
 
@@ -127,13 +127,6 @@ fn apply_render_effect(
                 &t.host,
                 "Page.setWebLifecycleState",
                 json!({ "state": "frozen" }),
-            );
-            // Per-renderer V8 GC purge (never browser-wide `Memory.simulatePressureNotification`).
-            EngineManager::send_internal_cdp_with(
-                next_cdp_id,
-                &t.host,
-                "Memory.forciblyPurgeJavaScriptMemory",
-                json!({}),
             );
             Some(true)
         }
@@ -355,18 +348,13 @@ impl EngineManager {
             }
             let _ = self.out_tx.send(EngineMsg::TabClosed { tab_id });
         } else {
-            let was_discarded = self.extensions.as_ref().is_some_and(|e| e.is_discarded_tab(tab_id));
             if let Some(gens) = hibernated_gens {
                 for old_gen in gens {
                     self.downloads.close_tab(tab_id, old_gen);
                 }
-                crate::agent::remove_tab_uploads(&self.profile_dir, tab_id);
-            } else if was_discarded {
-                crate::agent::remove_tab_uploads(&self.profile_dir, tab_id);
             }
-            if was_discarded
-                && let Some(ext) = &mut self.extensions
-            {
+            crate::agent::remove_tab_uploads(&self.profile_dir, tab_id);
+            if let Some(ext) = &mut self.extensions {
                 ext.on_tab_closed(tab_id);
             }
             self.release_tab_context(tab_id);

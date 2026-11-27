@@ -851,19 +851,21 @@ wrap_dev_tools_message_observer! {
             obs.send.extend(pk_send);
             let mg = self.media_gate.observe_event(&method, &params, session_id.as_deref());
             let mg_consumed = mg.consumed;
-            if let Some(audible) = mg.audible_changed {
+            if let Some(audible) = mg.snap_audible_changed {
                 let mut s = self.snap.lock().unwrap();
                 if s.audible != audible {
                     s.audible = audible;
                     let _ = self.out_tx.send(EngineMsg::TabUpdate { tab: s.clone() });
-                    let _ = self.events.send(crate::Event::TabMeta {
-                        tab_id: self.tab_id,
-                        url: None,
-                        title: None,
-                        loading: None,
-                        audible: Some(audible),
-                    });
                 }
+            }
+            if let Some(audible) = mg.playback_audible_changed {
+                let _ = self.events.send(crate::Event::TabMeta {
+                    tab_id: self.tab_id,
+                    url: None,
+                    title: None,
+                    loading: None,
+                    audible: Some(audible),
+                });
             }
             if let Some(ask) = mg.ask
                 && let Some(deny) = self.hold_media_ask(browser.as_deref(), ask)
