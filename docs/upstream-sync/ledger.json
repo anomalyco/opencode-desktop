@@ -5,7 +5,7 @@
   "upstream_head": "36bfb85cd147dcef9b5cf86b011d37d321cf2af8",
   "upstream_pre_window_base": "3751be8138ebcf33343eb3f3d011b32fc814103c",
   "rune_desktop_repo": "anomalyco/opencode-rune",
-  "rune_desktop_head": "831b1b1560",
+  "rune_desktop_head": "e5935c1037",
   "post_1114_commit_count": 832,
   "post_1114_in_ledger": 277,
   "post_1114_skipped": 555,
@@ -20,11 +20,11 @@
   "pre_1114_carryover_rows": 15,
   "total_ledger_rows": 298,
   "status_counts": {
-    "have it": 256,
+    "have it": 257,
     "not applicable": 39,
     "differs on purpose": 1,
     "partly": 1,
-    "missing": 1
+    "missing": 0
   },
   "rows": [
     {
@@ -7553,14 +7553,20 @@
       ],
       "summary": "Holds side panel tab widths while closing tabs with the mouse (Chrome-style) so the next tab's close button slides under the pointer, releasing when leaving the strip, resizing, blurring, or opening/moving tabs.",
       "size": "S",
-      "status": "missing",
-      "status_evidence": "Open PR #1460 (head 1a0debf608, CI running): adds StripWidthHold explicit state machine in features/panels/src/state/width_hold.rs, wired into strip.rs and window blur in apps/desktop/src/shell/view/mod.rs.",
+      "status": "have it",
+      "status_evidence": "Merged in #1460 (dev e5935c1037, CI run 46077977384 green): adds StripWidthHold explicit state machine in features/panels/src/state/width_hold.rs wired into strip.rs, pane.rs memo hash, and window blur in apps/desktop/src/shell/view/mod.rs. Verified headless on Windows x64 PR build (run 46077977384, 5/5 cases PASS, peak <= 0.51 GiB): non-last mouse close holds tab widths with next close button at exact X, strip leave releases hold immediately, double-close accumulates hold, last-tab close expands, and + releases cleanly. Not run: real window, macOS, Linux.",
       "pr_refs": [
         1460
       ],
       "depends_on": "none",
       "risks": "none",
-      "workstream": "UPSTREAM"
+      "workstream": "UPSTREAM",
+      "rune_files": [
+        "features/panels/src/state/width_hold.rs",
+        "features/panels/src/view/strip.rs",
+        "features/panels/src/view/pane.rs",
+        "apps/desktop/src/shell/view/mod.rs"
+      ]
     }
   ],
   "browser_security_review": {
