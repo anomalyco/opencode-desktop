@@ -112,6 +112,10 @@ mod web {
         pub fn set_browser_window_minimized(&mut self, _: bool) {}
 
         pub fn close_browser_tabs_for_session(&mut self, _: &str) {}
+
+        pub fn hibernate_browser_tabs_for_session(&mut self, _: &str) {}
+
+        pub fn hibernate_orphaned_browser_tabs(&mut self) {}
     }
 }
 
@@ -666,6 +670,20 @@ mod native {
                     super::rpc::grant_remote_navigation(self, sid.as_deref(), &resolved);
                 }
                 self.workspace_panes.browser.host.reopen_tab_as_web(id, &resolved, ctx);
+                return;
+            }
+            let hibernated_ctx = self
+                .workspace_panes
+                .browser
+                .host
+                .tab(id)
+                .and_then(|t| t.residency().is_hibernated().then(|| t.context.clone()));
+            if let Some(ctx) = hibernated_ctx {
+                if !agent && matches!(ctx, browser_pane::ContextKind::RemoteServer { .. }) {
+                    super::rpc::grant_remote_navigation(self, sid.as_deref(), &resolved);
+                }
+                let focused = !agent && self.active_browser_tab_id() == Some(id);
+                self.wake_browser_tab_to_url(id, &resolved, ctx, focused);
                 return;
             }
             if !agent

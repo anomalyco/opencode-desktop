@@ -171,7 +171,10 @@ pub(super) fn tab_methods(lua: &Lua, m: &Table) -> mlua::Result<()> {
             }
             let shift = with_app("BrowserTab:ReloadFromClick", |app| Ok(app.workspace_panes.browser.shift_held))?;
             later(lua, &this, "BrowserTab:ReloadFromClick", move |s, id, tx| {
-                if shift || tx.mods().shift {
+                s.workspace_panes.browser.host.clear_refusal(id);
+                if s.workspace_panes.browser.host.tab(id).is_some_and(|t| t.residency().is_hibernated()) {
+                    s.wake_browser_tab(id, s.active_browser_tab_id() == Some(id));
+                } else if shift || tx.mods().shift {
                     s.workspace_panes.browser.host.reload_ignore_cache(id);
                 } else {
                     s.workspace_panes.browser.host.reload(id);
@@ -268,6 +271,9 @@ pub(super) fn tab_methods(lua: &Lua, m: &Table) -> mlua::Result<()> {
             let forward = forward.unwrap_or(true);
             let find_next = find_next.unwrap_or(false);
             later(lua, &this, "BrowserTab:Find", move |s, id, _| {
+                if s.workspace_panes.browser.host.tab(id).is_some_and(|t| t.residency().is_hibernated()) {
+                    s.wake_browser_tab(id, s.active_browser_tab_id() == Some(id));
+                }
                 s.workspace_panes.browser.host.find(id, &query, forward, false, find_next, true);
             })
         })?,
@@ -308,7 +314,11 @@ pub(super) fn tab_methods(lua: &Lua, m: &Table) -> mlua::Result<()> {
         lua.create_function(|lua, this: Table| {
             later(lua, &this, "BrowserTab:ReloadIgnoreCache", move |s, id, _| {
                 s.workspace_panes.browser.host.clear_refusal(id);
-                s.workspace_panes.browser.host.reload_ignore_cache(id);
+                if s.workspace_panes.browser.host.tab(id).is_some_and(|t| t.residency().is_hibernated()) {
+                    s.wake_browser_tab(id, s.active_browser_tab_id() == Some(id));
+                } else {
+                    s.workspace_panes.browser.host.reload_ignore_cache(id);
+                }
             })
         })?,
     )?;
@@ -340,6 +350,11 @@ fn clear_cache(lua: &Lua, a: MultiValue, done: Completer) -> mlua::Result<()> {
                 return done.complete(failed(not_running(&s.workspace_panes.browser.host.status())));
             }
             scope.mark_tab_driven(s, id);
+            if s.workspace_panes.browser.host.tab(id).is_some_and(|t| t.residency().is_hibernated())
+                && !s.wake_browser_tab(id, s.active_browser_tab_id() == Some(id))
+            {
+                return done.complete(failed("Browser tab could not be woken.".to_owned()));
+            }
             s.workspace_panes.browser.host.freeze_tab(id, false);
             match s.workspace_panes.browser.host.clear_site_cache(id) {
                 Ok(request) => {

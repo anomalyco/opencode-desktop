@@ -300,7 +300,8 @@ fn start_navigate(
     };
     app.workspace_panes.browser.host.set_agent_driven(host_id, true);
     app.mark_browser_tab_unseen(host_id);
-    let commit_base = commit_baseline(att, app, host_id, false);
+    let was_hibernated = app.workspace_panes.browser.host.tab(host_id).is_some_and(|t| t.residency().is_hibernated());
+    let commit_base = commit_baseline(att, app, host_id, was_hibernated);
     let prev_rejected = app.workspace_panes.browser.host.tab(host_id).map_or(0, |t| t.rejected);
     match app.resolve_preview_target(Some(&att.session_id), &candidate, true) {
         crate::browser::preview::PreviewTarget::Preview { display_url, spec } => {
@@ -312,9 +313,7 @@ fn start_navigate(
                 "The workspace file is outside this session's workspace or cannot be read.",
             ));
         }
-        crate::browser::preview::PreviewTarget::NotPreview => {
-            app.navigate_browser_tab(host_id, &candidate);
-        }
+        crate::browser::preview::PreviewTarget::NotPreview => super::wake::navigate_or_wake(app, host_id, &candidate),
     }
     if app.use_mock_browser() {
         let _ = att.sync_tabs(app);
@@ -347,6 +346,12 @@ fn start_history(
     };
     if let Err(outcome) = check_page_guards(app, host_id, action_name) {
         return StepOutcome::Done(outcome);
+    }
+    if app.workspace_panes.browser.host.tab(host_id).is_some_and(|t| t.residency().is_hibernated()) {
+        let Some(tab) = att.wire_tab(app, host_id) else {
+            return StepOutcome::Done(Outcome::fail(failure_code::OPERATION_FAILED, "Tab unavailable."));
+        };
+        return StepOutcome::Done(Outcome::ok(serde_json::to_value(tab).unwrap_or(Value::Null), Vec::new()));
     }
     app.workspace_panes.browser.host.set_agent_driven(host_id, true);
     app.mark_browser_tab_unseen(host_id);
@@ -408,12 +413,11 @@ fn start_reload(
     }
     app.workspace_panes.browser.host.set_agent_driven(host_id, true);
     app.mark_browser_tab_unseen(host_id);
-    let commit_base = commit_baseline(att, app, host_id, false);
+    let was_hibernated = app.workspace_panes.browser.host.tab(host_id).is_some_and(|t| t.residency().is_hibernated());
+    let commit_base = commit_baseline(att, app, host_id, was_hibernated);
     let prev_rejected = app.workspace_panes.browser.host.tab(host_id).map_or(0, |t| t.rejected);
-    if ignore_cache {
-        app.workspace_panes.browser.host.reload_ignore_cache(host_id);
-    } else {
-        app.workspace_panes.browser.host.reload(host_id);
+    if let Err(o) = super::wake::reload_or_wake(app, host_id, ignore_cache) {
+        return StepOutcome::Done(o);
     }
     if app.use_mock_browser() {
         let _ = att.sync_tabs(app);
@@ -424,7 +428,8 @@ fn start_reload(
     }
     StepOutcome::Pending(ExecPhase::WaitLoad(WaitLoadState {
         host_id, wire_tab_id: wire_id.to_owned(), preview_path: None, close_on_fail: false,
-        saw_loading: false, commit_base, history_from: None, same_doc: None, prev_rejected,
+        saw_loading: app.workspace_panes.browser.host.tab(host_id).is_some_and(|t| t.loading),
+        commit_base, history_from: None, same_doc: None, prev_rejected,
         started_at: now, deadline: now + LOAD_TIMEOUT,
     }))
 }
@@ -514,7 +519,8 @@ fn start_preview(
     }
     let prev_rejected = app.workspace_panes.browser.host.tab(host_id).map_or(0, |t| t.rejected);
     StepOutcome::Pending(ExecPhase::WaitLoad(WaitLoadState {
-        host_id, wire_tab_id, preview_path: Some(path.to_owned()), close_on_fail, saw_loading: false,
+        host_id, wire_tab_id, preview_path: Some(path.to_owned()), close_on_fail,
+        saw_loading: app.workspace_panes.browser.host.tab(host_id).is_some_and(|t| t.loading),
         commit_base: commit_baseline(att, app, host_id, close_on_fail),
         history_from: None, same_doc: None, prev_rejected, started_at: now, deadline: now + LOAD_TIMEOUT,
     }))
@@ -544,7 +550,8 @@ fn start_navigate_path(
         Err(msg) => return StepOutcome::Done(Outcome::fail(failure_code::PREVIEW_UNAVAILABLE, msg)),
     };
     app.workspace_panes.browser.host.set_agent_driven(host_id, true);
-    let commit_base = commit_baseline(att, app, host_id, false);
+    let was_hibernated = app.workspace_panes.browser.host.tab(host_id).is_some_and(|t| t.residency().is_hibernated());
+    let commit_base = commit_baseline(att, app, host_id, was_hibernated);
     let prev_rejected = app.workspace_panes.browser.host.tab(host_id).map_or(0, |t| t.rejected);
     app.reopen_resolved_preview_tab(host_id, Some(&att.session_id), &display_url, spec);
     att.agent_tab_id = Some(wire_id.to_owned());
@@ -560,7 +567,8 @@ fn start_navigate_path(
     }
     StepOutcome::Pending(ExecPhase::WaitLoad(WaitLoadState {
         host_id, wire_tab_id: wire_id.to_owned(), preview_path: Some(path.to_owned()), close_on_fail: false,
-        saw_loading: false, commit_base, history_from: None, same_doc: None, prev_rejected,
+        saw_loading: app.workspace_panes.browser.host.tab(host_id).is_some_and(|t| t.loading),
+        commit_base, history_from: None, same_doc: None, prev_rejected,
         started_at: now, deadline: now + LOAD_TIMEOUT,
     }))
 }

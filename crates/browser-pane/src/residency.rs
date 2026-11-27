@@ -37,6 +37,13 @@ impl TabResidency {
             _ => None,
         }
     }
+
+    pub fn inactive_since(self) -> Option<Instant> {
+        match self {
+            Self::Hidden { since } | Self::Frozen { since } => Some(since),
+            _ => None,
+        }
+    }
 }
 
 /// Inputs driving [`step`].

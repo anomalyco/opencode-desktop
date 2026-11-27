@@ -548,6 +548,29 @@ impl App {
         changed |= self.drain_extension_wake_tabs();
         // Sync the exact visible set across Side, Split, and Bottom panes (deduplicated).
         self.sync_visible_browser_tabs();
+        // Wake any visible hibernated tab immediately so returning to a session or switching
+        // tabs restores the page seamlessly (skipping already-refused tabs unless their remote
+        // proxy just came online, so a missing proxy never spins).
+        let active_id = self.active_browser_tab_id();
+        let to_wake: Vec<u64> = self
+            .visible_browser_tabs()
+            .into_iter()
+            .filter(|&id| {
+                self.workspace_panes.browser.host.tab(id).is_some_and(|t| {
+                    let proxy_ready = matches!(
+                        (&t.context, t.refusal.as_deref()),
+                        (browser_pane::ContextKind::RemoteServer { server_id, .. }, Some("browser.proxy.required"))
+                            if self.workspace_panes.browser.host.remote_proxy(server_id).is_some()
+                    );
+                    t.residency().is_hibernated() && (t.refusal.is_none() || proxy_ready)
+                })
+            })
+            .collect();
+        for id in to_wake {
+            if self.wake_browser_tab(id, Some(id) == active_id) {
+                changed = true;
+            }
+        }
         self.tick_browser_residency();
         changed |= self.prune_browser_unseen();
         changed |= self.sync_browser_openers();

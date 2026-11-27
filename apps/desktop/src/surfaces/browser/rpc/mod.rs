@@ -29,6 +29,7 @@ use rune::{Tx, Waker, time::Instant};
 use serde_json::Value;
 
 pub use self::comes_back::person_came;
+pub use self::exec::wake::{is_tab_or_session_busy, on_tab_hibernated};
 use self::session::SessionAttachment;
 pub use self::tunnel::grant_remote_navigation;
 use self::start_gate::{StartWaiter, drain_start_waiters};
@@ -569,14 +570,11 @@ pub fn poll(app: &mut App, tx: &mut Tx) -> bool {
         }
     }
 
-    if let Some(w) = holds.sync(app, &mut sessions, now) {
-        earliest_wake = Some(earliest_wake.map_or(w, |cur| cur.min(w)));
-    }
+    session::prune_idle_captures(&mut sessions, app.active_session_id(), |sid| app.session_busy(sid) || app.subtree_busy(sid));
+    if let Some(w) = holds.sync(app, &mut sessions, now) { earliest_wake = Some(earliest_wake.map_or(w, |cur| cur.min(w))); }
     {
         let st = app.kernel.slots.get_mut(&BROWSER_RPC);
-        st.sessions = sessions;
-        st.holds = holds;
-        st.ref_counter = ref_counter;
+        st.sessions = sessions; st.holds = holds; st.ref_counter = ref_counter;
     }
     apply_batch_effects(app, tick_effects, Some(tx));
 

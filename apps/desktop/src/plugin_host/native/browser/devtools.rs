@@ -42,6 +42,11 @@ pub(super) fn devtools(lua: &Lua, a: MultiValue, done: Completer) -> mlua::Resul
             if !is_dialog && s.workspace_panes.browser.host.tab(id).is_some_and(|t| t.prompts.dialog.open().is_some()) {
                 return done.complete(failed(format!("[browser.dialog_open] A JavaScript dialog is open in tab {id}. Answer or dismiss the dialog before continuing.")));
             }
+            if s.workspace_panes.browser.host.tab(id).is_some_and(|t| t.residency().is_hibernated())
+                && !s.wake_browser_tab(id, s.active_browser_tab_id() == Some(id))
+            {
+                return done.complete(failed("Browser tab could not be woken.".to_owned()));
+            }
             s.workspace_panes.browser.host.freeze_tab(id, false);
             match s.workspace_panes.browser.host.send_cdp(id, cdp, params, target) {
                 Ok(request) => {
@@ -69,6 +74,11 @@ pub(super) fn site_cookies(lua: &Lua, a: MultiValue, done: Completer) -> mlua::R
             }
             if !s.workspace_panes.browser.host.has_live_sidecar() {
                 return done.complete(failed(not_running(&s.workspace_panes.browser.host.status())));
+            }
+            if s.workspace_panes.browser.host.tab(id).is_some_and(|t| t.residency().is_hibernated())
+                && !s.wake_browser_tab(id, s.active_browser_tab_id() == Some(id))
+            {
+                return done.complete(failed("Browser tab could not be woken.".to_owned()));
             }
             s.workspace_panes.browser.host.freeze_tab(id, false);
             match s.workspace_panes.browser.host.site_cookies(id) {
@@ -99,6 +109,11 @@ pub(super) fn clear_site(lua: &Lua, a: MultiValue, done: Completer) -> mlua::Res
                 return done.complete(failed(not_running(&s.workspace_panes.browser.host.status())));
             }
             scope.mark_tab_driven(s, id);
+            if s.workspace_panes.browser.host.tab(id).is_some_and(|t| t.residency().is_hibernated())
+                && !s.wake_browser_tab(id, s.active_browser_tab_id() == Some(id))
+            {
+                return done.complete(failed("Browser tab could not be woken.".to_owned()));
+            }
             s.workspace_panes.browser.host.freeze_tab(id, false);
             match s.workspace_panes.browser.host.clear_site(id) {
                 Ok(request) => {

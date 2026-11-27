@@ -313,6 +313,11 @@ impl App {
         }
         if closed_session {
             crate::shell::memory_reclaim::on_tab_closed(self, &server, &id, shown);
+            let still_open = self.tabs.iter().any(|t| !t.is_draft() && t.id == id)
+                || matches!(&*self.route, Route::Session { id: rid, .. } if rid == &id);
+            if !still_open {
+                self.hibernate_browser_tabs_for_session(&id);
+            }
         }
         self.save_tabs();
     }

@@ -327,7 +327,7 @@ fn exec_network_get(att: &mut SessionAttachment, app: &mut App, cmd: &Command) -
     // `Network.getRequestPostData`, as official (`diagnostics-machine.ts:289-300`).
     if include_resp
         && hop.response_body_fetchable()
-        && app.workspace_panes.browser.host.engine_agent_tools()
+        && app.workspace_panes.browser.host.engine_agent_tools() && app.workspace_panes.browser.host.tab_open_in_engine(host_id)
         && let Ok(cdp_req) = app.workspace_panes.browser.host.send_typed_cdp(
             host_id,
             "Network.getResponseBody",
