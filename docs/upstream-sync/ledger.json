@@ -5,7 +5,7 @@
   "upstream_head": "449c128a5b225efcf986201d57519697d8bb7fe1",
   "upstream_pre_window_base": "3751be8138ebcf33343eb3f3d011b32fc814103c",
   "rune_desktop_repo": "anomalyco/opencode-rune",
-  "rune_desktop_head": "54f5b476f",
+  "rune_desktop_head": "8023e5d79",
   "post_1114_commit_count": 769,
   "post_1114_in_ledger": 260,
   "post_1114_skipped": 509,
@@ -20,10 +20,10 @@
   "pre_1114_carryover_rows": 15,
   "total_ledger_rows": 281,
   "status_counts": {
-    "have it": 236,
+    "have it": 238,
     "not applicable": 39,
     "differs on purpose": 1,
-    "partly": 4,
+    "partly": 2,
     "missing": 1
   },
   "rows": [
@@ -5372,8 +5372,8 @@
       ],
       "summary": "No focus ring round a focused file viewer, tool output region, error details box, What's New or the terminal; the file viewer and the tool output regions are no Tab stop any more (tabIndex -1: a click still focuses them so the keys scroll and search).",
       "size": "XS",
-      "status": "partly",
-      "status_evidence": "opencode-rune #881 (6e508f01): the keyboard's line in a file viewer or diff (crates/opencode-code-view/src/file/view.rs and diff/view.rs line_stop) drew Rune's default ring; it now sets no_focus_ring and shows by the line's hover fill (focus_fill); the terminal screen (features/terminal-surface/src/grid/mod.rs) sets no_focus_ring. Tool output, console and error details are not focusable in ours and What's New has no focus container: no ring, nothing to do. OPEN, owner question (24 Nov): official's viewer is no Tab stop at all; ours keeps one Tab stop per viewer (the cursor line, for commenting by keyboard). Found, not checked: official's tool output and error details take focus on a click so the keys scroll them; ours are not focusable. Ported by reading; run owed (CI build only). Closing remaining gaps in draft opencode-rune #1375 (head 4bd8a89126, CI running, not yet run): makes bash-scroll, capped tool-output, and error details click-focusable with tab_index(-1) and no_focus_ring, and sets tab_index(-1) on file/diff viewer line stops.",
+      "status": "have it",
+      "status_evidence": "Ported in opencode-rune #881 (6e508f01) and completed in #1375 (8023e5d79, head 8399f8b044, CI run 45918796952 green across guardrails + macOS/Win x64/Win arm64/Linux x64; Linux arm64 skipped): terminal screen (features/terminal-surface/src/grid/mod.rs), file/diff viewer line stops (crates/opencode-code-view/src/{file,diff}/view.rs), tool console bash-scroll & capped tool-output (crates/session-view/src/tools/console.rs), and tool error details (crates/session-view/src/tools/error.rs) are all click-focusable with tab_index(-1) and no_focus_ring (not Tab stops, no focus ring). Official: packages/session-ui/src/{components/file.{tsx,css},components/message-part.css,tools/tool-renderer.tsx}, packages/ui/src/components/error-details.{tsx,css}, packages/gui-plugins/src/terminal/terminal.tsx. Post-merge bulk headless verification queued.",
       "depends_on": "none",
       "risks": "none",
       "workstream": "UPSTREAM",
@@ -6200,8 +6200,8 @@
       ],
       "summary": "Four gaps of the Consolidated navigation: a middle click on a pinned session unpins it and closes its tab; a pin group's chevron (vertical) and, under Consolidated, a Recent group header's chevron show only on hover or keyboard focus; Home's project picker names the focused server, with the server glyph, in place of All projects when there are several servers and no project is chosen.",
       "size": "S",
-      "status": "partly",
-      "status_evidence": "Ported in opencode-rune #1144 (2e0d7d31), with its four open hover/focus/fade differences closed in #1262 (75cae151) on the Rune pin 5342f14d (rune#2231, rune#2215): a middle click on a pinned session unpins it (apps/desktop/src/shell/tabs/pins.rs), Home's picker names the focused server when no project is chosen (shell/view/home/projects.rs), and a pin group's and Recent group's header chevron and menu button follow official's hover and focus (shell/view/sidebar/pinned_area.rs, recent.rs: 150 ms chevron fade in and out, chevron stays visible while hovering the menu button, keyboard focus on the toggle shows the ring and chevron with no hover fill and no menu button, Recent header has no hover fill and turns its label to base ink on hover). Run headless on Windows x64 CI builds: #1144's middle click and Home picker ran on #1144's build; #1262's 9 cases ran on 0b4db7a00 (run 45711964463) beside before build #1271 278f9aaf38 (29 launches, exit 0), confirming 150 ms chevron fade (0.837 / 0.163 at 60 ms), pointer on menu button keeps chevron and fill, Tab on toggle shows no fill and no menu button, Recent header no fill and base ink on hover, and terminal quote icon label + tooltip. Partly because two differences remain open: (1) a Recent header's words turn to base ink while hovering its Group and sort button where official keeps them muted (packages/app/src/shell/titlebar/recent-sessions.tsx:1201): needs a Rune addition for a member naming its hover group (Rune draft owed); (2) the chevron turns at once on toggle press (0 px diff at 60 ms vs settled in case 7) because the toggle's press calls tx.instant(), where official turns over 150 ms. Not run: a real window, touch, top tabs' pin groups, the Recent arrangement's own grouped header, macOS, Linux. Closing remaining 2 differences in draft opencode-rune #1375 (head 4bd8a89126, CI running, not yet run): removes tx.instant() on pin/Recent group toggle presses for 150 ms chevron rotation and tracks Recent heading pointer hover via HOVERED_HEADER slot so hovering Group and sort keeps label muted.",
+      "status": "have it",
+      "status_evidence": "Ported in opencode-rune #1144 (2e0d7d31), #1262 (75cae151), and completed in #1375 (8023e5d79, head 8399f8b044, CI run 45918796952 green across guardrails + macOS/Win x64/Win arm64/Linux x64; Linux arm64 skipped): middle click unpins pinned sessions, Home picker names focused server, pin/Recent headers fade chevrons over 150 ms, toggle presses omit tx.instant() so group_chevron rotates over 150 ms (apps/desktop/src/shell/view/sidebar/{pinned_area,recent}.rs), and HOVERED_HEADER slot tracks Recent heading pointer hover so hovering Group and sort keeps the heading label muted while keeping the chevron visible. Official: packages/app/src/{home/projects/{region,view}.tsx,shell/titlebar/{pinned-area,recent-sessions,tab-nav}.tsx}. #1144 and #1262 verified headless (9/9 cases on 0b4db7a00); #1375 post-merge bulk verification queued.",
       "depends_on": "none",
       "risks": "none",
       "workstream": "UPSTREAM"
