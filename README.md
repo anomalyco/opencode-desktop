@@ -33,7 +33,7 @@
 
 ## Try the `dev` build
 
-No Electron, no DOM, no Chromium at startup. Download the latest `dev` build and point it at any running OpenCode server:
+No Electron, no DOM, no Chromium at startup. Download the latest `dev` build:
 
 | Platform | Download (`dev`) |
 | --- | --- |
@@ -43,8 +43,6 @@ No Electron, no DOM, no Chromium at startup. Download the latest `dev` build and
 | **Linux arm64** | [AppImage](https://anoma.ly/release/opencode/desktop-rune/dev/linux-arm64-appimage) · [DEB](https://anoma.ly/release/opencode/desktop-rune/dev/linux-arm64-deb) · [RPM](https://anoma.ly/release/opencode/desktop-rune/dev/linux-arm64-rpm) |
 
 <sub>Set <code>chmod +x</code> on Linux AppImage files. macOS and Windows <code>dev</code> builds auto-update in the background. Want to test a pull request alongside <code>dev</code>? See <a href="docs/trying-opencode-rune.md">docs/trying-opencode-rune.md</a>. Release channels and signing: <a href="docs/releasing.md">docs/releasing.md</a>.</sub>
-
-Start a local OpenCode server (`opencode serve --service` or open **OpenCode Desktop**), then launch **OpenCode (Rune)**. It discovers `http://127.0.0.1:4096` or `~/.config/opencode/service.json` automatically (`--server <url>` or `OPENCODE_SERVER_URL` overrides it) and never starts a server on its own.
 
 ## What's inside
 
@@ -65,8 +63,6 @@ Start a local OpenCode server (`opencode serve --service` or open **OpenCode Des
 - **Weird things built right in.** Pull on the final `e` of the wordmark on a new-session tab — something lives inside it, and pulling it out pops the letters into an 800-pin 3D GPU board and Brick Breaker with synthesized sound (`features/egg`). Press `⌘⇧⌥R` (`Dev › Rewind`) to freeze the last minute of layout frames and scrub a glitch frame by frame.
 
 ## Run from source
-
-Start an OpenCode server locally (`opencode serve --service` or **OpenCode Desktop**), then run:
 
 ```sh
 cargo run -p opencode-desktop -- --live
