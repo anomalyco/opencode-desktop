@@ -287,6 +287,7 @@ impl BrowserHost {
             prompts.agent_driven = true;
             prompts.driver = Some(crate::prompts::TabDriver::Agent);
         }
+        let residency = self.initial_residency(id);
         self.tabs.push(BrowserTab {
             id,
             url: initial_url,
@@ -320,6 +321,7 @@ impl BrowserHost {
             sent_resize: can_send.then_some((width_pt, height_pt, scale)),
             has_engine_tab: send_open || !can_send,
             engine_confirmed: false,
+            residency,
         });
         self.sync_has_tabs();
         self.focused_tab = Some(id);
@@ -560,6 +562,7 @@ impl BrowserHost {
             sent_resize: None,
             has_engine_tab: false,
             engine_confirmed: false,
+            residency: crate::residency::TabResidency::Active,
         });
         self.focused_tab = Some(id);
         id
@@ -666,6 +669,7 @@ impl BrowserHost {
             sent_resize: None,
             has_engine_tab: false,
             engine_confirmed: false,
+            residency: crate::residency::TabResidency::Active,
         });
         self.focused_tab = Some(id);
         self.last_polled_status = status.clone();

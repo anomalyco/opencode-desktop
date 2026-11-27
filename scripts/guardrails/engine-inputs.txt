@@ -1,6 +1,6 @@
 # Written by scripts/guardrails/engine-revision.mjs --write: the engine's inputs at this ENGINE_REVISION.
 # Inputs: apps/browser-engine, crates/browser-policy, crates/browser-pane/src/device.rs
-revision 25
+revision 26
 0a006ceedcb72b86a2aa4d7497ff9a21fddfd428 apps/browser-engine/Cargo.lock
 931b2a947cc75a343a0577a9e903596a6c147ee0 apps/browser-engine/Cargo.toml
 528bfc2bc7bfcd5183505505f91f9750e57e325b apps/browser-engine/build.rs
@@ -23,28 +23,28 @@ b58a42fb56a761fc9fc7b64343c3be78f7831b8f apps/browser-engine/src/clear_storage.r
 9ac08dd3167f2dccddfec1787641f4d47f4c84e4 apps/browser-engine/src/dmabuf_frames/egl.rs
 90efea18ac44e7f1e2d8005593ca627b67519d8e apps/browser-engine/src/dmabuf_frames/mod.rs
 721f998f461086c07a53cdaec93140a78fbda73f apps/browser-engine/src/downloads.rs
-539ccc07cc783ea730d64e39457baa3b4ef65f6d apps/browser-engine/src/engine.rs
+e6cb3ea4a858b967deacaea2a5f08dec74b47621 apps/browser-engine/src/engine.rs
 48671e17e89e28f8fbc679c6cde73e671482525b apps/browser-engine/src/engine/emulation.rs
-9dc810bb85232b9a94a1041232ff30bcaeac1dc2 apps/browser-engine/src/engine/extensions.rs
+e7216d5fb89def2506e663dc798dcba7b6af9fc0 apps/browser-engine/src/engine/extensions.rs
 bafda2a6f956b58997b028ad4ea55cfc70ccfb60 apps/browser-engine/src/engine/frames.rs
-a6867902eeb3222c632a4d6d5adfd72c0e239c47 apps/browser-engine/src/engine/lifecycle.rs
+39c319ff416749c023598b300896f70787318e3a apps/browser-engine/src/engine/lifecycle.rs
 bfd20043c6e6cb3ccafc1adca97bfeabc3f5305f apps/browser-engine/src/engine/picks.rs
 aca1409aedd0a611e27c396526e639256224ebaa apps/browser-engine/src/engine/profile_cookies.rs
-4fdadc0f10b3c2f9a34debb99de52851e7ecc82d apps/browser-engine/src/extensions/cdp.rs
+35a5ced437ae10b9056fe464ac29dcc2306ffddc apps/browser-engine/src/extensions/cdp.rs
 bdef5b628abce239143f17c1cc7e5c8cdf5cb61b apps/browser-engine/src/extensions/context_menus.rs
 ebfb88e99491c006aacfb39989a26e843e98b91e apps/browser-engine/src/extensions/integrity.rs
 d88f00d7440156bd620b62046767db8b91738094 apps/browser-engine/src/extensions/manifest.rs
-5cd9d9583b1697b1600cf78f0dcbbb3c6759b082 apps/browser-engine/src/extensions/mod.rs
+c59839981fb29abaa57c8db5136fe4aa54097afe apps/browser-engine/src/extensions/mod.rs
 c5f98834329a49745039b6b50e4ab5c2a4380751 apps/browser-engine/src/extensions/pipe.rs
 35acd01ab321839f4ffd501d90696ab3bbb16e8e apps/browser-engine/src/extensions/png.rs
-565bd6a5cd34e53ca54ceef698d31bb33f0ace45 apps/browser-engine/src/extensions/rpc.rs
+35ee70f0a0c4a6c2be608bc6425ddc40d15ced59 apps/browser-engine/src/extensions/rpc.rs
 5335ff50466e5d28cc3b7a831ca37c32fdf789f6 apps/browser-engine/src/extensions/shim.js
 adc20d1720abda0fac35905dccdc1510c2691a93 apps/browser-engine/src/extensions/sw_wake.rs
 b6baf0115f183568b0e5ed0d3b8daaaf94dbce47 apps/browser-engine/src/extensions/web_nav.rs
 d43ab49400f86ef0ba36cf62f2a156c50b179a4a apps/browser-engine/src/favicon.rs
 d771373a8d6f5f11c6450842287976e9c8455256 apps/browser-engine/src/find.rs
 20f52a77216efb1c6ebee46813ada1fb4c0c761d apps/browser-engine/src/frame_authority.rs
-4a570398789c1344ce3810331c58a3a96665a2dc apps/browser-engine/src/handlers.rs
+cbc87b8712d52dd5e7b337c03420a9e13c9a483a apps/browser-engine/src/handlers.rs
 1f04ab24fd468f8ee5b571330a10693927ccfac2 apps/browser-engine/src/helper.rs
 f0fbf32cc33baa0d950e67cd4649f45cfa39aa69 apps/browser-engine/src/input_fps.rs
 861b67493c42d26866a24fd0b572568f6521da0f apps/browser-engine/src/input_guard.rs
@@ -70,7 +70,7 @@ d70dc28e9dda7c5760247976664746bec58ee6e5 apps/browser-engine/src/preview/scheme.
 22bbf947174b9a06c22390d9b0a1f28c249bf0e9 apps/browser-engine/src/profile.rs
 30a86347290c311e7d8829600cf6b093fe3ae53e apps/browser-engine/src/prompts.rs
 1091c7a9688596360ddf3099af143e5d5a3905c7 apps/browser-engine/src/tab_client.rs
-ee35f86fad4f47d5155b072b89726ea024c84b91 apps/browser-engine/src/wire.rs
+bc36e5d46c416f54f56381d3316cea9afaca28ae apps/browser-engine/src/wire.rs
 895c3e81fa9b2bb3d89ec8e0566987aa87883279 apps/browser-engine/win/engine.exe.manifest
 9b0a94467948a9200609963e2e66a80ffba78482 crates/browser-pane/src/device.rs
 1703019419e7c515d72c1c0d40fb524d92e98339 crates/browser-policy/Cargo.toml

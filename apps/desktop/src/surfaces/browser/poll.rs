@@ -420,9 +420,15 @@ impl App {
         self.workspace_panes.browser.host.set_visible_tabs(&effective);
     }
 
-    /// Next deadline at which a close-slide visibility grace expires.
+    /// Next deadline at which a close-slide visibility grace or hidden-tab freeze timer expires.
     pub fn browser_visibility_wake(&self) -> Option<Instant> {
-        self.workspace_panes.browser.visibility.slide.wake_at()
+        match (
+            self.workspace_panes.browser.visibility.slide.wake_at(),
+            self.browser_residency_wake(),
+        ) {
+            (Some(a), Some(b)) => Some(a.min(b)),
+            (a, b) => a.or(b),
+        }
     }
 
     /// Handles Rune's OS window visibility hook (`on_visibility`) and immediately updates engine
@@ -539,8 +545,10 @@ impl App {
             self.workspace_panes.browser.host.focus_tab(id);
             changed = true;
         }
+        changed |= self.drain_extension_wake_tabs();
         // Sync the exact visible set across Side, Split, and Bottom panes (deduplicated).
         self.sync_visible_browser_tabs();
+        self.tick_browser_residency();
         changed |= self.prune_browser_unseen();
         changed |= self.sync_browser_openers();
         changed

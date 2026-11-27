@@ -52,6 +52,8 @@ pub(crate) struct ManagedTab {
     pub(crate) prompts: Arc<crate::prompts::TabPrompts>,
     menu: Arc<crate::menu::TabMenuState>,
     download_gen: u64,
+    /// Download generations carried over from prior hibernation cycles so real `CloseTab` cleans them up.
+    prior_download_gens: Vec<u64>,
     download_alive: Arc<AtomicBool>,
     context: crate::wire::ContextKind,
     /// Last seen `loading`, so a finished load marks its side of the cookie mirror dirty.
@@ -71,6 +73,8 @@ pub(crate) struct ManagedTab {
 
 pub struct EngineManager {
     tabs: HashMap<u64, ManagedTab>,
+    /// Preserved download generations for hibernated tabs until woken or permanently closed.
+    hibernated_downloads: HashMap<u64, Vec<u64>>,
     visible_tabs: HashSet<u64>,
     unthrottled_tabs: HashSet<u64>,
     focused_tab: Option<u64>,
@@ -145,6 +149,7 @@ impl EngineManager {
         let registered_ext_ids = Arc::new(Mutex::new(extensions.as_ref().map(|e| e.registered_ext_ids()).unwrap_or_default()));
         Self {
             tabs: HashMap::new(),
+            hibernated_downloads: HashMap::new(),
             visible_tabs: HashSet::new(),
             unthrottled_tabs: HashSet::new(),
             focused_tab: None,
@@ -240,6 +245,7 @@ impl EngineManager {
                     trace_isolation: true,
                     menu_extras: true,
                     tab_lifecycle: true,
+                    tab_hibernation: true,
                 });
                 for (&tab_id, t) in &self.tabs {
                     t.menu.cancel_all();
@@ -329,6 +335,8 @@ impl EngineManager {
             HostMsg::FocusTab { tab_id } => self.handle_focus_tab(tab_id),
             HostMsg::SetVisibleTabs { tab_ids } => self.handle_set_visible_tabs(tab_ids),
             HostMsg::SetTabUnthrottled { tab_id, active } => self.handle_set_tab_unthrottled(tab_id, active),
+            HostMsg::FreezeTab { tab_id, frozen } => self.handle_freeze_tab(tab_id, frozen),
+            HostMsg::HibernateTab { tab_id } => self.handle_hibernate_tab(tab_id),
             HostMsg::Navigate { tab_id, url } => {
                 if let Some((is_preview, is_popup, snap_url, is_agent, isolated, ext_allowed, roots)) =
                     self.tabs.get(&tab_id).map(|t| {
@@ -940,6 +948,8 @@ impl EngineManager {
         is_popup: bool,
         ext_open_request_id: Option<u64>,
     ) {
+        // Preserve prior completed downloads when waking a hibernated `tab_id`.
+        let prior_download_gens = self.hibernated_downloads.remove(&tab_id).unwrap_or_default();
         // Cleanly release any prior browser/grant/context on duplicate `tab_id` before opening.
         if let Some(prev) = self.tabs.remove(&tab_id) {
             self.permissions.on_tab_closed(tab_id);
@@ -949,6 +959,9 @@ impl EngineManager {
             prev.download_alive.store(false, Ordering::Release);
             prev.host.close_browser(1);
             self.downloads.close_tab(tab_id, prev.download_gen);
+            for old_gen in prev.prior_download_gens {
+                self.downloads.close_tab(tab_id, old_gen);
+            }
             self.release_tab_context(tab_id);
             if !prev.isolated && !prev.is_popup
                 && let Some(ext) = &mut self.extensions
@@ -1396,6 +1409,7 @@ impl EngineManager {
                 prompts,
                 menu: menu_state,
                 download_gen,
+                prior_download_gens,
                 download_alive,
                 context: effective_context,
                 last_loading: false,
@@ -1423,32 +1437,6 @@ impl EngineManager {
                 tab_id,
                 url: Some(refused_url),
             });
-        }
-    }
-
-    fn close_managed_tab(&mut self, tab_id: u64) {
-        self.on_tab_closed_lifecycle(tab_id);
-        self.permissions.on_tab_closed(tab_id);
-        if let Some(tab) = self.tabs.remove(&tab_id) {
-            if self.prompt_shared.release_trace(tab_id) {
-                self.send_internal_cdp(&tab.host, "Tracing.end", json!({}));
-            }
-            self.release_preview(tab_id, tab.preview.as_ref());
-            tab.menu.cancel_all();
-            tab.prompts.dismiss_all();
-            tab.download_alive.store(false, Ordering::Release);
-            tab.host.close_browser(1);
-            self.downloads.close_tab(tab_id, tab.download_gen);
-            crate::agent::remove_tab_uploads(&self.profile_dir, tab_id);
-            self.release_tab_context(tab_id);
-            if !tab.isolated && !tab.is_popup
-                && let Some(ext) = &mut self.extensions
-            {
-                ext.on_tab_closed(tab_id);
-            }
-            let _ = self.out_tx.send(EngineMsg::TabClosed { tab_id });
-        } else {
-            self.release_tab_context(tab_id);
         }
     }
 

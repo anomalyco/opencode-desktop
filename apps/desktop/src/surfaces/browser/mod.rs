@@ -34,6 +34,8 @@ mod preview_pool;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod prompts;
 #[cfg(not(target_arch = "wasm32"))]
+pub mod residency;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod rpc;
 #[cfg(not(target_arch = "wasm32"))]
 mod scene;

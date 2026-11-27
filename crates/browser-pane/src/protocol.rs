@@ -112,7 +112,8 @@ pub struct TabSnapshot {
     /// Counts main-frame document loads (`on_load_start`); unchanged by same-document URL changes.
     #[serde(default)]
     pub document: u64,
-    /// Whether this tab is currently producing audible audio (reserved for Phase 2 hibernation protection).
+    /// Whether this tab has active media capture (camera/microphone via CEF 156 `on_media_access_change`;
+    /// CEF 156 has no passive speaker-playback callback because `CefAudioHandler` captures PCM output).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub audible: bool,
 }
@@ -230,6 +231,17 @@ pub enum HostMsg {
     SetTabUnthrottled {
         tab_id: u64,
         active: bool,
+    },
+    /// Freezes (`frozen: true`) or unfreezes (`frozen: false`) a hidden tab via Chromium Page
+    /// Lifecycle (`Page.setWebLifecycleState` + `Memory.simulatePressureNotification`).
+    FreezeTab {
+        tab_id: u64,
+        frozen: bool,
+    },
+    /// Closes the underlying CEF browser for `tab_id` to reclaim its renderer process while
+    /// preserving completed downloads, staged uploads, and `ExtensionHost` discarded tab state.
+    HibernateTab {
+        tab_id: u64,
     },
     Navigate {
         tab_id: u64,
@@ -574,6 +586,9 @@ pub enum EngineMsg {
         /// The engine supports `SetVisibleTabs` and `SetTabUnthrottled` tab visibility lifecycle.
         #[serde(default)]
         tab_lifecycle: bool,
+        /// The engine supports `FreezeTab`, `HibernateTab`, and `ExtensionWakeTab`.
+        #[serde(default)]
+        tab_hibernation: bool,
     },
     ProfileCookies {
         request_id: u64,
@@ -806,6 +821,17 @@ pub enum EngineMsg {
     },
     ExtensionFocusTab {
         tab_id: u64,
+    },
+    /// An extension targeted a discarded (hibernated) tab (`chrome.tabs.{update,reload,highlight}`);
+    /// asks the app to wake `tab_id` and apply the requested focus/navigation/reload.
+    ExtensionWakeTab {
+        tab_id: u64,
+        #[serde(default)]
+        focus: bool,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        url: Option<String>,
+        #[serde(default)]
+        reload: bool,
     },
     ExtensionFiltersReady,
     ExtensionUninstalled {

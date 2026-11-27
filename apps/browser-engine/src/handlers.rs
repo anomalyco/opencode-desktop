@@ -509,6 +509,22 @@ wrap_display_handler! {
             }
             1
         }
+
+        fn on_media_access_change(
+            &self,
+            _browser: Option<&mut Browser>,
+            has_video_access: ::std::os::raw::c_int,
+            has_audio_access: ::std::os::raw::c_int,
+        ) {
+            // CEF 156 has no passive speaker-audible callback (`CefAudioHandler` hijacks PCM capture),
+            // so wire non-invasive active camera/microphone capture to `snap.audible` to protect live calls.
+            let active = has_video_access != 0 || has_audio_access != 0;
+            let mut s = self.snap.lock().unwrap();
+            if s.audible != active {
+                s.audible = active;
+                let _ = self.out_tx.send(EngineMsg::TabUpdate { tab: s.clone() });
+            }
+        }
     }
 }
 
@@ -1252,6 +1268,7 @@ wrap_request_handler! {
                 let mut s = self.snap.lock().unwrap();
                 let was_loading = s.loading;
                 s.loading = false;
+                s.audible = false;
                 s.load_error = Some("page_crashed".into());
                 let _ = self.out_tx.send(EngineMsg::TabUpdate { tab: s.clone() });
                 (s.url.clone(), was_loading)

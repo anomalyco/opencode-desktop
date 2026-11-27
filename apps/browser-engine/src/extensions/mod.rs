@@ -143,6 +143,8 @@ pub(super) struct ExtTab {
     pub height: i32,
     pub muted: bool,
     pub audible: bool,
+    pub discarded: bool,
+    pub frozen: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -811,18 +813,39 @@ impl ExtensionHost {
                 t.active = false;
             }
         }
-        self.tabs.push(ExtTab {
-            engine_tab_id,
-            url: url.to_owned(),
-            title: String::new(),
-            loading: true,
-            active: visible_active,
-            agent_driven,
-            width,
-            height,
-            muted: false,
-            audible: false,
-        });
+        let woke_tab = if let Some(existing) = self.tabs.iter_mut().find(|t| t.engine_tab_id == engine_tab_id) {
+            let was_discarded = existing.discarded;
+            existing.url = url.to_owned();
+            existing.loading = true;
+            existing.active = visible_active;
+            existing.agent_driven = agent_driven;
+            existing.width = width;
+            existing.height = height;
+            existing.discarded = false;
+            existing.frozen = false;
+            was_discarded.then(|| existing.clone())
+        } else {
+            self.tabs.push(ExtTab {
+                engine_tab_id,
+                url: url.to_owned(),
+                title: String::new(),
+                loading: true,
+                active: visible_active,
+                agent_driven,
+                width,
+                height,
+                muted: false,
+                audible: false,
+                discarded: false,
+                frozen: false,
+            });
+            None
+        };
+        if let Some(tab) = woke_tab
+            && !tab.agent_driven
+        {
+            self.emit_tab_updated_with_fallback(&tab, json!({ "discarded": false }));
+        }
         if !agent_driven {
             if !self.window_created {
                 if width > 0 && height > 0 {
@@ -844,6 +867,46 @@ impl ExtensionHost {
         let effects = self.maybe_start_seed_probe();
         self.trigger_tab_id_probes_all();
         effects
+    }
+
+    pub fn is_discarded_tab(&self, engine_tab_id: u64) -> bool {
+        self.tabs
+            .iter()
+            .any(|t| t.engine_tab_id == engine_tab_id && t.discarded && !t.agent_driven)
+    }
+
+    pub fn set_tab_frozen(&mut self, engine_tab_id: u64, frozen: bool) {
+        let Some(tab) = self.tabs.iter_mut().find(|t| t.engine_tab_id == engine_tab_id) else {
+            return;
+        };
+        if tab.frozen == frozen {
+            return;
+        }
+        tab.frozen = frozen;
+        if tab.agent_driven {
+            return;
+        }
+        let tab_clone = tab.clone();
+        self.emit_tab_updated(&tab_clone, json!({ "frozen": frozen }), false);
+    }
+
+    pub fn on_tab_hibernated(&mut self, engine_tab_id: u64) {
+        self.web_nav.remove_tab(engine_tab_id);
+        let Some(tab) = self.tabs.iter_mut().find(|t| t.engine_tab_id == engine_tab_id) else {
+            return;
+        };
+        tab.discarded = true;
+        tab.frozen = false;
+        tab.loading = false;
+        tab.active = false;
+        let tab_clone = tab.clone();
+        if !tab_clone.agent_driven {
+            // Emit `tabs.onUpdated { discarded: true }` before clearing bound Chromium tab IDs.
+            self.emit_tab_updated(&tab_clone, json!({ "discarded": true }), false);
+        }
+        for map in self.ext_tab_ids.values_mut() {
+            map.remove(&engine_tab_id);
+        }
     }
 
     pub fn on_tab_closed(&mut self, engine_tab_id: u64) {
@@ -1110,6 +1173,26 @@ impl ExtensionHost {
         }
     }
 
+    /// Emits `tabs.onUpdated` for a newly woken tab before its fresh Chromium tab ID probe finishes,
+    /// falling back to `tab.engine_tab_id as i32` (the ID exposed by `tab_json` while discarded).
+    fn emit_tab_updated_with_fallback(&mut self, tab: &ExtTab, change: Value) {
+        let exts: Vec<(String, ExtensionManifest, i32)> = self
+            .extensions
+            .iter()
+            .filter(|(_, e)| e.loaded)
+            .map(|(id, e)| {
+                let cid = self
+                    .ext_chromium_tab_id(id, tab.engine_tab_id)
+                    .unwrap_or(tab.engine_tab_id as i32);
+                (id.clone(), e.manifest.clone(), cid)
+            })
+            .collect();
+        for (ext_id, manifest, cid) in exts {
+            let info = self.tab_json(&ext_id, tab, &manifest, false);
+            self.emit_event("tabs.onUpdated", vec![json!(cid), change.clone(), info], Some(&ext_id));
+        }
+    }
+
     pub(super) fn is_uninstalling(&self, ext_id: &str) -> bool {
         self.pending_uninstall_upgrade.values().any(|id| id == ext_id)
             || self.pending_uninstall_cmd.values().any(|id| id == ext_id)
@@ -1203,15 +1286,25 @@ impl ExtensionHost {
     }
 
     pub(super) fn find_visible_tab_by_ext_cid(&self, ext_id: &str, cid: i32) -> Option<&ExtTab> {
-        let map = self.ext_tab_ids.get(ext_id)?;
-        let (&engine_tab_id, _) = map.iter().find(|&(_, &v)| v == cid)?;
-        self.tabs.iter().find(|t| t.engine_tab_id == engine_tab_id && !t.agent_driven)
+        if let Some(map) = self.ext_tab_ids.get(ext_id)
+            && let Some((&engine_tab_id, _)) = map.iter().find(|&(_, &v)| v == cid)
+        {
+            return self.tabs.iter().find(|t| t.engine_tab_id == engine_tab_id && !t.agent_driven);
+        }
+        self.tabs
+            .iter()
+            .find(|t| t.discarded && !t.agent_driven && t.engine_tab_id as i32 == cid)
     }
 
     pub(super) fn find_tab_pos_by_ext_cid(&self, ext_id: &str, cid: i32) -> Option<usize> {
-        let map = self.ext_tab_ids.get(ext_id)?;
-        let (&engine_tab_id, _) = map.iter().find(|&(_, &v)| v == cid)?;
-        self.tabs.iter().position(|t| t.engine_tab_id == engine_tab_id)
+        if let Some(map) = self.ext_tab_ids.get(ext_id)
+            && let Some((&engine_tab_id, _)) = map.iter().find(|&(_, &v)| v == cid)
+        {
+            return self.tabs.iter().position(|t| t.engine_tab_id == engine_tab_id);
+        }
+        self.tabs
+            .iter()
+            .position(|t| t.discarded && !t.agent_driven && t.engine_tab_id as i32 == cid)
     }
 
     pub(super) fn active_chromium_tab_id_for(&self, ext_id: &str) -> Option<i32> {
@@ -1222,6 +1315,7 @@ impl ExtensionHost {
     pub(super) fn has_unbound_visible_tab_for(&self, ext_id: &str) -> bool {
         let map = self.ext_tab_ids.get(ext_id);
         self.visible_tabs()
+            .filter(|t| !t.discarded)
             .any(|t| map.is_none_or(|m| !m.contains_key(&t.engine_tab_id)))
     }
 

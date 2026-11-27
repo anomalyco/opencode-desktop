@@ -1,15 +1,20 @@
-//! Explicit per-tab visibility and frame-throttling state machine for `EngineManager`.
+//! Explicit per-tab visibility, frame-throttling, Tier 2 CDP Freeze, and Tier 3 Hibernate state
+//! machine for `EngineManager`.
 //!
 //! Centralizes `was_hidden`, windowless FPS throttling (1 FPS hidden vs display-matched
 //! `pane_fps()` awake), late-frame blocking (`ManagedTab::awake`), keyboard focus restore,
-//! and Windows D3D11 / Linux dmabuf GPU frame ring release across `SetVisibleTabs`, legacy
-//! `FocusTab`, `SetTabUnthrottled`, `open_tab`, and `ExtEffect::FocusTab`.
+//! Windows D3D11 / Linux dmabuf GPU frame ring release, Chromium Page Lifecycle freeze/unfreeze
+//! (`Page.setWebLifecycleState` + `Memory.simulatePressureNotification`), and Tier 3 renderer
+//! teardown (`HibernateTab`) while preserving completed downloads, staged uploads, and extension
+//! discarded tab state.
 
 use std::sync::atomic::Ordering;
 
 use cef::{ImplBrowserHost, PaintElementType};
+use serde_json::json;
 
 use super::{EngineManager, ManagedTab};
+use crate::wire::EngineMsg;
 
 /// Whether the connected host drives visibility explicitly (`SetVisibleTabs` / `SetTabUnthrottled`)
 /// or uses legacy single-active `FocusTab` semantics.
@@ -21,52 +26,95 @@ pub(crate) enum LifecycleMode {
 }
 
 /// Explicit per-tab rendering mode.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum TabRenderMode {
-    #[default]
-    Hidden,
+    Hidden { frozen: bool },
     AwakeBackground,
     Visible,
 }
 
+impl Default for TabRenderMode {
+    fn default() -> Self {
+        Self::Hidden { frozen: false }
+    }
+}
+
 impl TabRenderMode {
     pub(crate) fn is_awake(self) -> bool {
-        !matches!(self, Self::Hidden)
+        !matches!(self, Self::Hidden { .. })
     }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum RenderModeEvent {
+    Sync { visible: bool, held: bool },
+    SetFrozen(bool),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum RenderModeEffect {
     None,
-    Wake { visible: bool },
+    Wake { visible: bool, unfreeze: bool },
     BecameVisible,
     BecameBackground,
     Sleep,
+    Freeze,
+    UnfreezeHidden,
 }
 
-fn step_render_mode(state: &mut TabRenderMode, want: TabRenderMode) -> RenderModeEffect {
-    let prev = *state;
-    if prev == want {
-        return RenderModeEffect::None;
-    }
-    *state = want;
-    match (prev, want) {
-        (TabRenderMode::Hidden, TabRenderMode::Visible) => RenderModeEffect::Wake { visible: true },
-        (TabRenderMode::Hidden, TabRenderMode::AwakeBackground) => RenderModeEffect::Wake { visible: false },
-        (TabRenderMode::AwakeBackground, TabRenderMode::Visible) => RenderModeEffect::BecameVisible,
-        (TabRenderMode::Visible, TabRenderMode::AwakeBackground) => RenderModeEffect::BecameBackground,
-        (TabRenderMode::Visible | TabRenderMode::AwakeBackground, TabRenderMode::Hidden) => RenderModeEffect::Sleep,
+fn step_render_mode(state: &mut TabRenderMode, event: RenderModeEvent) -> RenderModeEffect {
+    match (*state, event) {
+        (TabRenderMode::Hidden { frozen }, RenderModeEvent::Sync { visible: true, .. }) => {
+            *state = TabRenderMode::Visible;
+            RenderModeEffect::Wake { visible: true, unfreeze: frozen }
+        }
+        (TabRenderMode::Hidden { frozen }, RenderModeEvent::Sync { visible: false, held: true }) => {
+            *state = TabRenderMode::AwakeBackground;
+            RenderModeEffect::Wake { visible: false, unfreeze: frozen }
+        }
+        (TabRenderMode::Hidden { .. }, RenderModeEvent::Sync { visible: false, held: false }) => {
+            RenderModeEffect::None
+        }
+        (TabRenderMode::AwakeBackground, RenderModeEvent::Sync { visible: true, .. }) => {
+            *state = TabRenderMode::Visible;
+            RenderModeEffect::BecameVisible
+        }
+        (TabRenderMode::Visible, RenderModeEvent::Sync { visible: false, held: true }) => {
+            *state = TabRenderMode::AwakeBackground;
+            RenderModeEffect::BecameBackground
+        }
+        (TabRenderMode::Visible | TabRenderMode::AwakeBackground, RenderModeEvent::Sync { visible: false, held: false }) => {
+            *state = TabRenderMode::Hidden { frozen: false };
+            RenderModeEffect::Sleep
+        }
+        (TabRenderMode::Hidden { frozen: false }, RenderModeEvent::SetFrozen(true)) => {
+            *state = TabRenderMode::Hidden { frozen: true };
+            RenderModeEffect::Freeze
+        }
+        (TabRenderMode::Hidden { frozen: true }, RenderModeEvent::SetFrozen(false)) => {
+            *state = TabRenderMode::Hidden { frozen: false };
+            RenderModeEffect::UnfreezeHidden
+        }
         _ => RenderModeEffect::None,
     }
 }
 
+fn send_tab_cdp(next_cdp_id: &std::sync::atomic::AtomicI32, host: &cef::BrowserHost, method: &str, params: serde_json::Value) {
+    let id = next_cdp_id.fetch_add(1, Ordering::Relaxed);
+    let raw = json!({ "id": id, "method": method, "params": params }).to_string();
+    let _ = host.send_dev_tools_message(Some(raw.as_bytes()));
+}
+
+/// Applies `effect` to `t` and returns `Some(frozen)` when `ExtensionHost` should be notified
+/// of a frozen-state transition.
 fn apply_render_effect(
+    next_cdp_id: &std::sync::atomic::AtomicI32,
     id: u64,
     t: &mut ManagedTab,
     visible: bool,
     focused: bool,
     effect: RenderModeEffect,
-) {
+) -> Option<bool> {
     #[cfg(target_os = "linux")]
     {
         t.shown = visible;
@@ -75,8 +123,20 @@ fn apply_render_effect(
     let _ = visible;
 
     match effect {
-        RenderModeEffect::None => {}
-        RenderModeEffect::Wake { visible } => {
+        RenderModeEffect::None => None,
+        RenderModeEffect::Freeze => {
+            send_tab_cdp(next_cdp_id, &t.host, "Page.setWebLifecycleState", json!({ "state": "frozen" }));
+            send_tab_cdp(next_cdp_id, &t.host, "Memory.simulatePressureNotification", json!({ "level": "critical" }));
+            Some(true)
+        }
+        RenderModeEffect::UnfreezeHidden => {
+            send_tab_cdp(next_cdp_id, &t.host, "Page.setWebLifecycleState", json!({ "state": "active" }));
+            Some(false)
+        }
+        RenderModeEffect::Wake { visible, unfreeze } => {
+            if unfreeze {
+                send_tab_cdp(next_cdp_id, &t.host, "Page.setWebLifecycleState", json!({ "state": "active" }));
+            }
             t.awake.store(true, Ordering::Release);
             let fps = if crate::input_fps::is_boosted(id) {
                 crate::input_fps::AGENT_INPUT_FPS.max(crate::input_fps::pane_fps())
@@ -89,17 +149,20 @@ fn apply_render_effect(
                 t.host.set_focus(1);
             }
             t.host.invalidate(PaintElementType::default());
+            unfreeze.then_some(false)
         }
         RenderModeEffect::BecameVisible => {
             if focused {
                 t.host.set_focus(1);
             }
             t.host.invalidate(PaintElementType::default());
+            None
         }
         RenderModeEffect::BecameBackground => {
             if !t.is_popup {
                 t.host.set_focus(0);
             }
+            None
         }
         RenderModeEffect::Sleep => {
             // Gate render handler first so late in-flight Viz frames cannot reallocate GPU
@@ -117,6 +180,7 @@ fn apply_render_effect(
             if let Some(ring) = &t.frames {
                 let _ = ring.lock().unwrap().step(crate::dmabuf_frames::Event::Released);
             }
+            None
         }
     }
 }
@@ -164,6 +228,127 @@ impl EngineManager {
             self.unthrottled_tabs.remove(&tab_id);
         }
         self.sync_tab_visibility();
+    }
+
+    pub(super) fn handle_freeze_tab(&mut self, tab_id: u64, frozen: bool) {
+        let next_cdp_id = &self.next_cdp_id;
+        let focused = self.focused_tab == Some(tab_id);
+        let ext_change = if let Some(t) = self.tabs.get_mut(&tab_id) {
+            let effect = step_render_mode(&mut t.render_mode, RenderModeEvent::SetFrozen(frozen));
+            let notify = apply_render_effect(next_cdp_id, tab_id, t, false, focused, effect);
+            notify.filter(|_| !t.isolated && !t.is_popup)
+        } else {
+            None
+        };
+        if let Some(is_frozen) = ext_change
+            && let Some(ext) = &mut self.extensions
+        {
+            ext.set_tab_frozen(tab_id, is_frozen);
+        }
+    }
+
+    /// Tier 3 hibernation: tears down `tab_id`'s CEF browser and renderer process while keeping
+    /// completed agent downloads on disk, staged uploads, and `ExtensionHost` discarded tab state.
+    pub(super) fn handle_hibernate_tab(&mut self, tab_id: u64) {
+        let Some(tab) = self.tabs.remove(&tab_id) else {
+            return;
+        };
+        self.on_tab_closed_lifecycle(tab_id);
+        if self.prompt_shared.release_trace(tab_id) {
+            self.send_internal_cdp(&tab.host, "Tracing.end", json!({}));
+        }
+        // Gate render handler and stop in-progress downloads/save dialogs without deleting completed files.
+        tab.awake.store(false, Ordering::Release);
+        tab.download_alive.store(false, Ordering::Release);
+        self.downloads.cancel_pending_saves_for_tab(tab_id);
+        let gens = self.hibernated_downloads.entry(tab_id).or_default();
+        gens.extend(tab.prior_download_gens);
+        gens.push(tab.download_gen);
+        self.release_preview(tab_id, tab.preview.as_ref());
+        self.permissions.on_tab_closed(tab_id);
+        tab.menu.cancel_all();
+        tab.prompts.dismiss_all();
+        tab.host.close_browser(1);
+        self.release_tab_context(tab_id);
+        if !tab.isolated
+            && !tab.is_popup
+            && let Some(ext) = &mut self.extensions
+        {
+            ext.on_tab_hibernated(tab_id);
+        }
+    }
+
+    pub(super) fn close_managed_tab(&mut self, tab_id: u64) {
+        self.on_tab_closed_lifecycle(tab_id);
+        self.permissions.on_tab_closed(tab_id);
+        let hibernated_gens = self.hibernated_downloads.remove(&tab_id);
+        if let Some(tab) = self.tabs.remove(&tab_id) {
+            if self.prompt_shared.release_trace(tab_id) {
+                self.send_internal_cdp(&tab.host, "Tracing.end", json!({}));
+            }
+            self.release_preview(tab_id, tab.preview.as_ref());
+            tab.menu.cancel_all();
+            tab.prompts.dismiss_all();
+            tab.download_alive.store(false, Ordering::Release);
+            tab.host.close_browser(1);
+            self.downloads.close_tab(tab_id, tab.download_gen);
+            for old_gen in tab.prior_download_gens {
+                self.downloads.close_tab(tab_id, old_gen);
+            }
+            if let Some(gens) = hibernated_gens {
+                for old_gen in gens {
+                    self.downloads.close_tab(tab_id, old_gen);
+                }
+            }
+            crate::agent::remove_tab_uploads(&self.profile_dir, tab_id);
+            self.release_tab_context(tab_id);
+            if !tab.isolated
+                && !tab.is_popup
+                && let Some(ext) = &mut self.extensions
+            {
+                ext.on_tab_closed(tab_id);
+            }
+            let _ = self.out_tx.send(EngineMsg::TabClosed { tab_id });
+        } else {
+            if let Some(gens) = hibernated_gens {
+                for old_gen in gens {
+                    self.downloads.close_tab(tab_id, old_gen);
+                }
+                crate::agent::remove_tab_uploads(&self.profile_dir, tab_id);
+                if let Some(ext) = &mut self.extensions {
+                    ext.on_tab_closed(tab_id);
+                }
+            } else if self.extensions.as_ref().is_some_and(|e| e.is_discarded_tab(tab_id)) {
+                crate::agent::remove_tab_uploads(&self.profile_dir, tab_id);
+                if let Some(ext) = &mut self.extensions {
+                    ext.on_tab_closed(tab_id);
+                }
+            }
+            self.release_tab_context(tab_id);
+        }
+    }
+
+    /// Cleans up a hibernated (discarded) tab closed by an extension (`chrome.tabs.remove`) and
+    /// notifies the app via `EngineMsg::TabClosed`.
+    pub(super) fn close_hibernated_tab_from_ext(&mut self, tab_id: u64) {
+        let had_hibernated = self.hibernated_downloads.remove(&tab_id);
+        let is_discarded = self.extensions.as_ref().is_some_and(|e| e.is_discarded_tab(tab_id));
+        if had_hibernated.is_none() && !is_discarded {
+            return;
+        }
+        self.on_tab_closed_lifecycle(tab_id);
+        self.permissions.on_tab_closed(tab_id);
+        if let Some(gens) = had_hibernated {
+            for old_gen in gens {
+                self.downloads.close_tab(tab_id, old_gen);
+            }
+        }
+        crate::agent::remove_tab_uploads(&self.profile_dir, tab_id);
+        self.release_tab_context(tab_id);
+        if let Some(ext) = &mut self.extensions {
+            ext.on_tab_closed(tab_id);
+        }
+        let _ = self.out_tx.send(EngineMsg::TabClosed { tab_id });
     }
 
     pub(super) fn handle_focus_tab(&mut self, tab_id: u64) {
@@ -229,19 +414,26 @@ impl EngineManager {
     pub(super) fn sync_tab_visibility(&mut self) {
         let legacy = self.lifecycle_mode == LifecycleMode::Legacy;
         let focused_tab = self.focused_tab;
+        let next_cdp_id = &self.next_cdp_id;
+        let mut ext_frozen_updates: Vec<(u64, bool)> = Vec::new();
         for (&id, t) in &mut self.tabs {
             let visible = t.is_popup || self.visible_tabs.contains(&id);
             let held = self.unthrottled_tabs.contains(&id)
                 || (legacy && t.prompts.agent_driven.load(Ordering::Relaxed));
-            let want = if visible {
-                TabRenderMode::Visible
-            } else if held {
-                TabRenderMode::AwakeBackground
-            } else {
-                TabRenderMode::Hidden
-            };
-            let effect = step_render_mode(&mut t.render_mode, want);
-            apply_render_effect(id, t, visible, focused_tab == Some(id), effect);
+            let effect = step_render_mode(&mut t.render_mode, RenderModeEvent::Sync { visible, held });
+            if let Some(is_frozen) = apply_render_effect(next_cdp_id, id, t, visible, focused_tab == Some(id), effect)
+                && !t.isolated
+                && !t.is_popup
+            {
+                ext_frozen_updates.push((id, is_frozen));
+            }
+        }
+        if !ext_frozen_updates.is_empty()
+            && let Some(ext) = &mut self.extensions
+        {
+            for (id, is_frozen) in ext_frozen_updates {
+                ext.set_tab_frozen(id, is_frozen);
+            }
         }
     }
 }

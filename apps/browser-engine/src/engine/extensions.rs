@@ -247,14 +247,30 @@ impl EngineManager {
                             t.prompts.set_pending_top_url(Some(url.clone()));
                             frame.load_url(Some(&CefString::from(url.as_str())));
                         }
+                    } else if self.extensions.as_ref().is_some_and(|e| e.is_discarded_tab(engine_tab_id)) {
+                        let _ = self.out_tx.send(EngineMsg::ExtensionWakeTab {
+                            tab_id: engine_tab_id,
+                            focus: false,
+                            url: Some(url),
+                            reload: false,
+                        });
                     }
                 }
                 ExtEffect::FocusTab { engine_tab_id } => {
-                    self.handle_ext_focus_tab(engine_tab_id);
-                    if let Some(ext) = &mut self.extensions {
-                        ext.on_tab_focused(engine_tab_id);
+                    if self.tabs.contains_key(&engine_tab_id) {
+                        self.handle_ext_focus_tab(engine_tab_id);
+                        if let Some(ext) = &mut self.extensions {
+                            ext.on_tab_focused(engine_tab_id);
+                        }
+                        let _ = self.out_tx.send(EngineMsg::ExtensionFocusTab { tab_id: engine_tab_id });
+                    } else if self.extensions.as_ref().is_some_and(|e| e.is_discarded_tab(engine_tab_id)) {
+                        let _ = self.out_tx.send(EngineMsg::ExtensionWakeTab {
+                            tab_id: engine_tab_id,
+                            focus: true,
+                            url: None,
+                            reload: false,
+                        });
                     }
-                    let _ = self.out_tx.send(EngineMsg::ExtensionFocusTab { tab_id: engine_tab_id });
                 }
                 ExtEffect::CloseTab { engine_tab_id } => {
                     if self
@@ -272,6 +288,15 @@ impl EngineManager {
                         tab.download_alive.store(false, Ordering::Release);
                         tab.host.close_browser(1);
                         self.downloads.close_tab(engine_tab_id, tab.download_gen);
+                        for old_gen in tab.prior_download_gens {
+                            self.downloads.close_tab(engine_tab_id, old_gen);
+                        }
+                        if let Some(gens) = self.hibernated_downloads.remove(&engine_tab_id) {
+                            for old_gen in gens {
+                                self.downloads.close_tab(engine_tab_id, old_gen);
+                            }
+                        }
+                        crate::agent::remove_tab_uploads(&self.profile_dir, engine_tab_id);
                         self.release_tab_context(engine_tab_id);
                         if engine_tab_id >= 1_000_000 {
                             self.unmanaged_ext_tabs = self.unmanaged_ext_tabs.saturating_sub(1);
@@ -283,6 +308,8 @@ impl EngineManager {
                             ext.on_tab_closed(engine_tab_id);
                         }
                         let _ = self.out_tx.send(EngineMsg::TabClosed { tab_id: engine_tab_id });
+                    } else {
+                        self.close_hibernated_tab_from_ext(engine_tab_id);
                     }
                 }
                 ExtEffect::ReloadTab { engine_tab_id, ignore_cache } => {
@@ -295,6 +322,13 @@ impl EngineManager {
                         } else {
                             t.browser.reload();
                         }
+                    } else if self.extensions.as_ref().is_some_and(|e| e.is_discarded_tab(engine_tab_id)) {
+                        let _ = self.out_tx.send(EngineMsg::ExtensionWakeTab {
+                            tab_id: engine_tab_id,
+                            focus: false,
+                            url: None,
+                            reload: true,
+                        });
                     }
                 }
                 ExtEffect::OpenSeedProbe { url } => self.open_seed_probe(&url),
@@ -910,6 +944,8 @@ impl EngineManager {
             | M::CloseTab { .. }
             | M::FocusTab { .. }
             | M::SetTabUnthrottled { .. }
+            | M::FreezeTab { .. }
+            | M::HibernateTab { .. }
             | M::Stop { .. }
             | M::StopFind { .. }
             | M::SetTabPolicy { .. }

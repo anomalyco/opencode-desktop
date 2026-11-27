@@ -59,6 +59,7 @@ impl BrowserHost {
                     trace_isolation,
                     menu_extras,
                     tab_lifecycle,
+                    tab_hibernation,
                     ..
                 } => {
                     if !matches!(
@@ -71,7 +72,7 @@ impl BrowserHost {
                         downloads, policy, prompts, popups, find, context_menu,
                         partitions, remote_proxy, agent_tools, preview, extensions,
                         permission_sync, frame_authority, cookies, agent_files, passkeys, trace_isolation,
-                        menu_extras, tab_lifecycle,
+                        menu_extras, tab_lifecycle, tab_hibernation,
                     };
                     self.sync_site_permissions();
                     if cookies && self.share_sign_ins {
@@ -81,11 +82,21 @@ impl BrowserHost {
                     // A new engine starts with an empty downloads folder and numbers its files
                     // from 1 again: the last one's files are gone. Held prompts replay if live.
                     self.download_save_requests.clear();
+                    let now = rune::time::Instant::now();
                     for t in &mut self.tabs {
                         t.files.clear();
                         t.prompts.reset_for_engine();
                         t.scroll_cursor = Default::default();
                         t.find.step(crate::find::FindEvent::DocumentChanged);
+                        let awake = self.visible_tabs.contains(&t.id) || self.unthrottled_tabs.contains(&t.id);
+                        crate::residency::step(
+                            &mut t.residency,
+                            crate::residency::ResidencyEvent::EngineReset {
+                                has_engine_tab: t.has_engine_tab,
+                                awake,
+                                now,
+                            },
+                        );
                     }
                     rune::marks::mark("browser.engine.ready");
                     // Before any page loads, so the first draws in the app's scheme.
@@ -355,6 +366,17 @@ impl BrowserHost {
                         changed = true;
                     }
                 }
+                EngineMsg::ExtensionWakeTab { tab_id, focus, url, reload } => {
+                    if self.pending_ext_wakes.len() < 32 {
+                        self.pending_ext_wakes.push_back(crate::residency::ExtensionWakeRequest {
+                            tab_id,
+                            focus,
+                            url,
+                            reload,
+                        });
+                    }
+                    changed = true;
+                }
                 EngineMsg::CdpEvent { tab_id, method, params, session_id } => {
                     if self.cdp_events.len() >= MAX_QUEUED_CDP_EVENTS {
                         self.cdp_events.pop_front();
@@ -480,6 +502,7 @@ impl BrowserHost {
             }
         }
         self.visible_tabs = next;
+        self.sync_all_residency(rune::time::Instant::now());
         if !self.is_connected() {
             return;
         }
@@ -504,6 +527,7 @@ impl BrowserHost {
         if !changed {
             return;
         }
+        self.sync_tab_residency(tab_id, rune::time::Instant::now());
         if !active && self.caps.tab_lifecycle() && !self.visible_tabs.contains(&tab_id) {
             if let Some(t) = self.tabs.iter().find(|t| t.id == tab_id) {
                 t.surface.clear();
