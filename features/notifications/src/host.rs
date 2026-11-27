@@ -71,11 +71,6 @@ pub trait NotificationsHost: opencode_kernel::AppEnv {
     fn is_root_session(&self, session_id: &str) -> bool {
         self.root_session_id(session_id) == session_id
     }
-    /// Whether any direct child session of `session_id` is currently running.
-    fn has_running_child(&self, session_id: &str) -> bool {
-        let _ = session_id;
-        false
-    }
     /// Whether `session_id` (or its root) is muted and should not post notifications.
     fn is_session_silenced(&self, session_id: &str) -> bool {
         let _ = session_id;
