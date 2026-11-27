@@ -294,8 +294,8 @@ pub fn reported(probe: &opencode_servers::health::Probe) {
 fn server_for(conn: &ServerConn, own: &Server) -> Server {
     let Some(http) = conn.http().filter(|_| !conn.builtin()) else { return own.clone() };
     // Added and plugin servers have the same passive page readers as the initial server.
-    let mut server = Server::new(&http.url);
-    if let Some(p) = &http.password {
+    let mut server = Server::anonymous(&http.url);
+    if let Some(p) = http.password.as_deref().filter(|p| !p.is_empty()) {
         server = server.with_password(p);
     }
     if conn.local(Some(&own.base)) { server } else { server.with_remote_files() }
@@ -634,7 +634,7 @@ fn new_half(s: &mut App, key: &ServerKey, adopt: bool) -> (Meta, Half) {
         None if key.is_sidecar() => (Meta::default(), own_server().unwrap_or_else(|| Server::new(opencode_kit::client::DEFAULT_SERVER))),
         None => (Meta::default(), Server::new(&format!("http://{}.invalid", key.as_str().replace([':', '/'], "-"))).with_remote_files()),
     };
-    let phase = if listed.is_some() { crate::launch::Phase::Waiting { beta_tabs: false, fallback_fixture: false } } else { crate::launch::Phase::Offline { retries: 0, retry_at: f64::INFINITY } };
+    let phase = if listed.is_some() { crate::launch::Phase::Waiting { beta_tabs: false, fallback_fixture: false } } else { crate::launch::Phase::Unlisted };
     s.launch.set_phase(key.as_str(), phase);
     let wake = s.launch.inbox_wake.clone().or_else(|| (*s.waker).clone());
     let store = peer(key).filter(|_| adopt).map(|p| peer::member(p, wake)).unwrap_or_default();

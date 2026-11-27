@@ -419,6 +419,11 @@ fn list_row(s: &App, p: &Pal, ses: &SessionInfo, nav_ids: &std::rc::Rc<Vec<Strin
         Some(field) => row().key("labels").grow(1.0).shrink().min_w(0.0).gap(ROW_GAP).center_y().child(field).children(parts.project),
         None => {
             r = r.pointer_buttons([rune::PointerButton::Middle]).on_press_tx(move |s: &mut App, tx: &mut Tx| {
+                if s.session(&id).is_none()
+                    && let Some(ses) = s.kernel.slots.get(&crate::home_search::HOME_SEARCH).project_sessions.session(&id).cloned()
+                {
+                    s.sessions.push(ses);
+                }
                 if opens_in_background(tx) {
                     return s.open_in_background(&id);
                 }

@@ -51,6 +51,7 @@ impl SessionMenuHost for App {
 
     fn session(&self, id: &str) -> Option<&SessionInfo> {
         App::session(self, id)
+            .or_else(|| self.kernel.slots.get(&crate::home_search::HOME_SEARCH).project_sessions.session(id))
     }
 
     fn transcript(&self, id: &str) -> Option<&Transcript> {

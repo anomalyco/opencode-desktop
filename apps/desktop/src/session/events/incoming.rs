@@ -64,6 +64,7 @@ fn message(s: &mut App, m: Incoming, tx: &mut Tx) -> bool {
             let active_server = crate::servers::runtime::active(s).clone();
             s.sidebar_inbox.branches.reconnected(&active_server);
             reconnect::back(s);
+            crate::plugin_host::bridge::servers::on_stream_up(s, &active_server);
             // Terminals that failed under the old connection attach again (`server.connected`).
             s.kernel.slots.get_mut(&crate::terminal::TERMINAL).connections += 1;
             s.pump_outbox();
@@ -82,26 +83,28 @@ fn message(s: &mut App, m: Incoming, tx: &mut Tx) -> bool {
         // The first open: the link was never down, but the health poll can stand down now.
         Incoming::Opened => {
             reconnect::back(s);
+            let active_server = crate::servers::runtime::active(s).clone();
+            crate::plugin_host::bridge::servers::on_stream_up(s, &active_server);
             crate::start_location::ask(s);
             crate::files::watch::connected(s);
             #[cfg(not(target_arch = "wasm32"))]
-            {
-                let active_server = crate::servers::runtime::active(s).clone();
-                crate::surfaces::browser::rpc::on_sse_connected(s, &active_server);
-            }
+            crate::surfaces::browser::rpc::on_sse_connected(s, &active_server);
         }
         Incoming::Status(e) => status_toast::from_server(s, e),
         Incoming::Failed(e) => failed(s, e, tx),
         Incoming::ActiveFailed(e) => reconnect::active_failed(s, &e, tx),
         Incoming::StreamDown(e) => {
+            let active_server = crate::servers::runtime::active(s).clone();
             #[cfg(not(target_arch = "wasm32"))]
-            {
-                let active_server = crate::servers::runtime::active(s).clone();
-                crate::surfaces::browser::rpc::on_sse_disconnected(s, &active_server);
-            }
+            crate::surfaces::browser::rpc::on_sse_disconnected(s, &active_server);
+            crate::plugin_host::bridge::servers::on_stream_down(s, &active_server, tx);
             reconnect::stream_down(s, e, tx);
         }
-        Incoming::Unanswered(e) => reconnect::unanswered(s, e, tx),
+        Incoming::Unanswered(e) => {
+            let active_server = crate::servers::runtime::active(s).clone();
+            crate::plugin_host::bridge::servers::on_stream_down(s, &active_server, tx);
+            reconnect::unanswered(s, e, tx);
+        }
         _ => {}
     }
     true
