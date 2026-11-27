@@ -342,8 +342,8 @@ impl session_view::TimelineHost for App {
         self.kernel.slots.get(&crate::rewind::REWIND).menu_open_on(id)
     }
     fn inline_quotes(&self) -> bool {
-        // Local and dev builds first, as Desktop (`inline-quotes.ts`).
-        !matches!(crate::updater::build_channel(), "stable" | "prod" | "latest" | "beta")
+        // Enabled in every build channel (`opencode#66823`).
+        true
     }
     fn quote_more_open(&self, id: &str) -> bool {
         self.kernel.slots.get(&crate::quote::QUOTE).more.contains(id)
