@@ -307,6 +307,8 @@ impl App {
             || self.workspace_panes.browser.visibility.window.is_hidden()
             || self.settings_open()
             || self.narrow()
+            || self.workspace_panes.browser.host.tabs().is_empty()
+            || (!self.side_open() && !self.bottom_open())
         {
             return Vec::new();
         }
