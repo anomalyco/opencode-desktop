@@ -483,6 +483,14 @@ fn tab_methods(lua: &Lua) -> mlua::Result<Table> {
             lua.create_function(move |lua, this: Table| {
                 later(lua, &this, "BrowserTab", move |s, id, _| {
                     if name != "Stop" { s.workspace_panes.browser.host.clear_refusal(id); }
+                    if name == "Reload" {
+                        s.workspace_panes.browser.proxy_wake_tried.remove(&id);
+                        if s.workspace_panes.browser.host.tab(id).is_some_and(|t| t.residency().is_hibernated()) {
+                            s.wake_browser_tab(id, s.active_browser_tab_id() == Some(id));
+                            return;
+                        }
+                        s.ensure_preview_binding(id);
+                    }
                     let host = &mut s.workspace_panes.browser.host;
                     match name {
                         "Back" => host.back(id),

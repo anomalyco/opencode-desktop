@@ -14,6 +14,7 @@ use crate::turns::{self, Block, Entry, Step};
 pub mod attachments;
 mod delivery;
 mod dividers;
+mod group_hash;
 pub mod parts;
 mod projection;
 pub mod rhythm;
@@ -253,7 +254,7 @@ impl RowSpec {
                     // group and may be open as a thought, so the thoughts' toggles are part of it.
                     let thoughts = s.expanded().stamp("r-");
                     let look = (p.theme, p.generation, p.dark, opencode_i18n::locale().id(), crate::style::hover_none());
-                    let ver = (&t.session, group_hash(&t.messages[*start..*end], &detail, script_diffs), *block, *live, [pt.to_bits(), self.room_under(s).to_bits()], look, self.streaming, (fold, crate::style::content_w().to_bits(), crate::scroller::device_scale().to_bits(), detail, script_diffs, s.shell_output_version(), crate::style::sticky_top().to_bits(), s.reduced_motion(), thoughts));
+                    let ver = (&t.session, group_hash::of(s, t, *start..*end, &detail, script_diffs), *block, *live, [pt.to_bits(), self.room_under(s).to_bits()], look, self.streaming, (fold, crate::style::content_w().to_bits(), crate::scroller::device_scale().to_bits(), detail, script_diffs, s.shell_output_version(), crate::style::sticky_top().to_bits(), s.reduced_motion(), thoughts));
                     return rune::memo(self.key.clone(), ver, || {
                         ROW_BUILDS.set(ROW_BUILDS.get() + 1);
                         let blocks = turns::fold_with_flags(&entries(&t.messages[*start..*end], &detail), *live, &detail, script_diffs);
@@ -388,45 +389,6 @@ pub fn entries<'a>(messages: &'a [Message], detail: &crate::detail::Detail) -> V
         Message::Notice(n) if crate::detail::notice_folds(n, detail) => Entry::Notice(n),
         _ => Entry::Skip,
     }).collect()
-}
-
-fn group_hash(messages: &[Message], detail: &crate::detail::Detail, script_diffs: bool) -> u64 {
-    use std::hash::{DefaultHasher, Hash, Hasher};
-    let mut h = DefaultHasher::new();
-    let edits = script_diffs && detail.placement(crate::detail::Category::Edit) != crate::detail::Placement::Hidden;
-    for m in messages {
-        if let Message::Notice(n) = m {
-            (3u8, &n.id).hash(&mut h);
-        }
-        let step = match m {
-            Message::Assistant(a) => Some(a),
-            Message::Note { step, .. } => Some(&**step),
-            _ => None,
-        };
-        if let Some(a) = step {
-            (&a.id, a.completed, a.parts.len(), &a.text_phases).hash(&mut h);
-            for p in &a.parts {
-                match p {
-                    Part::Tool { id, name, status, metadata, .. } => {
-                        (0u8, id, name, std::mem::discriminant(status)).hash(&mut h);
-                        // A script's changes name the group as they arrive; progress that adds
-                        // none keeps the row.
-                        if edits {
-                            crate::activity::rules::script_changes(name, status, metadata).for_each(|(i, f)| (i, f["file"].as_str()).hash(&mut h));
-                        }
-                        if script_diffs && name == "execute" {
-                            metadata["toolCalls"].as_array().into_iter().flatten().for_each(|c| {
-                                (c["tool"].as_str(), c["status"].as_str(), c["input"]["method"].as_str(), c["input"]["path"].as_str()).hash(&mut h);
-                            });
-                        }
-                    }
-                    Part::Reasoning { text, completed, .. } => (1u8, text.len(), completed).hash(&mut h),
-                    Part::Text { text } => (2u8, text.len()).hash(&mut h),
-                }
-            }
-        }
-    }
-    h.finish()
 }
 
 /// A turn heading's words take at most this many characters of the prompt.

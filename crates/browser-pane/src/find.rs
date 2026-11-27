@@ -122,7 +122,7 @@ impl crate::BrowserHost {
     /// Whether `tab_id` has been sent to a connected engine (`OpenTab` already flushed).
     pub fn tab_open_in_engine(&self, tab_id: u64) -> bool {
         self.is_connected()
-            && self.tabs.iter().any(|t| t.id == tab_id)
+            && self.tabs.iter().any(|t| t.id == tab_id && t.has_engine_tab)
             && !self.pending_opens.iter().any(|(id, _)| *id == tab_id)
     }
 
@@ -423,6 +423,7 @@ impl crate::BrowserHost {
         let ready = self.status() == crate::installer::EngineStatus::Ready;
         let mut prompts = crate::prompts::TabPromptState::default();
         prompts.agent_driven = agent_driven;
+        let residency = self.initial_residency(id);
         self.tabs.push(crate::client::BrowserTab {
             id,
             url: url.clone(),
@@ -457,6 +458,7 @@ impl crate::BrowserHost {
                 .then_some((width_pt, height_pt, scale)),
             has_engine_tab: can_open_in_engine,
             engine_confirmed: false,
+            residency,
         });
         self.sync_has_tabs();
         self.focused_tab = Some(id);

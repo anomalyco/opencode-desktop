@@ -94,6 +94,8 @@ struct Open {
     life: life::Life,
     /// When it last came to the front (`FOCUSES`): of windows under one point, the latest is on top.
     focused: u64,
+    /// Whether this window currently holds OS focus (`on_focus`).
+    has_focus: bool,
     /// False between `register` and this window's first `sync_shown` (`servers::runtime::leave`):
     /// while unreported, another window's `App::rest` treats this window as showing everything so
     /// shared transcripts and user-message metadata are never evicted in the startup gap.
@@ -174,7 +176,7 @@ pub fn register(id: &str, handle: WindowHandle, app: AppHandle<App>, life: life:
     OPEN.with(|o| {
         let mut o = o.borrow_mut();
         o.retain(|w| w.id != id);
-        o.push(Open { id: id.to_owned(), handle, app, strip: None, life, focused: 0, reported: false, shown_stamp: 0, shown: Vec::new(), pages: Vec::new() });
+        o.push(Open { id: id.to_owned(), handle, app, strip: None, life, focused: 0, has_focus: false, reported: false, shown_stamp: 0, shown: Vec::new(), pages: Vec::new() });
     });
     focused(id);
 }
@@ -250,6 +252,41 @@ pub fn focused(id: &str) {
         f.get()
     });
     OPEN.with(|o| o.borrow_mut().iter_mut().filter(|w| w.id == id).for_each(|w| w.focused = n));
+}
+
+/// Records whether window `id` currently holds OS focus (`on_focus`).
+pub fn set_focused(id: &str, has_focus: bool) {
+    if has_focus {
+        focused(id);
+    }
+    OPEN.with(|o| o.borrow_mut().iter_mut().filter(|w| w.id == id).for_each(|w| w.has_focus = has_focus));
+}
+
+/// Whether any live window of this process currently holds OS focus (from `on_focus`).
+pub fn any_focused() -> bool {
+    OPEN.with(|o| o.borrow().iter().any(|w| w.life != life::Life::Kept && w.has_focus))
+}
+
+/// Whether any window of the app currently holds OS focus.
+///
+/// On macOS and Windows, `rune_notify::app_focused()` asks the OS directly. On Linux,
+/// `rune_notify::app_focused()` always returns `false` because Wayland has no process-wide
+/// foreground query, so we read the focus state tracked from each window's `on_focus` events.
+pub(crate) fn app_focused(s: &App) -> bool {
+    #[cfg(target_os = "linux")]
+    {
+        (!s.window.hidden && s.window.focused) || any_focused()
+    }
+    #[cfg(all(not(target_os = "linux"), not(target_arch = "wasm32")))]
+    {
+        let _ = s;
+        rune_notify::app_focused()
+    }
+    #[cfg(target_arch = "wasm32")]
+    {
+        let _ = s;
+        false
+    }
 }
 
 /// Steps window `id`'s life (`life::Life`); the list saved for the next launch follows.
@@ -359,6 +396,8 @@ impl App {
         if id.is_empty() {
             return;
         }
+        self.window.focused = false;
+        set_focused(&id, false);
         let frame = self.window_frame();
         if !self.persists() {
             OPEN.with(|o| o.borrow_mut().retain(|w| w.id != id));

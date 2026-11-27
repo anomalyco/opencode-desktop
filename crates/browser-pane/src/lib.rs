@@ -47,6 +47,7 @@ pub mod preview;
 pub mod profile;
 pub mod prompts;
 pub mod protocol;
+pub mod residency;
 mod scroll_cursor;
 #[cfg(feature = "engine")]
 mod sidecar;
@@ -95,4 +96,5 @@ pub use prompts::{
     BlockedGuardReason, PermissionDecision, PermissionStore, SiteDecision, SitePermissions,
     SiteSetting, TabDriver,
 };
+pub use residency::{ExtensionWakeRequest, ResidencyEffects, ResidencyEvent, TabResidency};
 pub use site_zoom::ZoomStore;

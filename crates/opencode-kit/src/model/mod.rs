@@ -129,7 +129,7 @@ pub struct ModelRef {
 }
 
 impl ModelRef {
-    pub(super) fn parse(v: &Value) -> ModelRef {
+    pub fn parse(v: &Value) -> ModelRef {
         ModelRef {
             id: s(&v["id"]),
             provider: s(&v["providerID"]),

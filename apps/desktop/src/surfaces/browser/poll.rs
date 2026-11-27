@@ -307,7 +307,13 @@ impl App {
             || self.workspace_panes.browser.visibility.window.is_hidden()
             || self.settings_open()
             || self.narrow()
+            || self.workspace_panes.browser.host.tabs().is_empty()
         {
+            return Vec::new();
+        }
+        let side_is_open = self.side_open();
+        let bottom_is_open = self.bottom_open();
+        if !side_is_open && !bottom_is_open {
             return Vec::new();
         }
         let Some(reg) = self.resolve_side_region() else {
@@ -319,8 +325,6 @@ impl App {
             .sessions
             .get(&reg.session_id)
             .map_or(&empty, |st| &st.tab_state.tabs);
-        let side_is_open = self.side_open();
-        let bottom_is_open = self.bottom_open();
         let panel_surfaces = self.workspace_panes.browser.panel_surfaces.borrow();
         let mut visible = Vec::new();
         for pane in SESSION_PANES {
@@ -420,9 +424,15 @@ impl App {
         self.workspace_panes.browser.host.set_visible_tabs(&effective);
     }
 
-    /// Next deadline at which a close-slide visibility grace expires.
+    /// Next deadline at which a close-slide visibility grace or hidden-tab freeze timer expires.
     pub fn browser_visibility_wake(&self) -> Option<Instant> {
-        self.workspace_panes.browser.visibility.slide.wake_at()
+        match (
+            self.workspace_panes.browser.visibility.slide.wake_at(),
+            self.browser_residency_wake(),
+        ) {
+            (Some(a), Some(b)) => Some(a.min(b)),
+            (a, b) => a.or(b),
+        }
     }
 
     /// Handles Rune's OS window visibility hook (`on_visibility`) and immediately updates engine
@@ -482,6 +492,7 @@ impl App {
         let engine_closed: Vec<(u64, bool)> =
             self.workspace_panes.browser.host.drain_closed_tabs().collect();
         for (closed_id, fatal_close) in engine_closed {
+            self.workspace_panes.browser.proxy_wake_tried.remove(&closed_id);
             self.workspace_panes.browser.closing_tabs.remove(&closed_id);
             self.workspace_panes.browser.page_opened_tabs.remove(&closed_id);
             self.workspace_panes.browser.active_app_reviews.borrow_mut().remove(&closed_id);
@@ -539,8 +550,50 @@ impl App {
             self.workspace_panes.browser.host.focus_tab(id);
             changed = true;
         }
+        changed |= self.drain_extension_wake_tabs();
         // Sync the exact visible set across Side, Split, and Bottom panes (deduplicated).
         self.sync_visible_browser_tabs();
+        // Wake any visible hibernated tab immediately so returning to a session or switching
+        // tabs restores the page seamlessly (skipping offline remote/artifact previews and capping
+        // `browser.proxy.required` recovery to one attempt per registered proxy endpoint).
+        let active_id = self.active_browser_tab_id();
+        let mut to_wake: Vec<(u64, Option<String>)> = Vec::new();
+        for id in self.visible_browser_tabs() {
+            let Some(t) = self.workspace_panes.browser.host.tab(id) else { continue };
+            if !t.residency().is_hibernated() || !self.preview_server_ready_for_wake(id) {
+                continue;
+            }
+            if t.refusal.is_none() {
+                to_wake.push((id, None));
+            } else if let (
+                browser_pane::ContextKind::RemoteServer { server_id, .. },
+                Some("browser.proxy.required"),
+            ) = (&t.context, t.refusal.as_deref())
+                && let Some(cfg) = self.workspace_panes.browser.host.remote_proxy(server_id)
+            {
+                let proxy_key = format!("{}:{}", cfg.host, cfg.port);
+                let tried = self
+                    .workspace_panes
+                    .browser
+                    .proxy_wake_tried
+                    .get(&id)
+                    .map(String::as_str);
+                if tried != Some(proxy_key.as_str()) {
+                    to_wake.push((id, Some(proxy_key)));
+                }
+            }
+        }
+        for (id, proxy_key) in to_wake {
+            if let Some(pk) = proxy_key {
+                self.workspace_panes.browser.proxy_wake_tried.insert(id, pk);
+            } else {
+                self.workspace_panes.browser.proxy_wake_tried.remove(&id);
+            }
+            if self.wake_browser_tab(id, Some(id) == active_id) {
+                changed = true;
+            }
+        }
+        self.tick_browser_residency();
         changed |= self.prune_browser_unseen();
         changed |= self.sync_browser_openers();
         changed

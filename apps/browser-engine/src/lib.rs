@@ -108,6 +108,7 @@ pub enum Event {
         url: Option<String>,
         title: Option<String>,
         loading: Option<bool>,
+        audible: Option<bool>,
     },
     /// Frame-level navigation signal for `chrome.webNavigation` (main frame + subframes).
     WebNav(extensions::web_nav::WebNavSignal),
@@ -494,8 +495,8 @@ pub fn run_browser(
                     manager.on_extensions_verified(startup);
                     true
                 }
-                Event::TabMeta { tab_id, url, title, loading } => {
-                    manager.on_tab_meta(tab_id, url, title, loading);
+                Event::TabMeta { tab_id, url, title, loading, audible } => {
+                    manager.on_tab_meta(tab_id, url, title, loading, audible);
                     true
                 }
                 Event::WebNav(sig) => {

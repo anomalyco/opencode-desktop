@@ -182,6 +182,9 @@ impl StreamEvent {
 pub struct Done {
     /// Running sessions, idle and busy marks, requests (`apply_status`).
     pub status: bool,
+    /// Whether a direct child subagent was running when `session.execution.succeeded` arrived,
+    /// snapshotted before later events in the same `peer::heard` batch mutate `self.running`.
+    pub running_child: bool,
     pub inbox: bool,
     /// The delivered item occupied the queue, not a Pending row in the transcript.
     pub queued_delivery: bool,
@@ -290,7 +293,8 @@ impl App {
     fn apply_event_shared(&mut self, ty: &str, data: &Value) -> Done {
         let sid = data["sessionID"].as_str().unwrap_or("").to_owned();
         let now = *self.now_ms;
-        let mut done = Done { status: self.apply_status(ty, data, &sid), ..Done::default() };
+        let running_child = ty == "session.execution.succeeded" && self.has_running_child(&sid);
+        let mut done = Done { status: self.apply_status(ty, data, &sid), running_child, ..Done::default() };
         if ty.starts_with("session.inbox.") && !sid.is_empty() {
             done.queued_delivery = ty == "session.inbox.delivered" && data["inboxID"].as_str().is_some_and(|id|
                 self.inboxes.get(&sid).is_some_and(|i| i.queued().any(|item| item.id == id)));
@@ -300,7 +304,7 @@ impl App {
             done.revert = self.apply_revert(ty, data, &sid);
         }
         done.selected = self.apply_selected(ty, data, &sid);
-        done.info = done.selected.is_some() | self.apply_archive(ty, data, &sid);
+        done.info = done.selected.is_some() | self.apply_created(ty, data, &sid, now) | self.apply_archive(ty, data, &sid);
         if ty == "session.usage.updated" {
             done.info |= self.usage_updated(&sid, data["cost"].as_f64());
         }
@@ -627,6 +631,42 @@ impl App {
 }
 
 impl App {
+    /// Records newly created child sessions synchronously on the SSE stream so `has_running_child`,
+    /// `root_of`, and family status know `parent` before the server read settles, then fetches the
+    /// authoritative `SessionInfo` (`packages/client/src/solid/data.ts:901-905` calls `session.sync`).
+    fn apply_created(&mut self, ty: &str, data: &Value, sid: &str, now: i64) -> bool {
+        if ty != "session.created" || sid.is_empty() {
+            return false;
+        }
+        let Some(parent) = data["parentID"].as_str().filter(|p| !p.is_empty()) else {
+            return false;
+        };
+        if let Some(existing) = self.sessions.iter_mut().find(|s| s.id == sid) {
+            if existing.parent.is_none() {
+                existing.parent = Some(parent.to_owned());
+                return true;
+            }
+            return false;
+        }
+        let created = data["eventCreated"].as_i64().unwrap_or(now);
+        self.sessions.push(opencode_kit::model::SessionInfo {
+            id: sid.to_owned(),
+            parent: Some(parent.to_owned()),
+            project: data["projectID"].as_str().unwrap_or("").to_owned(),
+            title: data["title"].as_str().unwrap_or("").to_owned(),
+            directory: data["location"]["directory"].as_str().unwrap_or("").to_owned(),
+            updated: created,
+            model: opencode_kit::model::ModelRef::parse(&data["model"]),
+            agent: data["agent"].as_str().unwrap_or("").to_owned(),
+            created,
+            metadata: data["metadata"].clone(),
+            browser: opencode_kit::model::BrowserGrant::of(&data["permissions"]),
+            ..Default::default()
+        });
+        self.fetch_info(sid);
+        true
+    }
+
     /// Archives and metadata changed from other clients.
     fn apply_archive(&mut self, ty: &str, data: &Value, sid: &str) -> bool {
         if !matches!(ty, "session.archived" | "session.unarchived" | "session.metadata.updated") {

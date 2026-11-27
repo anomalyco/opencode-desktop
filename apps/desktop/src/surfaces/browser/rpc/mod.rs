@@ -29,6 +29,7 @@ use rune::{Tx, Waker, time::Instant};
 use serde_json::Value;
 
 pub use self::comes_back::person_came;
+pub use self::exec::wake::{is_tab_or_session_busy, on_tab_hibernated};
 use self::session::SessionAttachment;
 pub use self::tunnel::grant_remote_navigation;
 use self::start_gate::{StartWaiter, drain_start_waiters};
@@ -182,29 +183,7 @@ pub fn session_prompt_gate_settled(app: &App, server_key: &ServerKey, session_id
         .is_none_or(|att| att.attach.prompt_gate_settled())
 }
 
-static CONNECTED_BASES: std::sync::LazyLock<std::sync::Mutex<BTreeSet<String>>> =
-    std::sync::LazyLock::new(|| std::sync::Mutex::new(BTreeSet::new()));
-
-fn mark_base_connected(base: &str) {
-    CONNECTED_BASES
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner)
-        .insert(base.to_owned());
-}
-
-fn clear_base_connected(base: &str) {
-    CONNECTED_BASES
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner)
-        .remove(base);
-}
-
-fn is_base_connected(base: &str) -> bool {
-    CONNECTED_BASES
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner)
-        .contains(base)
-}
+use self::workers::{clear_base_connected, is_base_connected, mark_base_connected};
 
 /// Called when `/api/event` drops (`Incoming::StreamDown`) so stale connected bases and remote
 /// tunnels are cleared immediately.
@@ -569,6 +548,14 @@ pub fn poll(app: &mut App, tx: &mut Tx) -> bool {
         }
     }
 
+    let active_root = app
+        .active_session_id()
+        .map(|sid| app.panel_root(sid).to_owned());
+    session::prune_idle_captures(&mut sessions, |sid| {
+        active_root.as_deref() == Some(app.panel_root(sid))
+            || app.session_busy(sid)
+            || app.subtree_busy(sid)
+    });
     if let Some(w) = holds.sync(app, &mut sessions, now) {
         earliest_wake = Some(earliest_wake.map_or(w, |cur| cur.min(w)));
     }
@@ -755,15 +742,19 @@ fn apply_batch_effects(
                         att.mark_cancelled(id);
                     }
                     let cmds = std::mem::take(&mut att.active_commands);
+                    let mut cancelled = Vec::new();
                     let mut kept = Vec::with_capacity(cmds.len());
-                    for mut cmd in cmds {
+                    for cmd in cmds {
                         if request_ids.iter().any(|id| id == &cmd.request_id) {
-                            cmd.cancel_cleanup(att, app, tx_opt.as_deref_mut());
+                            cancelled.push(cmd);
                         } else {
                             kept.push(cmd);
                         }
                     }
                     att.active_commands = kept;
+                    for mut cmd in cancelled {
+                        cmd.cancel_cleanup(att, app, tx_opt.as_deref_mut());
+                    }
                 }
                 AttachEffect::ActivateTunnel { .. }
                 | AttachEffect::ScheduleTimer { .. }

@@ -976,7 +976,10 @@ pub(crate) fn wire_stream(stream: UnixStream, mach_service: Option<String>, link
                 }
                 if let EngineMsg::CpuFrame { tab_id, frame_id, width, height, bgra_b64 } = msg {
                     #[cfg(target_os = "linux")]
-                    pools.lock().unwrap_or_else(PoisonError::into_inner).forget(tab_id);
+                    {
+                        frames.step(crate::dmabuf::Frames::Bgra);
+                        pools.lock().unwrap_or_else(PoisonError::into_inner).forget(tab_id);
+                    }
                     WirePaint { tab_id, frame_id, width, height, bgra_b64: &bgra_b64 }.push(&link.surfaces);
                     continue;
                 }

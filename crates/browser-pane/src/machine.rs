@@ -652,6 +652,7 @@ pub(crate) enum EngineCaps {
         trace_isolation: bool,
         menu_extras: bool,
         tab_lifecycle: bool,
+        tab_hibernation: bool,
     },
 }
 
@@ -727,6 +728,10 @@ impl EngineCaps {
 
     pub(crate) fn tab_lifecycle(self) -> bool {
         matches!(self, Self::Known { tab_lifecycle: true, .. })
+    }
+
+    pub(crate) fn tab_hibernation(self) -> bool {
+        matches!(self, Self::Known { tab_hibernation: true, .. })
     }
 }
 
