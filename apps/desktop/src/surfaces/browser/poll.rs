@@ -17,42 +17,75 @@ use crate::panels::{SESSION_PANES, SessionPane, SessionTabs, panel_key, split_pa
 const CLOSE_SLIDE_GRACE: Duration = Duration::from_millis(420);
 
 thread_local! {
-    /// Active `(panel_session_id, panel_key)` currently executing inside `panels::render`.
-    static RENDERING_PANEL: RefCell<Option<(String, String)>> = const { RefCell::new(None) };
+    /// Buffered `tab_id`s emitted by `ui.browserSurface` during an executing `panels::render` call.
+    static RENDERING_SURFACES: RefCell<Option<Vec<u64>>> = const { RefCell::new(None) };
 }
 
-/// RAII guard tracking which visible panel tab is rendering `ui.browserSurface` calls.
+/// RAII guard buffering `ui.browserSurface` renders during one `panels::render` call so
+/// memo-cache hits leave `BrowserPane::panel_surfaces` untouched.
 pub struct PanelSurfaceGuard {
-    prev: Option<(String, String)>,
+    /// `Some(prev)` while active; `None` once `finish()` has restored `prev`.
+    prev: Option<Option<Vec<u64>>>,
+}
+
+impl PanelSurfaceGuard {
+    /// Commits buffered `ui.browserSurface` tab IDs into `BrowserPane::panel_surfaces` ONLY
+    /// when `executed` is true (plugin render script ran, not a memo cache hit). Wakes the window
+    /// when a newly committed or removed live tab differs from `BrowserHost::visible_tabs()`.
+    pub fn finish(mut self, app: &App, panel_sid: String, panel_key: String, executed: bool) {
+        let prev = self.prev.take().flatten();
+        let buffered = RENDERING_SURFACES.with(|slot| std::mem::replace(&mut *slot.borrow_mut(), prev));
+        if !executed {
+            return;
+        }
+        let tabs = buffered.unwrap_or_default();
+        let mut needs_wake = false;
+        {
+            let mut map = app.workspace_panes.browser.panel_surfaces.borrow_mut();
+            let key = (panel_sid, panel_key);
+            let visible = app.workspace_panes.browser.host.visible_tabs();
+            if tabs.is_empty() {
+                if let Some(old) = map.remove(&key) {
+                    needs_wake = old.iter().any(|id| visible.contains(id));
+                }
+            } else if map.get(&key) != Some(&tabs) {
+                let added_unseen = tabs.iter().any(|id| {
+                    app.workspace_panes.browser.host.tab(*id).is_some() && !visible.contains(id)
+                });
+                let removed_seen = map
+                    .get(&key)
+                    .is_some_and(|old| old.iter().any(|id| !tabs.contains(id) && visible.contains(id)));
+                needs_wake = added_unseen || removed_seen;
+                map.insert(key, tabs);
+            }
+        }
+        if needs_wake && let Some(w) = rune::Tracked::untracked(&app.waker).as_ref() {
+            w();
+        }
+    }
 }
 
 impl Drop for PanelSurfaceGuard {
     fn drop(&mut self) {
-        RENDERING_PANEL.with(|slot| {
-            *slot.borrow_mut() = self.prev.take();
-        });
+        if let Some(prev) = self.prev.take() {
+            RENDERING_SURFACES.with(|slot| *slot.borrow_mut() = prev);
+        }
     }
 }
 
-/// Begins tracking `ui.browserSurface` renders emitted by visible panel tab `(panel_sid, panel_key)`.
-pub fn begin_panel_surface_render(app: &App, panel_sid: String, panel_key: String) -> PanelSurfaceGuard {
-    app.workspace_panes
-        .browser
-        .panel_surfaces
-        .borrow_mut()
-        .remove(&(panel_sid.clone(), panel_key.clone()));
-    let prev = RENDERING_PANEL.with(|slot| slot.borrow_mut().replace((panel_sid, panel_key)));
-    PanelSurfaceGuard { prev }
+/// Begins buffering `ui.browserSurface` renders emitted during a visible `panels::render` call.
+pub fn begin_panel_surface_render() -> PanelSurfaceGuard {
+    let prev = RENDERING_SURFACES.with(|slot| slot.borrow_mut().replace(Vec::new()));
+    PanelSurfaceGuard { prev: Some(prev) }
 }
 
-/// Records that `tab_id` was rendered via `browser::view::surface` inside the active panel tab.
-pub(crate) fn note_surface_drawn(app: &App, tab_id: u64) {
-    RENDERING_PANEL.with(|slot| {
-        let Some(owner) = slot.borrow().clone() else { return };
-        let mut map = app.workspace_panes.browser.panel_surfaces.borrow_mut();
-        let ids = map.entry(owner).or_default();
-        if !ids.contains(&tab_id) {
-            ids.push(tab_id);
+/// Records that `tab_id` was rendered via `browser::view::surface` inside the active panel render.
+pub(crate) fn note_surface_drawn(tab_id: u64) {
+    RENDERING_SURFACES.with(|slot| {
+        if let Some(buf) = &mut *slot.borrow_mut()
+            && !buf.contains(&tab_id)
+        {
+            buf.push(tab_id);
         }
     });
 }
