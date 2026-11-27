@@ -5,7 +5,7 @@
   "upstream_head": "5d1f78844492ed36c771f2ec3d2d5e459ed90670",
   "upstream_pre_window_base": "3751be8138ebcf33343eb3f3d011b32fc814103c",
   "rune_desktop_repo": "anomalyco/opencode-rune",
-  "rune_desktop_head": "32623b8bbe",
+  "rune_desktop_head": "15d849e85d",
   "post_1114_commit_count": 824,
   "post_1114_in_ledger": 276,
   "post_1114_skipped": 548,
@@ -20,11 +20,11 @@
   "pre_1114_carryover_rows": 15,
   "total_ledger_rows": 297,
   "status_counts": {
-    "have it": 255,
+    "have it": 256,
     "not applicable": 39,
     "differs on purpose": 1,
     "partly": 1,
-    "missing": 1
+    "missing": 0
   },
   "rows": [
     {
@@ -7490,7 +7490,7 @@
       "summary": "Replaces the old experimental keyboard-first question dock with the composer-integrated New question UI experiment (settings.general.questionComposer, preset answers card above custom answer composer + actions, removing session-question-dock-experimental and newQuestionUI).",
       "size": "L",
       "status": "have it",
-      "status_evidence": "Merged in #1444 (dev 32623b8bbe, CI run 46049645624 green): replaces retired experimental question dock (face.rs) with composer-integrated dock (composer.rs), adds general.questionComposer setting (local/dev/pr), and adds --scene question-composer. Post-merge bulk headless verification queued.",
+      "status_evidence": "Merged in #1444 (dev 32623b8bbe, CI run 46049645624 green): replaces retired experimental question dock (face.rs) with composer-integrated dock (composer.rs), adds general.questionComposer setting (local/dev/pr), and adds --scene question-composer. Post-merge verified headless on Windows x64 PR build (run 46049645624, 3/3 cases PASS, peak <= 0.88 GiB): --scene question-composer renders borderless listbox + header close button with 8 pt gap over raised composer card; --scene question keeps Classic dock bit-identical; Settings > Experimental shows New question UI ('Answer questions from the composer') ON by default and toggles OFF cleanly. Not run: real window, macOS, Linux.",
       "depends_on": "none",
       "risks": "none",
       "workstream": "UPSTREAM",
@@ -7523,14 +7523,19 @@
       ],
       "summary": "Renames Component Lab to Lab in the debug bar (LAB button and tooltip) and updates lab.* strings across all 63 locale catalogs.",
       "size": "XS",
-      "status": "missing",
-      "status_evidence": "Open PR #1446 (head 44167d5494, CI running): updates plugins/debug/init.luau to lab.label/lab.tip and syncs 126 debug/official locale JSON files.",
+      "status": "have it",
+      "status_evidence": "Merged in #1446 (dev 15d849e85d, CI run 46055012594 green): switches debug bar button to lab.label/lab.tip and syncs 126 debug/official locale JSON files matching opencode#66618. Post-merge bulk headless verification queued.",
       "pr_refs": [
         1446
       ],
       "depends_on": "none",
       "risks": "none",
-      "workstream": "UPSTREAM"
+      "workstream": "UPSTREAM",
+      "rune_files": [
+        "plugins/debug/init.luau",
+        "plugins/debug/locales/en.json",
+        "crates/opencode-i18n/locales/official/en.json"
+      ]
     }
   ],
   "browser_security_review": {
