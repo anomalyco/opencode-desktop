@@ -25,7 +25,8 @@ const GROUP: TextStyle = TextStyle::new(12.0, 440.0).lh(18.0).tracking(0.05);
 /// The integrations the list offers, in the TUI's groups: connected first by name, then the
 /// popular ones in their order, then the rest by name. MCP sign-ins live in the MCPs dialog.
 /// Go is listed only with a saved Go key, before OpenCode (`providers/connect/dialog.tsx`, `#65466`).
-const POPULAR: [&str; 6] = ["opencode-go", "opencode", "openai", "github-copilot", "anthropic", "google"];
+// `packages/app/src/providers/catalog/order.ts` (`opencode#66736`).
+const POPULAR: [&str; 9] = ["opencode-go", "opencode", "openai", "anthropic", "claude-agent", "github-copilot", "google", "openrouter", "vercel"];
 
 /// Muted note beside OpenCode Go while unconnected (`providerNote`, `#65466`).
 fn provider_note(id: &str) -> Option<&'static str> {

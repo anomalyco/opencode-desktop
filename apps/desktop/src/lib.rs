@@ -267,8 +267,9 @@ thread_local! {
 /// idle one can't hold it.
 #[cfg(not(target_arch = "wasm32"))]
 fn quit_last() {
-    // Release any threads waiting on local server startup without stopping the detached daemon.
-    servers::sidecar::dispose();
+    // Release waiters on local server startup and stop the local daemon when the user turned
+    // off "Keep running in the background" (`opencode#66499`).
+    servers::sidecar::shutdown_on_quit(background_notice::should_stop_service_on_quit());
     // First, so its threads have left their writes by the time the process ends.
     browser_pane::installer::quit();
     rune::marks::mark("browser.engine.stopped");

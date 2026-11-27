@@ -1,30 +1,30 @@
 {
-  "generated_at": "2026-11-27",
+  "generated_at": "2026-11-28",
   "upstream_repo": "anomalyco/opencode",
   "upstream_reference_base": "f6e0c2d0833ffe772035f221fed923e1cd5fb408",
-  "upstream_head": "740bd1d732fc857957f3d3ea1f1ce2c682d9b18e",
+  "upstream_head": "9dff0b82550eae0f0e933db5b39c02fecedb2a1a",
   "upstream_pre_window_base": "3751be8138ebcf33343eb3f3d011b32fc814103c",
   "rune_desktop_repo": "anomalyco/opencode-rune",
-  "rune_desktop_head": "f837fd50f",
-  "post_1114_commit_count": 799,
-  "post_1114_in_ledger": 269,
-  "post_1114_skipped": 530,
+  "rune_desktop_head": "e9ea53d0ad",
+  "post_1114_commit_count": 807,
+  "post_1114_in_ledger": 272,
+  "post_1114_skipped": 535,
   "post_1114_skipped_breakdown": {
     "test-only": 35,
-    "ci-bench-deps": 26,
+    "ci-bench-deps": 27,
     "docs-site-data": 84,
-    "tui-only": 34,
+    "tui-only": 35,
     "cli-acp-only": 15,
-    "server-core-ai-codemode-internal": 336
+    "server-core-ai-codemode-internal": 339
   },
   "pre_1114_carryover_rows": 15,
-  "total_ledger_rows": 290,
+  "total_ledger_rows": 293,
   "status_counts": {
-    "have it": 239,
+    "have it": 249,
     "not applicable": 39,
     "differs on purpose": 1,
-    "partly": 2,
-    "missing": 9
+    "partly": 1,
+    "missing": 3
   },
   "rows": [
     {
@@ -5444,7 +5444,7 @@
       "summary": "Unfavoriting a model with the mouse no longer scrolls the model list: a row the pointer made active is not scrolled to when the list reorders (search-list.tsx setActive(key, \"pointer\")).",
       "size": "XS",
       "status": "have it",
-      "status_evidence": "Run by UPSTREAM-PROOF (a fixture with 28 models): ours differed, the list jumped to the row's new place when Unfavorite was pressed in its flyout (first row 179 -> -408). Ported in opencode-rune #1008 (b1cb9124): the flyout's press lights the row as the pointer does (Pickers::point) and hover::poll leaves the list where it is for a row the pointer lit (Highlight::pointed), as search-list.tsx setActive(key, \"pointer\"); Ctrl+F and Return on the flyout's item still follow the row. Run on its CI build: the first row stays at 179; the keys follow; Favorite pressed at the list's end leaves it at the end. Official side by its test.",
+      "status_evidence": "Run by headless verification (a fixture with 28 models): ours differed, the list jumped to the row's new place when Unfavorite was pressed in its flyout (first row 179 -> -408). Ported in opencode-rune #1008 (b1cb9124): the flyout's press lights the row as the pointer does (Pickers::point) and hover::poll leaves the list where it is for a row the pointer lit (Highlight::pointed), as search-list.tsx setActive(key, \"pointer\"); Ctrl+F and Return on the flyout's item still follow the row. Run on its CI build: the first row stays at 179; the keys follow; Favorite pressed at the list's end leaves it at the end. Official side by its test.",
       "depends_on": "none",
       "risks": "none",
       "workstream": "UPSTREAM",
@@ -5545,7 +5545,7 @@
       "summary": "Linux only: with side tabs, the app menu button shows in the side tabs header (it was hidden with the vertical titlebar).",
       "size": "XS",
       "status": "have it",
-      "status_evidence": "Ported in opencode-rune #1009 (8bc31926): on Linux the app menu's button leads the sidebar's header, as titlebar.tsx's linux() branch (ours had no app menu with Side tabs or the Inbox layout outside Windows). Type-checked for Linux x64 before merging, and RUN by LAUNCH-LINUX-d on the published dev-482 deb under headless weston and Xvfb: the app menu button is in the header with Side tabs and with the Inbox layout.",
+      "status_evidence": "Ported in opencode-rune #1009 (8bc31926): on Linux the app menu's button leads the sidebar's header, as titlebar.tsx's linux() branch (ours had no app menu with Side tabs or the Inbox layout outside Windows). Type-checked for Linux x64 before merging, and RUN by Linux launch track on the published dev-482 deb under headless weston and Xvfb: the app menu button is in the header with Side tabs and with the Inbox layout.",
       "depends_on": "none",
       "risks": "none",
       "workstream": "UPSTREAM",
@@ -5573,7 +5573,7 @@
       "summary": "When a timeline row holding the focused control scrolls out of the mounted range, focus goes to the timeline viewport without scrolling, instead of being rescued to a control in another row (which scrolled the timeline to it).",
       "size": "XS",
       "status": "have it",
-      "status_evidence": "Run by UPSTREAM-PROOF next to official on the head's build: with Copy response focused and the timeline wheeled to its top, the timeline stays still in both apps. One difference found and ported in opencode-rune #999 (a8b84776): ours moved focus to the header's Session details button when the focused row left the built range; each timeline row now returns focus to the timeline's scroll area (El::focus_return to scroll-<session>), as official's listRoot().focus({ preventScroll: true }). Run on #999's CI build: focus on the scroll region, no ring drawn, the timeline still. Not run: Page Up / Down from the region.",
+      "status_evidence": "Run by headless verification next to official on the head's build: with Copy response focused and the timeline wheeled to its top, the timeline stays still in both apps. One difference found and ported in opencode-rune #999 (a8b84776): ours moved focus to the header's Session details button when the focused row left the built range; each timeline row now returns focus to the timeline's scroll area (El::focus_return to scroll-<session>), as official's listRoot().focus({ preventScroll: true }). Run on #999's CI build: focus on the scroll region, no ring drawn, the timeline still. Not run: Page Up / Down from the region.",
       "depends_on": "none",
       "risks": "none",
       "workstream": "UPSTREAM",
@@ -5648,7 +5648,7 @@
       "summary": "Inbox sessions can be pinned, and archived sessions are listed in the sidebar (shell/titlebar/inbox.tsx, session search, the palette; a new icon; strings in every language).",
       "size": "L",
       "status": "have it",
-      "status_evidence": "opencode-rune #982 (ffbd2b68): the Inbox sidebar's sections follow inbox.tsx: pinned sessions (the shared navigation.pins) lead Recent in the pins' order with Desktop's pin glyph after the title, and a card's menu starts with Pin / Unpin; archived sessions are entries of the list (the newest 50 per server, read apart from the session list) under an Archived header that folds (archivedExpanded, shut at first), the last archived first; the Unread group and Recent's header are gone (done / failed / ready sort together, so reading one does not move it); the list's own right-click menu places Working on the shelf or in the list above Archived (workingPlacement). Official's catalogs synced to f25b09005e. By reading, compiled by CI; not run (handed to UPSTREAM-PROOF). Not removed yet: the archived search dialog's code, which has no entry point now.",
+      "status_evidence": "opencode-rune #982 (ffbd2b68): the Inbox sidebar's sections follow inbox.tsx: pinned sessions (the shared navigation.pins) lead Recent in the pins' order with Desktop's pin glyph after the title, and a card's menu starts with Pin / Unpin; archived sessions are entries of the list (the newest 50 per server, read apart from the session list) under an Archived header that folds (archivedExpanded, shut at first), the last archived first; the Unread group and Recent's header are gone (done / failed / ready sort together, so reading one does not move it); the list's own right-click menu places Working on the shelf or in the list above Archived (workingPlacement). Official's catalogs synced to f25b09005e. By reading, compiled by CI; not run (handed to headless verification). Not removed yet: the archived search dialog's code, which has no entry point now.",
       "depends_on": "none",
       "risks": "none",
       "workstream": "UPSTREAM",
@@ -5700,7 +5700,7 @@
       "summary": "The file tree of the Files and Review panels moves to the right (or back) from a context menu on the sidebar or its toggle: Sidebar position > Left / Right; one preference for every side panel; the toggle, border and resize handle swap sides.",
       "size": "M",
       "status": "have it",
-      "status_evidence": "opencode-rune #984 (60b2784d): apps/desktop/src/plugin_host/native/sidebar.rs keeps sidebarSide (start / end) in review-panel-v2 beside sidebarOpened / sidebarWidth; a right-click on the sidebar or its toggle opens Sidebar position > Left / Right (physical: right is the end edge left to right); on the end edge the body's order, the sidebar's border, the resize handle and the toggle (8 from the inline end) swap sides, and plugins/review and plugins/file leave the toggle room at the end of the sidebar header and the shut toolbar (8 / 46, 8 / 54). Plugin contract 1.9: PanelSidebarInfo.side and Layout:MovePanelSidebar, as PanelSidebar.side() / move(). By reading, compiled by CI; not run (handed to UPSTREAM-PROOF).",
+      "status_evidence": "opencode-rune #984 (60b2784d): apps/desktop/src/plugin_host/native/sidebar.rs keeps sidebarSide (start / end) in review-panel-v2 beside sidebarOpened / sidebarWidth; a right-click on the sidebar or its toggle opens Sidebar position > Left / Right (physical: right is the end edge left to right); on the end edge the body's order, the sidebar's border, the resize handle and the toggle (8 from the inline end) swap sides, and plugins/review and plugins/file leave the toggle room at the end of the sidebar header and the shut toolbar (8 / 46, 8 / 54). Plugin contract 1.9: PanelSidebarInfo.side and Layout:MovePanelSidebar, as PanelSidebar.side() / move(). By reading, compiled by CI; not run (handed to headless verification).",
       "depends_on": "none",
       "risks": "none",
       "workstream": "UPSTREAM",
@@ -5770,7 +5770,7 @@
       "summary": "New-session location dialog, the worktree step: the search field's leading icon is the back arrow in every step that owns Escape (it was the magnifying glass there), and the group's title \"Run session in\" is a heading named for the list, not a button or a Tab stop.",
       "size": "XS",
       "status": "have it",
-      "status_evidence": "opencode-rune #1019 (03893b3f): features/switcher/src/project/view.rs shows the back arrow in the search field for every step but the first, and the step's title is a plain heading (project-switcher-title) with the list as a group it names; the title's button is gone. Run by UPSTREAM-PROOF on its CI build: the back arrow leads the search field in the worktree and branch steps and steps back to the projects; the title is a group that takes no focus (Tab goes field, arrow, field). Official side by its code and test.",
+      "status_evidence": "opencode-rune #1019 (03893b3f): features/switcher/src/project/view.rs shows the back arrow in the search field for every step but the first, and the step's title is a plain heading (project-switcher-title) with the list as a group it names; the title's button is gone. Run by headless verification on its CI build: the back arrow leads the search field in the worktree and branch steps and steps back to the projects; the title is a group that takes no focus (Tab goes field, arrow, field). Official side by its code and test.",
       "depends_on": "none",
       "risks": "none",
       "workstream": "UPSTREAM",
@@ -5813,7 +5813,7 @@
       "summary": "The base branch control's tooltip in a new session's composer lists two commands, each with its shortcut: Choose worktree (session.location.select), then Choose branch.",
       "size": "XS",
       "status": "have it",
-      "status_evidence": "opencode-rune #1021 (f5c616ec): features/workspace-tools/src/new_worktree/mod.rs trigger_shell gives the tooltip two rows (El::help_row), Choose worktree with Bind::LocationSelect's keycaps, then Choose branch with Bind::BranchChoose's. Run by UPSTREAM-PROOF on its CI build: the pointer resting on \"from main\" draws two rows, each with its keycaps (Choose worktree CTRL ALT O; Choose base branch CTRL ALT B). Two differences left, seen in the run: ours draws the tooltip under the control with rows from the start edge; official places it on top with centred rows.",
+      "status_evidence": "opencode-rune #1021 (f5c616ec): features/workspace-tools/src/new_worktree/mod.rs trigger_shell gives the tooltip two rows (El::help_row), Choose worktree with Bind::LocationSelect's keycaps, then Choose branch with Bind::BranchChoose's. Run by headless verification on its CI build: the pointer resting on \"from main\" draws two rows, each with its keycaps (Choose worktree CTRL ALT O; Choose base branch CTRL ALT B). Two differences left, seen in the run: ours draws the tooltip under the control with rows from the start edge; official places it on top with centred rows.",
       "depends_on": "none",
       "risks": "none",
       "workstream": "UPSTREAM",
@@ -5931,7 +5931,7 @@
       "summary": "An inline quote of one line (and a file or note reference) has its bar run 1 px past the line, so lowercase text reads centred on the bar; wrapped quotes are unchanged.",
       "size": "XS",
       "status": "have it",
-      "status_evidence": "opencode-rune #1042 (b6cdcb48): crates/session-view/src/user_quotes.rs behind_bar gives a one-line quote 1 of room under its line, which the bar spans. Also in it: a quote's lines are laid out (kept by text and width), so a short quote that wraps past three lines can be opened (#976 asked fold::lines, which answers hard breaks alone under 360 bytes). RUN by UPSTREAM-PROOF on its CI build: a one-line quote and a file reference are 22 high over a 21 line (dev: 21 over 21); a 289-character quote with no break is three lines and a button, a press opens it to four (on dev it was clamped with no button: the fault was run too); a quote of exactly three lines has no button. Scroll cost, 34 inline quotes on screen at once (a 1280x5400 window, all 40 built, 48 wheel steps, 301 frames a run, three runs a side after a warm-up, the two builds in turn, alone in the capture window): frame CPU time median 1.53 / 1.46 / 1.29 ms on dev against 1.39 / 1.35 / 1.39; 99th 5.28 / 5.05 / 5.17 against 5.03 / 4.50 / 5.75; no frame over 16 ms; the session's first build 100 / 124 / 104 ms against 96 / 97 / 92. Headless, one machine, NVIDIA, CPU time of the frame.",
+      "status_evidence": "opencode-rune #1042 (b6cdcb48): crates/session-view/src/user_quotes.rs behind_bar gives a one-line quote 1 of room under its line, which the bar spans. Also in it: a quote's lines are laid out (kept by text and width), so a short quote that wraps past three lines can be opened (#976 asked fold::lines, which answers hard breaks alone under 360 bytes). RUN by headless verification on its CI build: a one-line quote and a file reference are 22 high over a 21 line (dev: 21 over 21); a 289-character quote with no break is three lines and a button, a press opens it to four (on dev it was clamped with no button: the fault was run too); a quote of exactly three lines has no button. Scroll cost, 34 inline quotes on screen at once (a 1280x5400 window, all 40 built, 48 wheel steps, 301 frames a run, three runs a side after a warm-up, the two builds in turn, alone in the capture window): frame CPU time median 1.53 / 1.46 / 1.29 ms on dev against 1.39 / 1.35 / 1.39; 99th 5.28 / 5.05 / 5.17 against 5.03 / 4.50 / 5.75; no frame over 16 ms; the session's first build 100 / 124 / 104 ms against 96 / 97 / 92. Headless, one machine, NVIDIA, CPU time of the frame.",
       "depends_on": "none",
       "risks": "none",
       "workstream": "UPSTREAM",
@@ -5956,7 +5956,7 @@
       "summary": "The browser's attachment to sessions: (1) a session that runs in an open tab nobody has opened since the app started attaches as the routed one does, so its agent has the browser tools (a session the server resumed, or that an automation, a finished job or a subagent woke); (2) a session another window took comes back only when the person comes to it in this window (its route, a prompt, opening its browser), never on focus, a press, a key or an agent's edge; (3) when the window that took it lets it go (the server revokes the grant), the session attaches here again; (4) the browser can be opened here while another window holds it, which takes it back.",
       "size": "M",
       "status": "have it",
-      "status_evidence": "opencode-rune #1073 (66708c5b, by the agent ATTACH): the session's permissions (the browser grant) and the event session.permissions are read, which ours did not. RUN on its CI build next to dev's and next to official's own model under its test fixture, before and after official's commit: a session that runs in a tab nobody opened since launch: dev answers Unknown tool browser.tabs.list at every step (5 of 5); now attached 32 ms after its run starts, or at launch (1.02 s) when it already runs. A session another window took: dev never comes back; now it comes back when the person comes to its tab, sends a prompt (40 ms before the prompt's run) or opens its browser, and 7 ms after the other window lets go; not on a press, a key or leaving its tab, and a tab another window holds is not taken: every case as official after. Launch, same-tree pairs in turn (real windows, five tabs, 24 rounds a side): no row moves beyond the spread; one cost that shows: +0.45 ms from the server's answer to content live when a tab's session runs at launch (the frame that starts its attachment). Linux type-checked by LAUNCH-LINUX-d. Not run: official's Electron window (its model under its fixture stands in), two real windows of ours (the other window was a stand-in: one held attach request), the web check, macOS, a remote server.",
+      "status_evidence": "opencode-rune #1073 (66708c5b, by the agent attach track): the session's permissions (the browser grant) and the event session.permissions are read, which ours did not. RUN on its CI build next to dev's and next to official's own model under its test fixture, before and after official's commit: a session that runs in a tab nobody opened since launch: dev answers Unknown tool browser.tabs.list at every step (5 of 5); now attached 32 ms after its run starts, or at launch (1.02 s) when it already runs. A session another window took: dev never comes back; now it comes back when the person comes to its tab, sends a prompt (40 ms before the prompt's run) or opens its browser, and 7 ms after the other window lets go; not on a press, a key or leaving its tab, and a tab another window holds is not taken: every case as official after. Launch, same-tree pairs in turn (real windows, five tabs, 24 rounds a side): no row moves beyond the spread; one cost that shows: +0.45 ms from the server's answer to content live when a tab's session runs at launch (the frame that starts its attachment). Linux type-checked by Linux launch track. Not run: official's Electron window (its model under its fixture stands in), two real windows of ours (the other window was a stand-in: one held attach request), the web check, macOS, a remote server.",
       "depends_on": "none",
       "risks": "none",
       "workstream": "UPSTREAM",
@@ -6034,7 +6034,7 @@
       "summary": "A reader who scrolled back keeps their place when the transcript is read again (each reconnect of the event stream, and a turn that ends with a tool still running): the newest page no longer replaces the loaded history. When the newest page does not reach the loaded messages, up to three older pages (20, 40, 140 messages) are read until they meet; after a longer absence only the newest messages stay, so the transcript never skips messages. A kept message that was still running is read again by id. An older page is dropped when a newer read replaced the transcript it continues.",
       "size": "M",
       "status": "have it",
-      "status_evidence": "opencode-rune #1090 (07b38b7b, by the agent ATTACH): a transcript read again never skips messages. The newest page read after a reconnect is followed by older pages of 20, 40 and 140 until it meets the loaded messages; past that the loaded history goes and the newest stay, as official. RUN on its CI build next to dev's, behind a simulated server whose network is taken away: messages gained while the stream was down and shown after the reconnect, dev -> this: 16 gained: 8 -> 16; 30: 8 -> 30; 60: 8 -> 60 (dev read the newest 12 once and never asked for the rest); nothing new, or fewer than 12 new: one read; 225 gained (too long to close): the newest stay with no hole in the rows built; a tool running when the stream dropped: dev lost its turn's closing reply and the next turn, this shows all; a reader 400 px up while it reconnects: the same seven rows at the same place. Ours never replaced the transcript, so the reader's place was already kept. Not ported: official's guard that drops an older page landing after a newer read replaced the transcript. Not run: official's app for these cases, the single-message read of a loaded message that was still running (the gap's page covered it in the run), a real window, macOS, Linux, a remote server.",
+      "status_evidence": "opencode-rune #1090 (07b38b7b, by the agent attach track): a transcript read again never skips messages. The newest page read after a reconnect is followed by older pages of 20, 40 and 140 until it meets the loaded messages; past that the loaded history goes and the newest stay, as official. RUN on its CI build next to dev's, behind a simulated server whose network is taken away: messages gained while the stream was down and shown after the reconnect, dev -> this: 16 gained: 8 -> 16; 30: 8 -> 30; 60: 8 -> 60 (dev read the newest 12 once and never asked for the rest); nothing new, or fewer than 12 new: one read; 225 gained (too long to close): the newest stay with no hole in the rows built; a tool running when the stream dropped: dev lost its turn's closing reply and the next turn, this shows all; a reader 400 px up while it reconnects: the same seven rows at the same place. Ours never replaced the transcript, so the reader's place was already kept. Not ported: official's guard that drops an older page landing after a newer read replaced the transcript. Not run: official's app for these cases, the single-message read of a loaded message that was still running (the gap's page covered it in the run), a real window, macOS, Linux, a remote server.",
       "depends_on": "none",
       "risks": "none",
       "workstream": "UPSTREAM",
@@ -6335,11 +6335,18 @@
       ],
       "summary": "The browser's import dialog in two groups: what comes over (Sign-ins, Browsing history) and from which sites: a radio choice 'All sites' (with the count) or 'Only sites I choose', which shows the search and the site list under it with nothing ticked; one box in the list's header ticks or clears every shown site (mixed when some are ticked) in place of the Select all / Select none buttons; the 'Choose sites' disclosure in the footer is gone; a profile picker ('From') shows only where the dialog has several profiles to offer, and a Settings row opens it for its own profile, named in the title with the profile as a badge; a new dialog size 'tall' (480 x 600, fixed top edge); the Settings row's button says 'Import', not 'Import...', and a browser's profile name beside it is a badge.",
       "size": "L",
-      "status": "partly",
-      "status_evidence": "Ported in opencode-rune #1202 (56bd7bb4; plugin contract 1.11): the browser Import dialog is organized into two groups (Include: Sign-ins and Browsing history; Sites: All sites with count, or Only sites I choose with search, select-all checkbox and site list), with the profile shown as a badge beside the browser title when opened from a Settings row, and the dialog keeping its top edge when the list opens; Return on a checkbox starts the import. Two older faults were fixed in the same change: Settings > Browser now lists profiles on its first open without leaving the page, and working copies of another browser's cookie database left behind if the app ended during a read are claimed by an OS lock file and swept once after launch (official packages/gui-plugins/src/browser/profile/index.ts:102, database.ts:62-86). Official: packages/gui-plugins/src/browser/site-chooser.tsx, settings.tsx, panel.tsx. Run headless on Windows x64 CI builds under sealed scratch roots (wall clock only, every process environment verified under the root before the first tap): cases 7, 1, 2, 3 (400 sites, tall and short windows) and 6 (Return on checkbox) held on b7edbacba beside before build cc991c6505; on the merged head 0e3df708a beside before build 278f9aaf38: shared strings, press on the words of Only sites I choose (140 wide, label 116) and press beside, first-open frame check (16.9 ms before, 41.0 ms new; an earlier 2.3 s frame did not recur), sweep cases 8-10 (planted copy+lock removed; no-lock copy waits 10 min; real lock swept after quick end; mid-read Cookies copy not caught, case 8 stands for it), and all three shared-file samples (Add extension framed list, address field, /rename row). Not run: case 4 (pane offer) and case 5 (cookie import). Partly because three named differences from official remain open (follow-ups owed): (1) the From picker is a menu button rather than a select (needs a select in the plugin kit, select.css:22-45); (2) the Import button while importing uses the kit's loading look rather than a disabled primary button with a 14 pt spinner (site-chooser.tsx:682-694); (3) list rows are list items with checkboxes rather than a listbox of options (site-chooser.tsx:570-591). Closing all 3 remaining gaps in opencode-rune #1385 (head 8c67700b80, CI running, contract 1.12): adds ui.select (rune_kit::Select + Menu::picker) for the From profile picker, renders the busy Import primary button disabled with a 14 pt ink-colored spinner and not-allowed cursor, and switches the site chooser to dedicated ui.listbox / ui.option host nodes (selected=chosen) with presentation-only checkboxes.",
+      "status": "have it",
+      "status_evidence": "Merged in #1202 + #1385 (dev 1d614619e1, CI run 46008071378 green, contract 1.12): adds ui.select (rune_kit::Select + Menu::picker) for the From profile picker, renders the busy Import primary button disabled with a 14 pt ink-colored spinner and not-allowed cursor, and switches the site chooser to dedicated ui.listbox / ui.option host nodes (selected=chosen) with presentation-only checkboxes. Verified headless on Windows x64 PR build (run 46008071378, peak <= 0.50 GiB): Only sites I choose renders with zero plugin error, role=listbox + 4 role=option rows, presentation checkboxes role=group focusable=false, Import disabled at 0 of 4 and enabled after Select all (4 of 4). Not run: real window, macOS, Linux.",
       "depends_on": "none",
       "risks": "none",
-      "workstream": "UPSTREAM"
+      "workstream": "UPSTREAM",
+      "rune_files": [
+        "apps/desktop/src/plugin_host/ui/nodes.rs",
+        "crates/opencode-plugin-runtime/src/ui_nodes.rs",
+        "crates/opencode-plugin-spec/contract.json",
+        "plugins/browser/plugin.toml",
+        "plugins/browser/settings.luau"
+      ]
     },
     {
       "id": "UP-233",
@@ -7046,11 +7053,20 @@
       ],
       "summary": "Aligns desktop provider catalog and Connect dialog provider ordering with TUI and CLI auth login.",
       "size": "XS",
-      "status": "missing",
-      "status_evidence": "Claimed by UPSTREAM-f. Official: packages/app/src/providers/catalog/order.ts, packages/app/src/providers/connect/dialog.tsx.",
+      "status": "have it",
+      "status_evidence": "Merged in #1399 (dev 366cdf7df8, CI run 46008899849 green): aligned canonical POPULAR provider order (opencode-go, opencode, openai, anthropic, claude-agent, github-copilot, google, openrouter, vercel) across pickers, Settings > Models, Settings > Providers, and Connect dialog. Post-merge verified headless on Windows x64 PR build (run 46008899849, 6/6 passes exit 0, peak <= 0.67 GiB): Settings > Models provider order matches canonical OpenAI -> Anthropic -> Google, and Settings > Providers + Model picker smoke passes exit 0. Not run: real window, macOS, Linux.",
       "depends_on": "none",
       "risks": "none",
-      "workstream": "UPSTREAM"
+      "workstream": "UPSTREAM",
+      "pr_refs": [
+        1399
+      ],
+      "rune_files": [
+        "crates/session-view/src/pickers/host.rs",
+        "features/connect/src/view.rs",
+        "features/settings/src/pages/models.rs",
+        "features/settings/src/pages/providers.rs"
+      ]
     },
     {
       "id": "UP-262",
@@ -7069,11 +7085,20 @@
       ],
       "summary": "After archiving the currently open session from the sidebar inbox list, selects and opens the next row below it (or above if last) instead of jumping away.",
       "size": "S",
-      "status": "missing",
-      "status_evidence": "Claimed by UPSTREAM-f. Official: packages/app/src/shell/tabs/tabs.tsx, titlebar/inbox.tsx, titlebar/inbox-successor.ts.",
+      "status": "have it",
+      "status_evidence": "Merged in #1403 (dev b38eea2222, CI run 46017629411 green): adds inbox_successor and SidebarInbox::shown snapshot so archiving or deleting the open sidebar session opens the nearest visible row below it (or above if last). Headless build verified (run 46014218715, 6/6 exit 0, peak <= 0.51 GiB; live archive/delete path not exercised on no-server fixture). Not run: real window, live server, macOS, Linux.",
       "depends_on": "none",
       "risks": "none",
-      "workstream": "UPSTREAM"
+      "workstream": "UPSTREAM",
+      "pr_refs": [
+        1403
+      ],
+      "rune_files": [
+        "apps/desktop/src/session/inbox/order.rs",
+        "apps/desktop/src/session/inbox/model.rs",
+        "apps/desktop/src/session/menu.rs",
+        "apps/desktop/src/shell/tabs/actions.rs"
+      ]
     },
     {
       "id": "UP-263",
@@ -7090,11 +7115,19 @@
       ],
       "summary": "Keeps the active/selected session row visible inside the collapsed Working section of the sidebar inbox list rather than hiding it.",
       "size": "XS",
-      "status": "missing",
-      "status_evidence": "Claimed by UPSTREAM-f. Official: packages/app/src/shell/titlebar/inbox.tsx.",
+      "status": "have it",
+      "status_evidence": "Merged in #1403 (dev b38eea2222, CI run 46017629411 green): keeps the selected working session visible when Working is collapsed (inline, bottom shelf, Sections::rows keyboard nav, and Home/End). Verified headless on Windows x64 PR build (run 46014218715, 6/6 exit 0, peak <= 0.51 GiB): collapsing Working with a selected working row keeps it visible in inbox-working-rows. Not run: real window, macOS, Linux.",
       "depends_on": "none",
       "risks": "none",
-      "workstream": "UPSTREAM"
+      "workstream": "UPSTREAM",
+      "pr_refs": [
+        1403
+      ],
+      "rune_files": [
+        "apps/desktop/src/session/inbox/order.rs",
+        "apps/desktop/src/session/inbox/model.rs",
+        "apps/desktop/src/shell/view/inbox.rs"
+      ]
     },
     {
       "id": "UP-264",
@@ -7113,11 +7146,17 @@
       ],
       "summary": "Prevents the sidebar inbox list from jumping scroll position when a focused session moves between inbox sections.",
       "size": "S",
-      "status": "missing",
-      "status_evidence": "Claimed by UPSTREAM-f. Official: packages/app/src/shell/titlebar/inbox.tsx, packages/ui/src/context/focus-rescue.tsx.",
+      "status": "have it",
+      "status_evidence": "Merged in #1403 (dev b38eea2222, CI run 46017629411 green): follows a focused session card across main list / Working shelf remounts via tx.focus(key, false) without scrolling the list. Headless build verified (run 46014218715, 6/6 exit 0, peak <= 0.51 GiB; live section move not exercised on no-server fixture). Not run: real window, live server, macOS, Linux.",
       "depends_on": "none",
       "risks": "none",
-      "workstream": "UPSTREAM"
+      "workstream": "UPSTREAM",
+      "pr_refs": [
+        1403
+      ],
+      "rune_files": [
+        "apps/desktop/src/shell/view/inbox.rs"
+      ]
     },
     {
       "id": "UP-265",
@@ -7138,11 +7177,19 @@
       ],
       "summary": "Shows a first-quit notice explaining that OpenCode's background service keeps running after quit, and adds a Settings > General toggle to stop the background service on quit.",
       "size": "M",
-      "status": "missing",
-      "status_evidence": "Handed to UPSTREAM-g. Official: packages/app/src/settings/general/general.tsx, runtime/i18n/{en,desktop-native}.ts, packages/desktop/src/main/{lifecycle/background-notice*.ts,service/keep-running.ts}.",
+      "status": "have it",
+      "status_evidence": "Merged in #1408 (dev 8effe4f95c, CI run 46014613580 green): adds first-quit background-service notice modal, Settings > General Keep running in the background toggle, and sidecar stop-on-quit. Verified headless on Windows x64 PR build (3/3 cases PASS: settings-preferences switch toggle, Settings search highlight, and background-notice modal Open Settings flow). Not run: real window, macOS, Linux.",
       "depends_on": "none",
       "risks": "none",
-      "workstream": "UPSTREAM"
+      "workstream": "UPSTREAM",
+      "pr_refs": [
+        1408
+      ],
+      "rune_files": [
+        "features/settings/src/pages/general.rs",
+        "features/settings/src/search/mod.rs",
+        "apps/desktop/src/workspace/lifecycle/quit.rs"
+      ]
     },
     {
       "id": "UP-266",
@@ -7159,11 +7206,17 @@
       ],
       "summary": "Restores the Recent section header in the sidebar inbox list when Recent sessions are shown.",
       "size": "XS",
-      "status": "missing",
-      "status_evidence": "Claimed by UPSTREAM-f. Official: packages/app/src/shell/titlebar/inbox.tsx.",
+      "status": "have it",
+      "status_evidence": "Merged in #1403 (dev b38eea2222, CI run 46017629411 green): restores visible Recent section header above Recent rows in sidebar. Verified headless on Windows x64 PR build (run 46014218715, 6/6 exit 0, peak <= 0.51 GiB): --scene layout-inbox shows Recent header cleanly above Recent rows. Not run: real window, macOS, Linux.",
       "depends_on": "none",
       "risks": "none",
-      "workstream": "UPSTREAM"
+      "workstream": "UPSTREAM",
+      "pr_refs": [
+        1403
+      ],
+      "rune_files": [
+        "apps/desktop/src/shell/view/inbox.rs"
+      ]
     },
     {
       "id": "UP-267",
@@ -7181,11 +7234,18 @@
       ],
       "summary": "Groups a Code Mode execute script's multiple file changes into a single patch group card matching direct multi-file patches.",
       "size": "S",
-      "status": "missing",
-      "status_evidence": "Claimed by UPSTREAM-f. Official: packages/session-ui/src/tools/tool-renderer.tsx, timeline-next/timeline-next.css.",
+      "status": "have it",
+      "status_evidence": "Merged in #1402 (dev 32c394e814, CI run 46010205048 green): groups consecutive diff-bearing script file changes into one stacked patch group (stacked_group with shared outer corners, -1 pt border overlap, per-file disclosure keyed by first change id, scriptChangeRuns) while keeping direct edits as separated cards. Post-merge verified headless on Windows x64 PR build (run 46010205048, peak <= 0.54 GiB, exit 0): tools-execute-codemode-on, standalone, and tools-edit render stacked script file changes with script-output preserved. Not run: real window, macOS, Linux.",
       "depends_on": "UP-255",
       "risks": "none",
-      "workstream": "UPSTREAM"
+      "workstream": "UPSTREAM",
+      "pr_refs": [
+        1402
+      ],
+      "rune_files": [
+        "crates/session-view/src/tools/files.rs",
+        "crates/session-view/src/tools/script.rs"
+      ]
     },
     {
       "id": "UP-268",
@@ -7203,11 +7263,19 @@
       ],
       "summary": "Updates tooltip line-height for readability and adds tone/colored tooltip text styling.",
       "size": "XS",
-      "status": "missing",
-      "status_evidence": "Claimed by UPSTREAM-f. Official: packages/ui/src/overlays/tooltip/tooltip.{css,tsx}.",
+      "status": "have it",
+      "status_evidence": "Merged in #1401 (dev 26ad040cab, CI run 46009928636 green): adds opencode_ui::tooltip (COMPACT_PADDING 4px 6px, COMPACT_LINE_HEIGHT 16px, TooltipTextVariant base/muted/faint/accent/warning, tooltip_text) and applies compact tooltip padding and line-height on HelpLook. Post-merge verified headless on Windows x64 PR build (run 46009928636, peak <= 0.54 GiB, exit 0): compact tooltip renders cleanly with COMPACT_PADDING/COMPACT_LINE_HEIGHT and opencode_ui::tooltip exported. Not run: real window, macOS, Linux.",
       "depends_on": "none",
       "risks": "none",
-      "workstream": "UPSTREAM"
+      "workstream": "UPSTREAM",
+      "pr_refs": [
+        1401
+      ],
+      "rune_files": [
+        "crates/opencode-ui/src/tooltip.rs",
+        "crates/opencode-ui/src/lib.rs",
+        "apps/desktop/src/shell/view/mod.rs"
+      ]
     },
     {
       "id": "UP-269",
@@ -7229,7 +7297,97 @@
       "summary": "Replaces the post-connect provider models grid with a searchable model list allowing direct model selection after connecting a provider.",
       "size": "M",
       "status": "missing",
-      "status_evidence": "Handed to UPSTREAM-g. Official: packages/app/src/providers/connect/{connected-models,dialog,dialog-machine,controller,remote}.*, runtime/i18n/en.ts.",
+      "status_evidence": "Open PR #1400 (head cba2de894b, CI run 46009596535 green): replaces post-connect models grid with searchable model list.",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "UPSTREAM",
+      "pr_refs": [
+        1400
+      ]
+    },
+    {
+      "id": "UP-270",
+      "window": "post-1120",
+      "pr": 66818,
+      "sha": "98bc686252",
+      "title": "feat(app): browser address bar and recent pages in the side panel New tab",
+      "merged": "2026-11-27",
+      "packages": [
+        "app",
+        "gui-plugins",
+        "plugin"
+      ],
+      "main_files": [
+        "packages/app/src/runtime/plugin/new-tab-machine.ts",
+        "packages/app/src/runtime/plugin/side-region.tsx",
+        "packages/gui-plugins/src/browser/address-field.tsx",
+        "packages/gui-plugins/src/browser/new-tab.tsx",
+        "packages/plugin/src/gui/builtin.ts"
+      ],
+      "summary": "Adds the browser address bar and recent pages list directly inside the side panel New tab view so users can type/pick a URL or reopen recent pages without opening a blank browser tab first.",
+      "size": "M",
+      "status": "missing",
+      "status_evidence": "In progress. Official: packages/app/src/runtime/plugin/{new-tab-machine,panels,side-region}.*, packages/gui-plugins/src/browser/{address-field,address-machine,model,new-tab,panel,renderer}.*, packages/plugin/src/gui/builtin.ts.",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "UPSTREAM"
+    },
+    {
+      "id": "UP-271",
+      "window": "post-1120",
+      "pr": 66823,
+      "sha": "8815bc9d47",
+      "title": "feat(session-ui): show quotes inline in user messages in every build",
+      "merged": "2026-11-27",
+      "packages": [
+        "app",
+        "session-ui"
+      ],
+      "main_files": [
+        "packages/app/src/session/timeline/inline-quotes.ts",
+        "packages/session-ui/src/message/message-content.tsx"
+      ],
+      "summary": "Removes the local/dev build-channel gate so inline quotes render inside user message bubbles in every build channel.",
+      "size": "XS",
+      "status": "have it",
+      "status_evidence": "Merged in #1413 (dev e9ea53d0ad, CI run 46018492315 green): enables TimelineHost::inline_quotes by default in session-view and removes the build_channel() gate in desktop host so inline quotes render in every build. Post-merge bulk headless verification queued.",
+      "pr_refs": [
+        1413
+      ],
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "UPSTREAM",
+      "rune_files": [
+        "crates/session-view/src/lib.rs",
+        "apps/desktop/src/shell/view/session/host.rs"
+      ]
+    },
+    {
+      "id": "UP-272",
+      "window": "post-1120",
+      "pr": 66805,
+      "sha": "9dff0b8255",
+      "title": "fix(i18n): fix a batch of mistranslations and misplaced labels",
+      "merged": "2026-11-27",
+      "packages": [
+        "app",
+        "ui",
+        "gui-plugins"
+      ],
+      "main_files": [
+        "packages/app/src/runtime/i18n/en.ts",
+        "packages/app/src/runtime/i18n/uk.ts",
+        "packages/ui/src/i18n/uk.ts",
+        "packages/gui-plugins/src/details/i18n/uk.ts",
+        "packages/gui-plugins/src/ssh/i18n/uk.ts"
+      ],
+      "summary": "Adds shell/subagent permission tool labels across all locales and fixes mistranslations and misplaced labels in hr, hu, is, lt, uk, vi, fa, ru, tr, and built-in plugin catalogs.",
+      "size": "S",
+      "status": "missing",
+      "status_evidence": "Open PR #1415 (head f729de2f9e, CI running): syncs 65 official and built-in plugin locale JSON catalogs matching opencode#66805.",
+      "pr_refs": [
+        1415
+      ],
       "depends_on": "none",
       "risks": "none",
       "workstream": "UPSTREAM"

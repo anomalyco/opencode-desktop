@@ -109,6 +109,25 @@ pub fn dispose() {
     dispatch(m, Event::Disposed);
 }
 
+/// Disposes waiters on app quit and stops the local background service when the user
+/// turned off "Keep running in the background" (`packages/desktop/src/main/service/background-service.ts:48-57`,
+/// `opencode#66499`). Never stops a reused development server.
+pub fn shutdown_on_quit(stop_service: bool) {
+    dispose();
+    if !stop_service || !managed() {
+        return;
+    }
+    let (reuse, isolated) = server_flags();
+    // A reused development server belongs to whoever started it (`background-service.ts:123`).
+    if reuse {
+        return;
+    }
+    let Some(file) = registration_file(false, isolated) else { return };
+    if let Err(err) = service::stop(&file, service::PtyMode::Clear, service::DEFAULT_TIMING) {
+        eprintln!("opencode-rune: failed to stop local background service on quit: {err}");
+    }
+}
+
 fn server_from_http(http: &HttpBase) -> Server {
     let s = Server::anonymous(&http.url);
     match &http.password {

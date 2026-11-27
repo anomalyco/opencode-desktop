@@ -381,6 +381,8 @@ const ROWS: &[Row] = &[
     (Page::General, "settings-question-submit-key", key!("settings.general.row.questionSubmitKey.title"), None, None, "question answer enter shift submit send keyboard newline multiline custom"),
     (Page::General, "settings-pinch-zoom", key!("settings.general.row.pinchZoom.title"), None, None, ""),
     (Page::General, "settings-spellcheck", key!("settings.general.row.spellcheck.title"), None, None, "spelling spell check dictionary"),
+    #[cfg(not(target_arch = "wasm32"))]
+    (Page::General, "settings-keep-service-running", key!("settings.general.row.keepServiceRunning.title"), None, None, "background service server quit exit close tray stop"),
     (Page::General, "settings-mobile-diff-wrap", key!("plugin.review.settings.wrapLines.title"), None, None, "diff wrap lines"),
     (Page::Experimental, "settings-tab-groups", key!("settings.experimental.row.tabGroups.title"), None, Some(key!("settings.experimental.row.tabGroups.description")), "tab groups server project colors drag organize search sessions"),
     (Page::Experimental, "settings-sidebar-sections", key!("rune.settings.experimental.row.sidebarSections.title"), None, Some(key!("rune.settings.experimental.row.sidebarSections.description")), "sections select multiple batch group headers collapse side tabs"),
