@@ -8,6 +8,10 @@ use serde_json::Value;
 
 use super::{Message, Part, ToolStatus, i, s};
 
+/// The client name this app reports widget failures under (`report`'s `client`); a failure
+/// recorded under it is one this app hit.
+pub const WIDGET_CLIENT: &str = "rune";
+
 /// The plugin's event for a posted or answered widget: `{ sessionID, state }`.
 pub const WIDGET_CHANGED_EVENT: &str = "rpc.opencode.widget.changed";
 

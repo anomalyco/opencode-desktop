@@ -301,6 +301,8 @@
   "rune.session.untitled": "Untitled session",
   "rune.settings.developer.rewind.title": "Rewind",
   "rune.settings.developer.title": "Developer",
+  "rune.settings.experimental.row.miniApps.description": "Show Mini apps: every widget on the server, and a dashboard to arrange them on.",
+  "rune.settings.experimental.row.miniApps.title": "Mini apps",
   "rune.settings.experimental.row.pinSync.description": "Keep which sessions are pinned in step with other apps on the same server. Order and groups stay on this device.",
   "rune.settings.experimental.row.pinSync.title": "Sync pinned sessions",
   "rune.settings.experimental.row.sidebarSections.description": "Select multiple side tabs with ⌘/⇧-click, run batch actions, and group them under minimal collapsible headers.",

@@ -17,7 +17,7 @@
 
 use std::collections::HashMap;
 
-use opencode_kit::model::{WidgetInstance, WidgetState, WidgetStatus, instance_key};
+use opencode_kit::model::{WIDGET_CLIENT, WidgetInstance, WidgetState, WidgetStatus, instance_key};
 use serde_json::Value;
 
 use crate::WidgetsHost;
@@ -136,12 +136,14 @@ impl Instances {
     }
 
     /// The widgets one can still use, last updated first: open, with no failure the server
-    /// recorded. A submitted or dismissed widget is closed (it shows only how it ended), so it isn't
+    /// recorded for this client. A submitted or dismissed widget is closed (it shows only how it ended), so it isn't
     /// one. A replaced widget is already its newest replacement, so each replace chain counts once,
     /// and only when its newest is open and hasn't failed. What lists widgets to pick from reads
     /// these; what shows a widget already picked (a dashboard tile) shows it whatever it is.
     pub fn usable(&self) -> impl Iterator<Item = &WidgetInstance> {
-        self.list.iter().filter(|i| i.state.status == WidgetStatus::Open && i.state.failure.is_none())
+        // A failure counts only when this client hit it: one another client hit (iOS without
+        // storage, say) says nothing about running here.
+        self.list.iter().filter(|i| i.state.status == WidgetStatus::Open && i.state.failure.as_ref().is_none_or(|f| f.client != WIDGET_CLIENT))
     }
 
     /// Moves on every change: a view reads again when it moved since it last read.

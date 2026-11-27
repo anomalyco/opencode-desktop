@@ -9,7 +9,7 @@ use std::time::Duration;
 use serde_json::{Value, json};
 
 use super::{Server, encode_component};
-use crate::model::{WidgetInstance, WidgetState};
+use crate::model::{WIDGET_CLIENT, WidgetInstance, WidgetState};
 use crate::wire_error::WireError;
 
 const RPC_ID: &str = "opencode.widget";
@@ -104,7 +104,7 @@ impl Server {
     /// With `ask` (the user's "Ask agent to fix it"), the error goes to the agent in the widget's
     /// session even when that session didn't make the widget template.
     pub fn widget_report(&self, directory: &str, session: &str, message: &str, call: &str, error: Value, ask: bool) -> Result<(), WidgetError> {
-        let mut input = json!({ "sessionID": session, "messageID": message, "callID": call, "error": error, "client": "rune" });
+        let mut input = json!({ "sessionID": session, "messageID": message, "callID": call, "error": error, "client": WIDGET_CLIENT });
         if ask {
             input["ask"] = true.into();
         }

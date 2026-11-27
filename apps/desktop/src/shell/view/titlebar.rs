@@ -64,7 +64,7 @@ pub(super) fn titlebar(s: &App, p: &Pal, cx: &mut Cx<App>) -> Option<El> {
     // Consolidated navigation searches inline on Home (`titlebar.tsx`, #64668).
     let proto = s.settings.navigation_prototype();
     let search = (!proto).then(|| search_button(p));
-    let nav = row().key("titlebar-nav").gap(2.0).mr(-2.0).center_y().child(home_button(s, p)).children(search).child(mini_apps_button(s, p));
+    let nav = row().key("titlebar-nav").gap(2.0).mr(-2.0).center_y().child(home_button(s, p)).children(search).children(crate::surfaces::mini_apps::enabled(s).then(|| mini_apps_button(s, p)));
     let pinned_bar = super::sidebar::pinned_area::horizontal(s, p);
     // Under Settings › Group tabs each project's or server's tabs stand together, the tabs with
     // no project after them (`grouped.horizontal()`, `titlebar.tsx:922`), a 16 × 1 divider

@@ -73,7 +73,15 @@ enum Layout {
 }
 
 /// The view showing, while the page shows.
+/// Settings › Experimental › Mini apps: off, nothing of Mini apps shows.
+pub fn enabled(s: &App) -> bool {
+    s.settings.mini_apps()
+}
+
 pub fn shown(s: &App) -> Option<View> {
+    if !enabled(s) {
+        return None;
+    }
     match &s.kernel.slots.get(&MINI_APPS).page {
         Page::Open { route, view } if *route == *s.route && !s.settings_open() => Some(*view),
         _ => None,

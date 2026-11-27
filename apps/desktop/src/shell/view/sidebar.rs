@@ -250,19 +250,21 @@ fn actions(s: &App, p: &Pal, home: bool, new: impl Fn() -> El) -> Vec<El> {
     };
     // Mini apps: the server's widgets outside their sessions, a page of its own as Settings is.
     let mini_apps = || {
-        action_row(p, "mini-apps", &ic::DOT_GRID, t!("rune.miniApps.title"), Vec::new(), crate::surfaces::mini_apps::shown(s).is_some())
-            .on_press_tx(|s: &mut App, tx: &mut Tx| crate::surfaces::mini_apps::toggle(s, tx))
+        crate::surfaces::mini_apps::enabled(s).then(|| {
+            action_row(p, "mini-apps", &ic::DOT_GRID, t!("rune.miniApps.title"), Vec::new(), crate::surfaces::mini_apps::shown(s).is_some())
+                .on_press_tx(|s: &mut App, tx: &mut Tx| crate::surfaces::mini_apps::toggle(s, tx))
+        })
     };
     let settings = || {
         action_row(p, "sidebar-settings", &ic::SETTINGS_GEAR, t!("sidebar.settings"), crate::keymap::Bind::Settings.keycaps(), s.settings_open())
             .on_press_tx(|s: &mut App, tx| s.toggle_settings(tx))
     };
     if s.settings.navigation_prototype() {
-        vec![new(), home_row(), mini_apps(), settings()]
+        [Some(new()), Some(home_row()), mini_apps(), Some(settings())].into_iter().flatten().collect()
     } else if s.project_navigation() {
-        vec![new(), search(), mini_apps(), settings()]
+        [Some(new()), Some(search()), mini_apps(), Some(settings())].into_iter().flatten().collect()
     } else {
-        vec![home_row(), search(), mini_apps(), new()]
+        [Some(home_row()), Some(search()), mini_apps(), Some(new())].into_iter().flatten().collect()
     }
 }
 

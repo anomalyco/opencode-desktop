@@ -123,6 +123,8 @@ pub struct Settings {
     /// Experimental › Sync pinned sessions (Rune's own, `rune.settings`): which sessions are
     /// pinned follows each server's `pins` space. `None` until toggled; off by default.
     pub pin_sync: Option<bool>,
+    /// Experimental › Mini apps (Rune's own, `rune.settings`): `None` until toggled; off by default.
+    pub mini_apps: Option<bool>,
     /// Ease a live delivery into place: the Pending label, the tray's room and joined prompts.
     pub smooth_timeline: bool,
     /// macOS: Option in the terminal is Meta (Esc and the key, for a shell's word motions) instead
@@ -207,6 +209,7 @@ impl Default for Settings {
             tab_groups: None,
             sidebar_sections: None,
             pin_sync: None,
+            mini_apps: None,
             smooth_timeline: false,
             terminal_option_meta: false,
             terminal_marks: Vec::new(),
@@ -248,6 +251,9 @@ impl Settings {
         if let (Some(on), Some(m)) = (self.pin_sync, v.as_object_mut()) {
             m.insert("pinSync".into(), json!(on));
         }
+        if let (Some(on), Some(m)) = (self.mini_apps, v.as_object_mut()) {
+            m.insert("miniApps".into(), json!(on));
+        }
         v
     }
 
@@ -260,6 +266,9 @@ impl Settings {
     pub fn pin_sync(&self) -> bool {
         self.pin_sync.unwrap_or(false)
     }
+
+    /// Experimental › Mini apps: off unless turned on.
+    pub fn mini_apps(&self) -> bool { self.mini_apps.unwrap_or(false) }
 
     /// Experimental › Tab groups (`general.tabGroups`, #64407): opt-in (`false` by default) in
     /// every build while preserving any explicit `Some(true)` / `Some(false)` saved by the user.
@@ -352,6 +361,7 @@ impl Settings {
             tab_groups: v["tabGroups"].as_bool(),
             sidebar_sections: v["sidebarSections"].as_bool(),
             pin_sync: v["pinSync"].as_bool(),
+            mini_apps: v["miniApps"].as_bool(),
             smooth_timeline: v["smoothTimeline"].as_bool().unwrap_or(false),
             terminal_option_meta: v["terminal"]["optionAsMeta"].as_bool().unwrap_or(false),
             terminal_marks: v["terminal"]["marks"]

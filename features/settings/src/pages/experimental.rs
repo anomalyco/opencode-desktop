@@ -26,6 +26,10 @@ fn toggle_pin_sync(s: &mut dyn SettingsHost) {
     change_settings(s, |x| x.pin_sync = Some(!x.pin_sync()));
 }
 
+fn toggle_mini_apps(s: &mut dyn SettingsHost) {
+    change_settings(s, |x| x.mini_apps = Some(!x.mini_apps()));
+}
+
 fn toggle_smooth_timeline(s: &mut dyn SettingsHost) {
     change_settings(s, |x| x.smooth_timeline = !x.smooth_timeline);
 }
@@ -86,6 +90,16 @@ pub fn view<H: SettingsHost + PopupHost + 'static>(s: &H, p: &Pal) -> El {
                 t!("rune.settings.experimental.row.pinSync.title"),
                 t!("rune.settings.experimental.row.pinSync.description"),
                 switch(p, "pin-sync-switch", st.pin_sync()).on_press(|s: &mut H| toggle_pin_sync(s)),
+            ),
+        ),
+        (
+            "settings-mini-apps",
+            setting(
+                p,
+                "settings-mini-apps",
+                t!("rune.settings.experimental.row.miniApps.title"),
+                t!("rune.settings.experimental.row.miniApps.description"),
+                switch(p, "mini-apps-switch", st.mini_apps()).on_press(|s: &mut H| toggle_mini_apps(s)),
             ),
         ),
         (
