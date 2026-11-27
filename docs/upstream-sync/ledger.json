@@ -2,29 +2,29 @@
   "generated_at": "2026-11-28",
   "upstream_repo": "anomalyco/opencode",
   "upstream_reference_base": "f6e0c2d0833ffe772035f221fed923e1cd5fb408",
-  "upstream_head": "773f5ea5748097963e5f22bdeea254f3245fcc3e",
+  "upstream_head": "707abbf190230ef420a588b6d468e370236df891",
   "upstream_pre_window_base": "3751be8138ebcf33343eb3f3d011b32fc814103c",
   "rune_desktop_repo": "anomalyco/opencode-rune",
-  "rune_desktop_head": "e5eb3ed33e",
-  "post_1114_commit_count": 815,
-  "post_1114_in_ledger": 272,
-  "post_1114_skipped": 543,
+  "rune_desktop_head": "07f5895f47",
+  "post_1114_commit_count": 817,
+  "post_1114_in_ledger": 273,
+  "post_1114_skipped": 544,
   "post_1114_skipped_breakdown": {
     "test-only": 38,
     "ci-bench-deps": 28,
     "docs-site-data": 84,
     "tui-only": 36,
-    "cli-acp-only": 15,
+    "cli-acp-only": 16,
     "server-core-ai-codemode-internal": 342
   },
   "pre_1114_carryover_rows": 15,
-  "total_ledger_rows": 293,
+  "total_ledger_rows": 294,
   "status_counts": {
     "have it": 252,
     "not applicable": 39,
     "differs on purpose": 1,
     "partly": 1,
-    "missing": 0
+    "missing": 1
   },
   "rows": [
     {
@@ -7412,6 +7412,33 @@
         "plugins/details/locales/uk.json",
         "plugins/ssh/locales/uk.json"
       ]
+    },
+    {
+      "id": "UP-273",
+      "window": "post-1120",
+      "pr": 66853,
+      "sha": "b40acc9eb0",
+      "title": "fix(session-ui): group unknown tools as \"Tool\" in step-counted headers",
+      "merged": "2026-11-27",
+      "packages": [
+        "session-ui",
+        "ui"
+      ],
+      "main_files": [
+        "packages/session-ui/src/timeline-next/tools/activity-label.ts",
+        "packages/session-ui/src/tools/context-group-label.ts",
+        "packages/ui/src/i18n/en.ts"
+      ],
+      "summary": "When counting a script's steps (full_codemode), groups unrecognized tools into one trailing 'tool' entry in activity headers instead of listing raw tool names.",
+      "size": "XS",
+      "status": "missing",
+      "status_evidence": "Open PR #1435 (head d818649554, CI running): adds ui.timeline.activity.otherTool and ui.tool.other to en.json and collapses unrecognized tools into one trailing 'tool' in activity_with when script_steps is true.",
+      "pr_refs": [
+        1435
+      ],
+      "depends_on": "UP-258",
+      "risks": "none",
+      "workstream": "UPSTREAM"
     }
   ],
   "browser_security_review": {
