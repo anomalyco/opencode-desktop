@@ -10,7 +10,7 @@ use crate::activity::{event_row, events, label as activity};
 use crate::detail::Category;
 use crate::focus::FocusExt;
 use crate::palette::Pal;
-use crate::style::{HOVER_FADE, ThoughtPart, UI, arrow, reasoning};
+use crate::style::{HOVER_FADE, ThoughtPart, UI, arrow, reasoning_at};
 
 /// Between an open group's label and its first step, and between distinct steps: 20 from text to
 /// text (`--timeline-gap-m`, `timeline-next.css:453-458,487-494`, `opencode#66509`).
@@ -88,15 +88,18 @@ pub fn group<S: TimelineHost>(
         // A step joining or the label changing crossfades the words while the arrow slides over.
         .animate_layout()
         .on_press_tx(crate::disclosure::toggle_group::<S>(key.to_owned()));
-    // A card of files in the group holds headers that stick under this one (Desktop's
-    // `--sticky-accordion-top`, `message-part.css:1330-1332`).
+    // A card of files or an expanded thought in the group holds headers that stick under this one
+    // (Desktop's `--sticky-accordion-top`, `message-part.css:1330-1332`, `opencode#65246`).
     let files = steps.iter().any(|st| file_tool(st) || matches!(st, Step::Change { file, .. } if crate::tools::script::is_card(file)));
+    let open_thought = (open || shutting) && has_open_thought(s, live, steps);
     if open || shutting {
         trigger = trigger.fill(p.bg_base).sticky_top(crate::style::sticky_top());
-        trigger = if files {
-            // A solid strip under the label, which a stuck file header meets; the soft edge would
-            // wash over that header. It presses and hovers as the label does.
-            trigger.child(el().key("pad").pin(Some(0.0), Some(28.0), Some(0.0), None).h(HEADER_PAD).fill(p.bg_base))
+        trigger = if files || open_thought {
+            // A solid strip under the label, which a stuck file or thought header meets; the soft
+            // edge would wash over that header. Without files, stop at a nested thought trigger's
+            // top edge (`TRIGGER_INSET` higher than a bordered card) so its focus ring clears.
+            let pad_h = if files { HEADER_PAD } else { (HEADER_PAD - TRIGGER_INSET).max(0.0) };
+            trigger.child(el().key("pad").pin(Some(0.0), Some(28.0), Some(0.0), None).h(pad_h).fill(p.bg_base))
         } else {
             // Steps scroll under it and soften into its fill rather than meeting a hard edge, and
             // shutting from there they slide away under it.
@@ -309,14 +312,36 @@ fn file_run_foot_is_flush(steps: &[Step], output_after: &std::collections::HashM
     }
 }
 
+/// Whether a thought run is expanded with non-empty text (and thus shows its body and pins its
+/// sticky header).
+fn thought_is_open<S: TimelineHost>(s: &S, live: bool, thinking: bool, steps: &[Step]) -> bool {
+    let Some(Step::Thought { msg, index, .. }) = steps.first() else { return false };
+    let has_details = steps.iter().any(|st| matches!(st, Step::Thought { body, .. } if !body.trim().is_empty()));
+    let thinking = thinking || (live && unfinished(steps));
+    has_details && crate::disclosure::is_open(s, &format!("r-{msg}-{index}"), thinking && s.timeline_detail().expanded(Category::Thinking))
+}
+
+/// Whether any run of thoughts in `steps` is expanded with non-empty text.
+fn has_open_thought<S: TimelineHost>(s: &S, live: bool, steps: &[Step]) -> bool {
+    let mut i = 0;
+    while i < steps.len() {
+        if matches!(steps[i], Step::Thought { .. }) {
+            let n = steps[i..].iter().take_while(|st| matches!(st, Step::Thought { .. })).count();
+            if thought_is_open(s, live, false, &steps[i..i + n]) {
+                return true;
+            }
+            i += n;
+        } else {
+            i += 1;
+        }
+    }
+    false
+}
+
 /// Visual bottom overhang of a thought row (`TRIGGER_INSET` while shut, prose bottom half-leading
 /// while open).
 fn thought_foot<S: TimelineHost>(s: &S, live: bool, thinking: bool, steps: &[Step]) -> f32 {
-    let Some(Step::Thought { msg, index, .. }) = steps.first() else { return TRIGGER_INSET };
-    let has_details = steps.iter().any(|st| matches!(st, Step::Thought { body, .. } if !body.trim().is_empty()));
-    let thinking = thinking || (live && unfinished(steps));
-    let open = has_details && crate::disclosure::is_open(s, &format!("r-{msg}-{index}"), thinking && s.timeline_detail().expanded(Category::Thinking));
-    if open { crate::timeline::rhythm::prose_insets().1 } else { TRIGGER_INSET }
+    if thought_is_open(s, live, thinking, steps) { crate::timeline::rhythm::prose_insets().1 } else { TRIGGER_INSET }
 }
 
 /// How far inside its box an open group's row visually starts (`TRIGGER_INSET` for a 28 pt
@@ -414,7 +439,10 @@ fn step_item<S: TimelineHost>(
                 crate::disclosure::set::<S>(key.clone(), true, String::new()),
             ))
         }
-        Step::Thought { .. } => thoughts(s, p, steps, live, false, fade),
+        // A 28 pt thought trigger has `TRIGGER_INSET` (6 pt) top overhang above its 16 pt line, so
+        // subtracting it aligns the stuck trigger with its resting spot `GROUP_GAP` under the group
+        // header with zero jump.
+        Step::Thought { .. } => thoughts_at(s, p, steps, live, false, fade, (cx.sticky - TRIGGER_INSET).max(0.0)),
         // 28 high like the steps around it (`py-1`).
         Step::Notice(n) => col().key(format!("notice-{}", n.id)).w_full().py(4.0).child(crate::turn_errors::notice(s, p, n, crate::compaction::Run::default())),
         // Commentary is keyed by its place among the group's steps, as it has no id.
@@ -452,6 +480,10 @@ fn unfinished(steps: &[Step]) -> bool {
 /// thought's key holds it open or shut (`row.tsx`: `group.refs[0].partID`), in a group and on
 /// its own row alike.
 pub fn thoughts<S: TimelineHost>(s: &S, p: &Pal, steps: &[Step], live: bool, thinking: bool, fade: f32) -> El {
+    thoughts_at(s, p, steps, live, thinking, fade, crate::style::sticky_top())
+}
+
+fn thoughts_at<S: TimelineHost>(s: &S, p: &Pal, steps: &[Step], live: bool, thinking: bool, fade: f32, sticky: f32) -> El {
     let Some(Step::Thought { msg, index, .. }) = steps.first() else { return col() };
     let key = format!("r-{msg}-{index}");
     let thinking = thinking || (live && unfinished(steps));
@@ -473,7 +505,7 @@ pub fn thoughts<S: TimelineHost>(s: &S, p: &Pal, steps: &[Step], live: bool, thi
         .sum();
     let secs = took.filter(|_| !thinking).map(|ms| (ms as f64 / 1000.0).round() as i64);
     let open = crate::disclosure::is_open(s, &key, thinking && s.timeline_detail().expanded(Category::Thinking));
-    reasoning::<S>(s, p, &key, &parts, secs, thinking, open, fade).key(key)
+    reasoning_at::<S>(s, p, &key, &parts, secs, thinking, open, fade, sticky).key(key)
 }
 
 /// An events row on its own (`TimelineEventRow`), keyed `key`: subagents and background shells
