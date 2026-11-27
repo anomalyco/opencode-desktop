@@ -542,7 +542,7 @@ impl Server {
             Err(e) => {
                 // A lost reply may be the only missing part of a successful first turn.
                 // Deleting the session then destroys both the message and its receipt.
-                if created.is_ok() && matches!(e.kind, WireKind::Status { status, .. } if (400..500).contains(&status) && ![408, 409, 425, 429].contains(&status)) {
+                if created.is_ok() && (e.is_skill_load_error() || matches!(e.kind, WireKind::Status { status, .. } if (400..500).contains(&status) && ![408, 409, 425, 429].contains(&status))) {
                     self.delete_session(id).ok();
                 }
                 Err(e)
