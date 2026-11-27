@@ -95,15 +95,23 @@ pub struct Sections<'a> {
     pub more: bool,
     /// On the shelf below the list, or a group between Recent and Archived (`workingPlacement`).
     pub working: Vec<Entry<'a>>,
+    /// Index in `working` of the currently selected session, kept visible while collapsed (`opencode#66500`).
+    pub selected_working: Option<usize>,
     /// Archived sessions, the last archived first: listed under a header that folds.
     pub archived: Vec<Entry<'a>>,
 }
 
 impl<'a> Sections<'a> {
     /// The rows a person can reach, in the order they show under `ui`: Working after Archived
-    /// while it's the shelf, and neither's rows while it's shut.
+    /// while it's the shelf, and collapsed Working still includes its selected row (`opencode#66500`).
     pub fn rows(&self, ui: crate::restore::InboxUi) -> Vec<&Entry<'a>> {
-        let working: &[Entry<'a>] = if ui.working_expanded { &self.working } else { &[] };
+        let working: &[Entry<'a>] = if ui.working_expanded {
+            &self.working
+        } else if let Some(at) = self.selected_working.filter(|&i| i < self.working.len()) {
+            &self.working[at..=at]
+        } else {
+            &[]
+        };
         let archived: &[Entry<'a>] = if ui.archived_expanded { &self.archived } else { &[] };
         let list = self.current.iter().chain(&self.needs).chain(&self.recent);
         match ui.working_placement {
@@ -247,8 +255,9 @@ impl App {
         filed.sort_by_key(|e| std::cmp::Reverse(e.session.archived.unwrap_or(0)));
         let listed: &[Entry<'_>] = if archived { &filed } else { &[] };
         let shown = |e: &Entry<'_>| [&needs[..], &recent[..], &working[..], listed].iter().any(|g| g.iter().any(|x| x.server == e.server && x.session.id == e.session.id));
+        let selected_working = working.iter().position(|e| self.inbox_selected(e));
         let current = list.iter().find(|e| self.inbox_selected(e)).filter(|e| !shown(e)).copied().into_iter().collect();
-        Sections { current, needs, recent, pinned, more, working, archived: filed }
+        Sections { current, needs, recent, pinned, more, working, selected_working, archived: filed }
     }
 
     /// The Working shelf opens or shuts (`workingExpanded`).
@@ -293,21 +302,67 @@ impl App {
         crate::servers::runtime::with_server(self, &server, |s| f(s, &id));
     }
 
+    /// Snapshots the inbox's visible row order while the open session is non-archived and visible,
+    /// so archiving or deleting it opens the row below it rather than falling back to tab order
+    /// (`packages/app/src/shell/titlebar/inbox.tsx:212-248`, `opencode#66558`).
+    pub(crate) fn record_inbox_shown(&mut self) {
+        if self.tab_layout() != TabLayout::Inbox {
+            return;
+        }
+        let Some(current) = self.nav_current() else { return };
+        let keys = self.nav_order();
+        if !keys.contains(&current) {
+            return;
+        }
+        let (server, sid) = self.inbox_target(&current);
+        let archived = (server == *crate::servers::runtime::active(self) && self.session(&sid).is_some_and(|s| s.archived.is_some()))
+            || self.inbox_archived().iter().any(|a| a.id == sid);
+        if archived && self.sidebar_inbox.shown.as_ref().is_some_and(|(k, _)| k == &current) {
+            return;
+        }
+        self.sidebar_inbox.shown = Some((current, keys));
+    }
+
+    /// Picks the inbox successor row after `gone` (sessions on `server`) left the list
+    /// (`inbox.tsx:226-248`, `opencode#66558`).
+    pub(crate) fn pick_inbox_successor(&self, server: &ServerKey, gone: &[String]) -> Option<String> {
+        if self.tab_layout() != TabLayout::Inbox {
+            return None;
+        }
+        let (shown_key, shown_keys) = self.sidebar_inbox.shown.as_ref()?;
+        let is_gone = |k: &str| {
+            let (s, id) = self.inbox_target(k);
+            s == *server && gone.iter().any(|g| g == &id)
+        };
+        if !is_gone(shown_key) {
+            return None;
+        }
+        let visible: HashSet<String> = self.nav_order().into_iter().collect();
+        crate::inbox_order::inbox_successor(shown_keys, shown_key, |k| visible.contains(k) && !is_gone(k))
+    }
+
     /// Archive (`inbox.archive`): beyond Desktop, which waits for the server, the session leaves
     /// the list and its tabs at once; a refusal puts it back (`archive_moves`).
     pub fn archive_session(&mut self, id: &str, tx: &mut Tx) {
         let now = *self.now_ms;
+        let here = crate::servers::runtime::active(self).clone();
+        // Capture the pre-archive inbox row order before marking the session archived (`opencode#66558`).
+        self.record_inbox_shown();
+        let gone_key = crate::tabs::session_uid(&here, id);
+        let archive_current = self.nav_current().as_deref() == Some(gone_key.as_str());
         let Some(info) = self.sessions.iter_mut().find(|s| s.id == id) else { return };
         info.archived = Some(now);
         let info = info.clone();
         self.inbox_file(info);
-        let here = crate::servers::runtime::active(self).clone();
         let tab = self.tabs.iter().find(|t| t.is(&here, id) && !t.is_draft()).map(crate::tabs::Tab::uid);
         let was = match &tab {
             None => super::moves::TabWas::Absent,
             Some(uid) if self.current_tab().as_deref() == Some(uid.as_str()) => super::moves::TabWas::Shown,
             Some(_) => super::moves::TabWas::Behind,
         };
+        let successor = archive_current
+            .then(|| self.pick_inbox_successor(&here, &[id.to_owned()]))
+            .flatten();
         if let Some(uid) = &tab {
             self.close_tab(uid, tx);
         } else {
@@ -319,6 +374,9 @@ impl App {
             if !routed_family {
                 self.hibernate_browser_tabs_for_session(id);
             }
+        }
+        if let Some(next) = successor {
+            self.open_inbox_session(&next, tx);
         }
         let sent = self.write(opencode_kit::client::Write::Archive(id.to_owned()));
         self.archive_move_sent(id, super::moves::Was::Listed { tab: was }, sent, tx);
@@ -391,6 +449,8 @@ pub struct SidebarInbox {
     enqueued: u64,
     /// A row Home or End scrolled to, focused once the scroll has built it (`view::inbox`).
     pub(crate) focus_next: Option<String>,
+    /// Last visible inbox order for the open non-archived session (`inbox.tsx:214`, `opencode#66558`).
+    pub(crate) shown: Option<(String, Vec<String>)>,
 }
 
 /// The longest the inbox hides behind its loader on first open, so a stalled server can't hide
@@ -592,6 +652,7 @@ pub fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
         changed = true;
     }
     changed |= load_archived(s, now, tx);
+    s.record_inbox_shown();
     let order = s.inbox_order();
     let working = order.rows.iter().any(|r| r.working);
     // The rows' folders go to the branch reads once per reading of the rows, not every poll.

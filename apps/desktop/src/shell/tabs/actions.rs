@@ -429,7 +429,7 @@ impl App {
     }
 
     /// The tab, or inbox row, the open page belongs to.
-    fn nav_current(&self) -> Option<String> {
+    pub(crate) fn nav_current(&self) -> Option<String> {
         match (&*self.route, self.tab_layout()) {
             (Route::Session { id, server }, crate::layout_state::TabLayout::Inbox) if !self.settings_open() => Some(tabs::session_uid(server, self.root_of(id))),
             (Route::Session { id, server }, _) if self.settings.navigation_prototype() && !self.settings_open() => {
