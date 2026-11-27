@@ -377,7 +377,7 @@ fn shifted(r: &RowSpec, by: usize) -> RowSpec {
             *end += by;
         }
         TurnDiff { idle, .. } => *idle += by,
-        Pending { .. } | PendingNotice(..) | CompactionQueued(_) | TurnDivider(_) | UserImages { .. } | Lane(_) => {}
+        Pending { .. } | PendingNotice(..) | CompactionQueued(_) | TurnDivider(_) | UserImages { .. } => {}
     }
     r
 }

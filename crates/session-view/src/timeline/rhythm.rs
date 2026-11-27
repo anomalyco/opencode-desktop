@@ -243,13 +243,10 @@ pub(super) fn space(t: &Transcript, detail: &crate::detail::Detail, script_diffs
 pub(super) fn space_at(t: &Transcript, detail: &crate::detail::Detail, script_diffs: bool, out: &mut [RowSpec], at: std::ops::Range<usize>) {
     let mut folded: Folded = None;
     let mut above: Option<(usize, Option<Edges>)> = out[..at.start.min(out.len())].iter().enumerate().rev()
-        .find(|(_, r)| !matches!(r.content, RowContent::Lane(_)))
+        .next()
         .map(|(i, r)| (i, edges_of(t, detail, script_diffs, &r.content, &mut folded)));
     let end = at.end.min(out.len());
     for i in at.start.min(end)..end {
-        if matches!(out[i].content, RowContent::Lane(_)) {
-            continue;
-        }
         let here = edges_of(t, detail, script_diffs, &out[i].content, &mut folded);
         let Some((up, prev)) = above.replace((i, here)) else { continue };
         if let (Some(prev), Some(h)) = (prev, here) {
@@ -293,9 +290,6 @@ pub(super) fn tail_extra(t: &Transcript, detail: &crate::detail::Detail, script_
         .unwrap_or(rows.len());
     let last = (0..end).rev().find_map(|i| {
         let r = rows.get(i)?;
-        if matches!(r.content, RowContent::Lane(_)) {
-            return None;
-        }
         edges_of(t, detail, script_diffs, &r.content, &mut folded)
     });
     let Some(prev) = last else { return 0.0 };

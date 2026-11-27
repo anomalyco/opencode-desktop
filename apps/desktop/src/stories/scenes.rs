@@ -82,6 +82,24 @@ rune_register::register!(SCENE_LIST: Scene = [
     }),
     // The open session's turn still running, so Enter steers and ⌘⏎ queues.
     ("busy", busy_scene),
+    // Running turn with two active subagents so Working sits above the floating subagents pill.
+    ("busy-subagents", |s| {
+        busy_scene(s);
+        let parent = crate::stories::sid(s);
+        let dir = (*s.default_dir).clone();
+        for (k, title) in [(1, "Audit timeline motion"), (2, "Check scroll anchoring")] {
+            let id = format!("ses_busy_sub_{k}");
+            s.sessions.push(opencode_kit::model::SessionInfo {
+                id: id.clone(),
+                title: title.into(),
+                directory: dir.clone(),
+                parent: Some(parent.clone()),
+                updated: *s.now_ms - (k as i64) * 1000,
+                ..Default::default()
+            });
+            s.running.insert(id);
+        }
+    }),
     // Busy, then the server takes the steer at 5.6 s and the queued prompts at 6.6 and
     // 7.6 s: with `apps/desktop/scripts/steer-dock.json`, a steer and two queued prompts delivered.
     ("busy-deliver", |s| {
