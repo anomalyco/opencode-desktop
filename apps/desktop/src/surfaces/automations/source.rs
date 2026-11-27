@@ -43,7 +43,6 @@ pub enum CmdOffer {
 
 #[derive(Clone, Debug, Default)]
 pub struct ServerState {
-    pub label: String,
     pub server: Option<Server>,
     pub phase: FetchPhase,
     pub rows: Vec<AutomationInfo>,
@@ -67,7 +66,6 @@ pub enum BgResult {
 pub struct Entry {
     pub key: String,
     pub server: ServerKey,
-    pub server_label: String,
     pub project_name: String,
     /// The creating session's title, when the app knows it.
     pub creator: Option<String>,
@@ -111,13 +109,13 @@ pub fn entries(s: &App) -> Vec<Entry> {
             } else {
                 None
             }
-            // Official falls back to the project's ID (model.ts:44), an opaque hash beside every
-            // row; the folder's name says where the automation runs.
+            // An unknown project's ID is a hash; its folder name reads better
+            // (packages/app/src/automations/model.ts:projectName).
             .unwrap_or_else(|| {
                 row.directory
                     .rsplit(['/', '\\'])
                     .find(|seg| !seg.is_empty())
-                    .map_or_else(|| row.project_id.clone(), str::to_owned)
+                    .map_or_else(|| row.directory.clone(), str::to_owned)
             });
             let creator = row.session_id.as_deref().and_then(|id| session_title(s, srv_key, id));
             let recipient = match &row.action {
@@ -127,7 +125,6 @@ pub fn entries(s: &App) -> Vec<Entry> {
             out.push(Entry {
                 key: entry_key(srv_key, &row.id),
                 server: srv_key.clone(),
-                server_label: srv.label.clone(),
                 project_name,
                 creator,
                 recipient,
@@ -163,7 +160,6 @@ pub fn filtered_entries(s: &App, all: &[Entry]) -> Vec<Entry> {
             if let Some(r) = &e.recipient { push(r); }
             if let Some(id) = &e.row.session_id { push(id); }
             if let AutomationAction::Prompt { to: opencode_kit::model::AutomationTarget::Session(id), .. } = &e.row.action { push(id); }
-            push(&e.server_label);
             if let opencode_kit::model::AutomationTrigger::Event { server, .. } = &e.row.trigger {
                 push(server);
             }
@@ -182,10 +178,6 @@ pub fn selected_entry(s: &App, filtered: &[Entry]) -> Option<Entry> {
     let sel = s.kernel.slots.get(&AUTOMATIONS).selected.as_deref();
     sel.and_then(|k| filtered.iter().find(|e| e.key == k).cloned())
         .or_else(|| filtered.first().cloned())
-}
-
-pub fn multi_server(s: &App) -> bool {
-    s.kernel.slots.get(&AUTOMATIONS).servers.len() > 1
 }
 
 pub fn multi_project(all: &[Entry]) -> bool {
@@ -366,15 +358,6 @@ pub fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     if s.kernel.slots.untracked(&AUTOMATIONS).fixture_mode {
         return changed;
     }
-    if !s.settings.automations() {
-        if !s.kernel.slots.untracked(&AUTOMATIONS).servers.is_empty() {
-            let st = s.kernel.slots.get_mut(&AUTOMATIONS);
-            st.servers.clear();
-            changed = true;
-        }
-        return changed;
-    }
-
     let listed = crate::servers::runtime::listed();
     let open = *s.route == Route::Automations && !s.settings_open();
     let interval = if open { OPEN_INTERVAL_SECS } else { BG_INTERVAL_SECS };
@@ -409,7 +392,6 @@ pub fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
                 continue;
             }
             let srv = st.servers.entry(item.key.clone()).or_default();
-            srv.label = item.name.clone();
             srv.server = Some(item.server.clone());
 
             let offered = srv.commands.values().any(|c| *c == CmdOffer::Offered);
@@ -498,7 +480,7 @@ pub fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     changed
 }
 
-pub fn seed_fixture(s: &mut App, server_label: &str, rows: Vec<AutomationInfo>, offered_dirs: &[&str]) {
+pub fn seed_fixture(s: &mut App, rows: Vec<AutomationInfo>, offered_dirs: &[&str]) {
     let key = crate::servers::runtime::active(s).clone();
     let mut commands = HashMap::new();
     for d in offered_dirs {
@@ -508,7 +490,6 @@ pub fn seed_fixture(s: &mut App, server_label: &str, rows: Vec<AutomationInfo>, 
     servers.insert(
         key,
         ServerState {
-            label: server_label.to_owned(),
             server: None,
             phase: FetchPhase::Loaded { last_at: *s.clock },
             rows,
