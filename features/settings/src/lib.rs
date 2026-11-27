@@ -149,6 +149,10 @@ pub struct Settings {
     pub pinch_zoom: bool,
     /// Underline misspelt words while typing (Desktop's `spellcheck`); on by default.
     pub spellcheck: bool,
+    /// Keep background service running after quit (`keep-running.ts`, opencode#66499); default true.
+    pub keep_service_running: bool,
+    /// First-quit background-service notice answered/skipped (`background-notice-machine.ts`).
+    pub background_notice_shown: bool,
     /// The dictionaries a text field's Spellcheck Languages menu chose (Desktop's
     /// `spellcheckLanguages`); none follows the system languages.
     pub spellcheck_languages: Vec<String>,
@@ -218,6 +222,8 @@ impl Default for Settings {
             question_submit: QuestionSubmitKey::default(),
             pinch_zoom: false,
             spellcheck: true,
+            keep_service_running: true,
+            background_notice_shown: false,
             spellcheck_languages: Vec::new(),
             // The Review plugin's store starts wrapping (`gui-plugins/src/review/index.ts:46-48`).
             mobile_diff_wrap: true,
@@ -239,14 +245,12 @@ impl Default for Settings {
 impl Settings {
     pub fn to_json(&self) -> Value {
         let mut v = self.to_json_base();
-        if let (Some(on), Some(m)) = (self.tab_groups, v.as_object_mut()) {
-            m.insert("tabGroups".into(), json!(on));
-        }
-        if let (Some(on), Some(m)) = (self.automations, v.as_object_mut()) {
-            m.insert("automations".into(), json!(on));
-        }
-        if let (Some(on), Some(m)) = (self.sidebar_sections, v.as_object_mut()) {
-            m.insert("sidebarSections".into(), json!(on));
+        if let Some(m) = v.as_object_mut() {
+            m.insert("keepServiceRunning".into(), json!(self.keep_service_running));
+            m.insert("backgroundNoticeShown".into(), json!(self.background_notice_shown));
+            if let Some(on) = self.tab_groups { m.insert("tabGroups".into(), json!(on)); }
+            if let Some(on) = self.automations { m.insert("automations".into(), json!(on)); }
+            if let Some(on) = self.sidebar_sections { m.insert("sidebarSections".into(), json!(on)); }
         }
         v
     }
@@ -384,6 +388,8 @@ impl Settings {
             question_submit: QuestionSubmitKey::parse(v["questionSubmitKey"].as_str()),
             pinch_zoom: v["pinchZoom"].as_bool().unwrap_or(d.pinch_zoom),
             spellcheck: v["spellcheck"].as_bool().unwrap_or(d.spellcheck),
+            keep_service_running: v["keepServiceRunning"].as_bool().unwrap_or(d.keep_service_running),
+            background_notice_shown: v["backgroundNoticeShown"].as_bool().unwrap_or(d.background_notice_shown),
             mobile_diff_wrap: v["mobileDiffWrap"].as_bool().unwrap_or(d.mobile_diff_wrap),
             mobile_titlebar: TitlebarPosition::parse(v["mobileTitlebarPosition"].as_str()),
             spellcheck_languages: v["spellcheckLanguages"]

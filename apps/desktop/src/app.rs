@@ -404,6 +404,7 @@ impl App {
             *self.zoom = z.clamp(shortcuts::ZOOM_MIN, shortcuts::ZOOM_MAX);
         }
         *self.settings = settings::load();
+        crate::background_notice::sync_keep_running(self.settings.keep_service_running);
         *self.layout = layout_state::Shell::at_rest(self.settings.effective_tab_layout());
         tabs::pins::restore(self);
         tabs::navigation_switch::restore(self);
