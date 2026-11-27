@@ -1,30 +1,30 @@
 {
-  "generated_at": "2026-11-27",
+  "generated_at": "2026-11-28",
   "upstream_repo": "anomalyco/opencode",
   "upstream_reference_base": "f6e0c2d0833ffe772035f221fed923e1cd5fb408",
-  "upstream_head": "a4f1040b48c15f002e87433a60a5b26bb01c9ec3",
+  "upstream_head": "ef0431d44c13a6b12d7bd41f2c30b84ae14ecd64",
   "upstream_pre_window_base": "3751be8138ebcf33343eb3f3d011b32fc814103c",
   "rune_desktop_repo": "anomalyco/opencode-rune",
-  "rune_desktop_head": "b6ca6bfc15",
-  "post_1114_commit_count": 800,
+  "rune_desktop_head": "366cdf7df8",
+  "post_1114_commit_count": 801,
   "post_1114_in_ledger": 269,
-  "post_1114_skipped": 531,
+  "post_1114_skipped": 532,
   "post_1114_skipped_breakdown": {
     "test-only": 35,
     "ci-bench-deps": 27,
     "docs-site-data": 84,
     "tui-only": 34,
     "cli-acp-only": 15,
-    "server-core-ai-codemode-internal": 336
+    "server-core-ai-codemode-internal": 337
   },
   "pre_1114_carryover_rows": 15,
   "total_ledger_rows": 290,
   "status_counts": {
-    "have it": 239,
+    "have it": 240,
     "not applicable": 39,
     "differs on purpose": 1,
     "partly": 2,
-    "missing": 9
+    "missing": 8
   },
   "rows": [
     {
@@ -7046,13 +7046,19 @@
       ],
       "summary": "Aligns desktop provider catalog and Connect dialog provider ordering with TUI and CLI auth login.",
       "size": "XS",
-      "status": "missing",
-      "status_evidence": "Open PR #1399 (head 3be72bacf1, CI running): aligns POPULAR provider order across pickers, Settings, and Connect dialog.",
+      "status": "have it",
+      "status_evidence": "Merged in #1399 (dev 366cdf7df8, CI run 46008899849 green): aligned canonical POPULAR provider order (opencode-go, opencode, openai, anthropic, claude-agent, github-copilot, google, openrouter, vercel) across pickers, Settings > Models, Settings > Providers, and Connect dialog. Post-merge bulk headless verification queued.",
       "depends_on": "none",
       "risks": "none",
       "workstream": "UPSTREAM",
       "pr_refs": [
         1399
+      ],
+      "rune_files": [
+        "crates/session-view/src/pickers/host.rs",
+        "features/connect/src/view.rs",
+        "features/settings/src/pages/models.rs",
+        "features/settings/src/pages/providers.rs"
       ]
     },
     {
