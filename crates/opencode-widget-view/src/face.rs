@@ -182,16 +182,28 @@ pub fn frame<S: 'static>(look: &Look, local: &Local, hooks: Option<&Hooks<S>>, f
         .label(title.to_owned())
         .children(chip)
         .children(body);
-    // Whether it shows: a live widget runs only while it does.
+    // Whether it shows: a live widget runs only while it does. A live run starts, pauses or
+    // resumes, and gets its frames, as it shows: the widgets' poll runs at the next frame.
     if let Some(h) = hooks {
         let lens = h.local.clone();
-        frame = frame.on_visible(move |s: &mut S, on, tx: &mut Tx| {
-            // A live run starts, pauses or resumes, and gets its frames, as it shows: the widgets'
-            // poll runs at the next frame.
-            if (lens)(s).set_shown(on) {
-                tx.wake_at(tx.clock());
-            }
-        });
+        frame = match look.band {
+            // Any of it near its viewport, as the official client's observer: `on_visible` wants
+            // half of it in the window, which a card taller than the window and narrower than
+            // half of it (a long table) never is, so its run stayed paused while on screen.
+            Some([top, bottom]) => frame.on_drawn_layout_tx(move |s: &mut S, [_, y, _, height], tx: &mut Tx| {
+                let on = y < bottom + crate::ROOT_MARGIN && y + height > top - crate::ROOT_MARGIN;
+                if (lens)(s).set_shown(on) {
+                    tx.wake_at(tx.clock());
+                } else {
+                    tx.live_only();
+                }
+            }),
+            None => frame.on_visible(move |s: &mut S, on, tx: &mut Tx| {
+                if (lens)(s).set_shown(on) {
+                    tx.wake_at(tx.clock());
+                }
+            }),
+        };
     }
     if let (Some(h), Face::Live { live: true, .. }) = (hooks, face) {
         frame = keyboard(look, local, h, frame);

@@ -86,7 +86,9 @@ pub fn frame<S: TimelineHost>(s: &S, p: &Pal, session: &str, id: &str, label: &s
     let pad = if fullscreen { 0.0 } else { 2.0 * FRAME_PAD };
     let markdown = |src: &str| crate::style::markdown_tinted::<S>(p, src, 1.0, false, p.text, width - pad);
     let words = words();
-    let look = Look { kit: crate::palette::kit(p), markdown: &markdown, image: &image, words: &words, width, scale: crate::scroller::device_scale(), dark: p.dark, scope: id, chips, fullscreen };
+    // Inline, it shows inside the session's timeline: shown is near that viewport.
+    let band = (!fullscreen).then(|| rune::memo::layout_with(&format!("scroll-{session}"), |r| [r[1], r[1] + r[3]])).flatten();
+    let look = Look { kit: crate::palette::kit(p), markdown: &markdown, image: &image, words: &words, width, scale: crate::scroller::device_scale(), dark: p.dark, scope: id, chips, fullscreen, band };
     match place {
         Place::Inline(buttons) => opencode_widget_view::frame(&look, local, hooks, face, label, buttons).key(format!("widget-{id}")),
         Place::Elsewhere => opencode_widget_view::placeholder(&look, label).key(format!("widget-{id}")),
