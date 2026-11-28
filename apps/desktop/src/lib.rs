@@ -41,7 +41,7 @@ pub(crate) fn collect_thread_heap() {
 }
 
 /// `App::rest`: mimalloc collects this thread's heap and purges every free page now; on Windows
-/// the process heap compacts too.
+/// the process heap compacts too, and on Linux/glibc C-library arenas trim off the UI thread.
 #[cfg(not(target_arch = "wasm32"))]
 #[allow(unsafe_code)]
 pub(crate) fn purge_free_pages() {
@@ -53,6 +53,10 @@ pub(crate) fn purge_free_pages() {
     unsafe {
         windows_sys::Win32::System::Memory::HeapCompact(windows_sys::Win32::System::Memory::GetProcessHeap(), 0);
     }
+    // C libraries on Linux (Mesa/Vulkan, fontconfig, GLib/GIO) still allocate via glibc malloc
+    // while Rust uses mimalloc; schedule a coalesced off-thread malloc_trim(0) with a cooldown.
+    #[cfg(all(target_os = "linux", target_env = "gnu"))]
+    shell::memory_reclaim::schedule_glibc_trim();
 }
 
 // A browser's requests speak ureq's API too (ureq-web), so the request code is the same there.
@@ -317,6 +321,8 @@ pub fn run_native() {
     #[cfg(windows)]
     launch::warm_gpu_if_asked();
     commit_pages_on_demand();
+    #[cfg(all(target_os = "linux", target_env = "gnu"))]
+    shell::memory_reclaim::bound_glibc_arenas();
     #[cfg(feature = "alloc-sites")]
     plugin_host::memory::register_reports();
     // A debug build COM starts for a proof's scratch toast activator (`LocalServer32`, whose

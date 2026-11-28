@@ -94,17 +94,19 @@ trap 'rm -f "$order" "$order.ranked"' EXIT
   BEGIN {
     while ((getline line < list) > 0) if (line != "" && line !~ /^#/ && !(line in rank)) rank[line] = ++count
   }
-  /^_R/ || $0 == "main" { key = plain($0); if (key in rank && !($0 in seen)) { seen[$0] = 1; print rank[key] "\t" $0 } }
+  $0 != "" { key = plain($0); if (key in rank && !($0 in seen)) { seen[$0] = 1; print rank[key] "\t" $0 } }
 ' | sort -n -s -k1,1 > "$order.ranked"
 cut -f2 "$order.ranked" > "$order"
 found=$(cut -f1 "$order.ranked" | uniq | wc -l | tr -d ' ')
 listed=$(grep -c -v -e '^#' -e '^$' "$list")
 if [ ! -s "$order" ]; then
-  note "none of the $listed listed functions are in this build; linked without the order"
+  note "none of the $listed listed functions are in this build; linked with safe ICF only"
+  cc "$@" -Wl,--icf=safe && exit 0
   exec cc "$@"
 fi
 note "$found of $listed listed functions are in this build ($(wc -l < "$order" | tr -d ' ') symbols)"
-# A link that fails with the order is made again without it, with the arguments as they came.
-cc "$@" -Wl,--symbol-ordering-file="$order" -Wl,--no-warn-symbol-ordering && exit 0
+# Safe ICF folds identical monomorphized functions whose address is not taken, shrinking .text
+# before laying out startup symbols. Fall back cleanly if the linker rejects either flag.
+cc "$@" -Wl,--icf=safe -Wl,--symbol-ordering-file="$order" -Wl,--no-warn-symbol-ordering && exit 0
 note "THE LINK FAILED WITH THE ORDER FILE; linking without it"
 exec cc "$@"

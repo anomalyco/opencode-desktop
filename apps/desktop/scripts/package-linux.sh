@@ -36,6 +36,11 @@ if [[ -z $scheme ]]; then
 fi
 scheme=${scheme,,}
 install -Dm755 "$bin" "$root/usr/bin/opencode-rune"
+# Strip only opencode-rune (removes ~45 MB of .symtab/.strtab while keeping .eh_frame for panic
+# unwinding). RPM disables __strip globally so bundled opencode-cli's EOF Bun payload stays intact.
+if [ "${OPENCODE_RUNE_KEEP_SYMBOLS:-0}" != "1" ] && command -v strip >/dev/null 2>&1; then
+  strip --strip-unneeded "$root/usr/bin/opencode-rune"
+fi
 cli_rpm_files=""
 if [ "${OPENCODE_RUNE_BUNDLE_CLI:-1}" != "0" ]; then
   bash "$repo_root/scripts/guardrails/run-js.sh" "$repo_root/scripts/fetch-cli.mjs" \
