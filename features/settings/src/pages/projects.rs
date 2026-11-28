@@ -161,11 +161,11 @@ fn fold<H: SettingsHost + 'static>(p: &Pal, count: usize, open: bool) -> El {
 }
 
 /// `.settings-project-list`: a card of 40 pt rows 4 in, split by inset rules; one row alone is
-/// 48 pt, 16 in.
+/// 48 pt, 16 in. Multi-row lists use `virtual_rows` so unfolding thousands of "Other projects"
+/// builds only the visible rows.
 fn project_list<H: SettingsHost + PopupHost + 'static>(s: &H, p: &Pal, key: &str, projects: &[&Project], others: bool) -> El {
-    let alone = projects.len() == 1;
     let n = projects.len();
-    let mut list = col()
+    let list = col()
         .key(key.to_owned())
         .role("list")
         .w_full()
@@ -173,20 +173,43 @@ fn project_list<H: SettingsHost + PopupHost + 'static>(s: &H, p: &Pal, key: &str
         .fill(p.layer1)
         .box_shadow(Pal::ring_in(p.border_muted))
         .clip_rounded(8.0);
-    for (i, x) in projects.iter().enumerate() {
+    if n == 1 {
+        let x = projects[0];
         let target = format!("project-{}", x.directory);
-        let card = card(s, p, x, others, alone);
-        let shell = col()
-            .key(format!("setting-{target}"))
-            .w_full()
-            .px(if alone { 0.0 } else { 4.0 })
-            .py(if alone { 0.0 } else { 4.0 })
-            .child(card)
-            // `.settings-project-row-shell` (`margin-inline: 4px`) + `::after { inset-inline: 12px }` = 16 pt from card edge.
-            .children((i + 1 < n).then(|| el().pin(Some(16.0), None, Some(16.0), Some(0.0)).h(0.5).fill(p.border)));
-        list = list.child(super::revealable(s, p, &target, 0.0, shell));
+        let shell = col().key(format!("setting-{target}")).w_full().child(card(s, p, x, others, true));
+        return list.child(super::revealable(s, p, &target, 0.0, shell));
     }
-    list
+    let items: std::rc::Rc<Vec<Project>> = std::rc::Rc::new(projects.iter().map(|&x| x.clone()).collect());
+    let mut version_hasher = std::collections::hash_map::DefaultHasher::new();
+    std::hash::Hash::hash(&(n, others), &mut version_hasher);
+    for x in items.iter() {
+        std::hash::Hash::hash(&x.id, &mut version_hasher);
+        std::hash::Hash::hash(&x.directory, &mut version_hasher);
+    }
+    let version = std::hash::Hasher::finish(&version_hasher);
+    let keys = items.clone();
+    let built = items;
+    let pal = *p;
+    list.virtual_rows(
+        n,
+        48.0,
+        move |_: &H, i| std::borrow::Cow::Owned(format!("setting-project-{}", keys[i].directory)),
+        move |s: &H, i| {
+            let x = &built[i];
+            let target = format!("project-{}", x.directory);
+            let row_card = card(s, &pal, x, others, false);
+            let shell = col()
+                .key(format!("setting-{target}"))
+                .w_full()
+                .px(4.0)
+                .py(4.0)
+                .child(row_card)
+                // `.settings-project-row-shell` (`margin-inline: 4px`) + `::after { inset-inline: 12px }` = 16 pt from card edge.
+                .children((i + 1 < n).then(|| el().pin(Some(16.0), None, Some(16.0), Some(0.0)).h(0.5).fill(pal.border)));
+            super::revealable(s, &pal, &target, 0.0, shell)
+        },
+    )
+    .virtual_rows_version(version)
 }
 
 /// `SettingsProjectRow`: the project's avatar and name, which open its own pages, and its menu.

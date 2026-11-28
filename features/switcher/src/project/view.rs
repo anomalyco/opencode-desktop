@@ -60,10 +60,15 @@ pub fn view<H: ProjectSwitcherHost + 'static>(s: &H, p: &Pal, cx: &Cx<H>) -> [El
         .on_input_key(|s: &mut H, ev, tx| super::key_or_shortcut(s, ev, tx));
     let search = search_row_shell(leading, input);
 
+    // The search block (6 above, the field) and `new-session-location-divider` (1 pt, 6 above, 2 below).
+    let head_h = 6.0 + 28.0 + 6.0 + 1.0 + 2.0;
+    let window = host.project_switcher().band.window(max_h - head_h);
+
     // `command-palette-results` (`location/dialog.css:51-62`): 6 in at the sides and foot, rows 2
     // apart, 4 above the first row unless a group title starts the group.
     let mut list = col().key("project-switcher-results").w_full().px(6.0).pb(6.0).gap(2.0).pt(if step_title.is_some() { 0.0 } else { 4.0 });
     let mut content_h = if step_title.is_some() { 6.0_f32 } else { 10.0 };
+    let mut top = if step_title.is_some() { 0.0_f32 } else { 4.0 };
     // `currentDestination`: the drilled project's row the draft runs in shows a check.
     let current = match &open.mode {
         StepMode::Worktrees { project, .. } if host.draft_project().is_some_and(|d| &d.id == project) => host.draft_dir(),
@@ -74,6 +79,7 @@ pub fn view<H: ProjectSwitcherHost + 'static>(s: &H, p: &Pal, cx: &Cx<H>) -> [El
         // back button.
         list = list.role("group").label_static(title).child(step_title_shell(p, title));
         content_h += 32.0;
+        top += 32.0;
     }
     if list_rows.is_empty() {
         let waiting = matches!(open.mode, StepMode::Branches { list: branches::List::Loading(_), .. });
@@ -81,37 +87,67 @@ pub fn view<H: ProjectSwitcherHost + 'static>(s: &H, p: &Pal, cx: &Cx<H>) -> [El
         content_h += 120.0;
     }
     let mut shown_other_heading = false;
+    // Rows outside `window` are collapsed into exact-height spacers (same pattern as `crate::view`),
+    // so large "Other projects" lists build only the visible rows and the highlighted row.
+    let mut skipped = (0usize, 0.0_f32);
     for (idx, r) in list_rows.iter().enumerate() {
         if !q.is_empty() && open.mode == StepMode::Projects && r.section == "Other projects" && !shown_other_heading {
             shown_other_heading = true;
+            if skipped.0 > 0 {
+                list = list.child(gap_for(idx, skipped));
+                skipped = (0, 0.0);
+            }
             list = list.child(other_heading_shell(p));
             content_h += 32.0;
+            top += 32.0;
         }
         // A hairline across the dialog before Add project, and between New worktree and the
         // worktrees (`dialog.tsx:371-382`).
         let after_actions = idx > 0 && matches!(r.kind, RowKind::Worktree { main: false, .. }) && !matches!(list_rows[idx - 1].kind, RowKind::Worktree { main: false, .. });
         if idx > 0 && (r.kind == RowKind::Add || after_actions) {
+            if skipped.0 > 0 {
+                list = list.child(gap_for(idx, skipped));
+                skipped = (0, 0.0);
+            }
             // `new-session-location-action-divider`: a 1 pt rule at half its height, 2 above and below (`5 pt` + `2 pt` flex gap = `7 pt`).
             list = list.child(rune::hairline(p.border).key(format!("psw-divider-{idx}")).my(2.0).mx(-6.0));
             content_h += 7.0;
+            top += 7.0;
         }
-        let checked = current.is_some_and(|dir| matches!(&r.kind, RowKind::Worktree { directory, .. } if same_dir(directory, dir)));
-        list = list.child(draw_row(s, p, r, lit.as_deref() == Some(r.key.as_str()), q, w).children(checked.then(|| icon(&ic::CHECK, 16.0).color(p.icon_muted))));
+        let is_lit = lit.as_deref() == Some(r.key.as_str());
+        if is_lit || (top < window.end && top + 32.0 > window.start) {
+            if skipped.0 > 0 {
+                list = list.child(gap_for(idx, skipped));
+                skipped = (0, 0.0);
+            }
+            let checked = current.is_some_and(|dir| matches!(&r.kind, RowKind::Worktree { directory, .. } if same_dir(directory, dir)));
+            list = list.child(draw_row(s, p, r, is_lit, q, w).children(checked.then(|| icon(&ic::CHECK, 16.0).color(p.icon_muted))));
+        } else {
+            skipped = (skipped.0 + 1, skipped.1 + 32.0);
+        }
         content_h += 34.0;
+        top += 34.0;
     }
+    if skipped.0 > 0 {
+        list = list.child(gap_for(list_rows.len(), skipped));
+    }
+    host.project_switcher().band.built(&window);
     content_h -= 2.0;
 
-    // The search block (6 above, the field) and `new-session-location-divider` (1 pt, 6 above, 2 below).
-    let head_h = 6.0 + 28.0 + 6.0 + 1.0 + 2.0;
     let scroll_h = content_h.min(max_h - head_h).max(0.0);
     // `MenuScroll` (`new-session/location/dialog.tsx:335`): its thumb shows while the list scrolls.
     let scroll = opencode_ui::scroller::scroller("project-switcher-scroll")
         .bar(opencode_ui::scroller::Bar::MenuScroll)
-        .build::<H>(p, col().role("listbox").w_full().h(scroll_h), list);
+        .build::<H>(p, col().role("listbox").w_full().h(scroll_h).on_scroll_offset(host.project_switcher().band.watch(host.waker())), list);
     let dialog = build_dialog_card(p, placeholder, w, head_h + scroll_h, search, scroll).modal(true, |s: &mut H| super::close(s, true));
     let y = size.top(win_h);
     let scrim = el().key("project-switcher-scrim").absolute(0.0, 0.0).w_full().h_full().fill(p.scrim).transition(Transition::none());
     [scrim, dialog.absolute((win_w - w) / 2.0, y)]
+}
+
+/// `count` rows left unbuilt before row `idx`, as tall as they and the 2 pt gaps between them.
+fn gap_for(idx: usize, (count, h): (usize, f32)) -> El {
+    el().key(format!("psw-gap-{idx}")).w_full().h(h + (count - 1) as f32 * 2.0).a11y_hidden()
 }
 
 fn step_meta(mode: &StepMode) -> (&'static str, Option<&'static str>) {
