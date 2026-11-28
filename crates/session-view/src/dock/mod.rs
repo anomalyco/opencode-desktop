@@ -90,8 +90,14 @@ pub fn shown<S: DockHost>(s: &S) -> Option<String> {
 pub fn morph<S: DockHost>(s: &mut S, tx: &mut Tx) {
     tx.motion_curve(knobs::morph(s.knobs()));
     tx.follow_edge();
-    if shown(s).is_none() && s.dock_refocus() {
-        s.composer_edit_mut().focused = true;
+    if shown(s).is_none() {
+        if s.dock_refocus() {
+            s.composer_edit_mut().focused = true;
+        }
+    } else {
+        // The dock replaces the composer (`session-composer-region.tsx` unmounts the composer while
+        // `blocked()`), so the hidden editor must not retain focus and intercept Escape/Stop.
+        s.composer_edit_mut().focused = false;
     }
 }
 

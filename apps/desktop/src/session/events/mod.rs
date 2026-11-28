@@ -411,6 +411,12 @@ impl App {
                 if let Source::Live { requests: Some(r), .. } = &*self.source {
                     r.send(Request::Info(sid.to_owned())).ok();
                 }
+                // Reconcile pending requests when a run ends: interrupting a tool waiting on
+                // permission drops it in `Effect.ensuring` without emitting `permission.replied`
+                // (`packages/core/src/permission.ts:212`).
+                if self.pending.iter().any(|p| p.session() == sid) || self.requests.iter().any(|(s, _)| s == sid) {
+                    self.reread_requests(sid);
+                }
                 true
             }
             "session.viewed" => {

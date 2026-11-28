@@ -192,9 +192,14 @@ impl App {
 }
 
 /// Whether Escape stops the open session's run: it is one of `prompt.stop`'s keys, and the composer
-/// has focus while it runs or its stop settles (the escape stack's `Run` layer).
+/// has focus while it runs or its stop settles (the escape stack's `Run` layer). Disabled while a
+/// permission or question dock stands in the composer's place (`packages/app/src/composer/model.ts:639-650`,
+/// where `prompt.stop` targets the unmounted `editorElement`).
 pub fn escape_stops(s: &App) -> bool {
     let Route::Session { id, .. } = &*s.route else { return false };
+    if s.dock_shown() {
+        return false;
+    }
     if !session_view::composer::is_stop_shortcut(&rune::KeyEvent { key: rune::Key::Escape, mods: rune::Mods::default() }) {
         return false;
     }
@@ -205,7 +210,7 @@ pub fn escape_stops(s: &App) -> bool {
 /// that stop settles, it does nothing more (Esc doesn't fall through and leave the composer).
 pub fn key(s: &mut App, ev: &rune::KeyEvent, tx: &mut rune::Tx) -> bool {
     let Route::Session { id, .. } = (*s.route).clone() else { return false };
-    if !session_view::composer::is_stop_shortcut(ev) || !s.composer.focused {
+    if s.dock_shown() || !session_view::composer::is_stop_shortcut(ev) || !s.composer.focused {
         return false;
     }
     if s.busy(&id) {
