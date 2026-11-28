@@ -5,7 +5,7 @@
   "upstream_head": "c5cc9369c8bd9295b6cc46f099870841c556ef83",
   "upstream_pre_window_base": "3751be8138ebcf33343eb3f3d011b32fc814103c",
   "rune_desktop_repo": "anomalyco/opencode-rune",
-  "rune_desktop_head": "0a7c3c5791",
+  "rune_desktop_head": "e679653cd6",
   "post_1114_commit_count": 846,
   "post_1114_in_ledger": 329,
   "post_1114_skipped": 517,
@@ -8789,7 +8789,7 @@
       "summary": "Adds optional chaining on import.meta.env?.VITE_OPENCODE_CHANNEL in packages/app/src/settings/search-catalog.ts so non-Vite/test runtimes do not throw when import.meta.env is undefined.",
       "size": "XS",
       "status": "not applicable",
-      "status_evidence": "Not applicable to Rune desktop: Vite JS optional-chaining guard (import.meta.env?.VITE_OPENCODE_CHANNEL) in packages/app/src/settings/search-catalog.ts; Rune checks the build channel at compile time via Rust option_env! in features/settings/src/lib.rs (question_composer_available).",
+      "status_evidence": "Not applicable to Rune desktop: 1-line Vite JS optional-chaining guard (import.meta.env?.VITE_OPENCODE_CHANNEL) in packages/app/src/settings/search-catalog.ts:157; Rune checks the build channel safely via features/settings/src/host.rs (DEFAULT_CONFIG.build_channel) and question_composer_available() without panicking. [verified-hunks]",
       "depends_on": "UP-275",
       "risks": "none",
       "workstream": "UPSTREAM"
