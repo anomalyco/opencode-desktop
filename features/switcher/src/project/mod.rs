@@ -239,6 +239,8 @@ pub struct ProjectSwitcher {
     pub state: ProjectSwitcherState,
     pub search: TextEdit,
     pub(crate) branch_requests: Seq,
+    /// Viewport window of rows currently built, so large "Other projects" lists build only visible rows.
+    pub(crate) band: crate::band::Band,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -449,6 +451,7 @@ pub fn open_with_focus(host: &mut dyn ProjectSwitcherHost, return_focus: Option<
         ps.state.step(LifecycleEvent::Open { restore_composer: restore, servers: listed });
         ps.search = TextEdit::new("");
         ps.search.focused = true;
+        ps.band = crate::band::Band::default();
     }
     host.on_overlay_opened(PROJECT_OVERLAY_ID, return_focus);
 }
@@ -546,6 +549,7 @@ pub(super) fn location_event(host: &mut dyn ProjectSwitcherHost, event: location
                 ps.search = TextEdit::new(&query);
                 ps.search.anchor = query.len();
                 ps.search.focus = query.len();
+                ps.band = crate::band::Band::default();
             }
             location::Effect::Focus(lit) => {
                 let ps = host.project_switcher_mut();

@@ -58,21 +58,22 @@ pub fn read(host: &mut dyn ProjectSwitcherHost) -> Vec<Listed> {
     host.read_listed_servers(drilled.as_deref())
 }
 
-/// Each poll while the dialog is open: what each server lists now.
+/// Each poll while the dialog is open: what each server lists now, plus band scroll updates.
 pub fn poll(host: &mut dyn ProjectSwitcherHost) -> bool {
+    let moved = host.project_switcher().is_open() && host.project_switcher().band.moved();
     if host.project_switcher().servers().is_empty() {
-        return false;
+        return moved;
     }
     let next = read(host);
     let Some(open) = host.project_switcher_mut().state.open_state_mut() else {
-        return false;
+        return moved;
     };
     let changed = next.len() != open.servers.len()
         || next.iter().zip(&open.servers).any(|(a, b)| {
             a.key != b.key || a.used.len() != b.used.len() || a.others.len() != b.others.len() || a.worktrees != b.worktrees || a.checkout_branch != b.checkout_branch
         });
     open.servers = next;
-    changed
+    changed || moved
 }
 
 /// The server step's rows (`serverEntries`).
