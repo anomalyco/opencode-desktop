@@ -482,10 +482,11 @@ pub fn timeline<S: TimelineHost>(s: &S, p: &Pal, id: &str, t: Option<&Transcript
         .pt(crate::style::timeline_top())
         .pb(((if crate::style::hover_none() { 104.0 } else { TAIL }) + tail_extra - crate::working::LANE).max(fade_floor))
         // One selection across the whole timeline, as a page's: a drag runs from a prompt
-        // through tools and replies, Cmd+A takes every message, and caret browsing lets
-        // Shift+Arrow / Arrow / Home / End extend or move it (out of Tab order, no ring).
+        // through tools and replies, Cmd+A takes every message, and Shift+Arrow / Home / End
+        // extend it (Rune's `selection_extend_key`, as a browser's page). No caret browsing: a
+        // click in a reply drew a text caret there, as if the reply could be typed into, while
+        // typing went to the composer.
         .selection_group(true)
-        .caret_browsing(true)
         .tab_index(-1).no_focus_ring()
         .on_selection_change(S::on_timeline_selection_change)
         // While a panel's spring moves the timeline's edge, rows take the width they land at,
