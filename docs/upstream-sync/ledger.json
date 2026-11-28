@@ -2,26 +2,26 @@
   "generated_at": "2026-11-29",
   "upstream_repo": "anomalyco/opencode",
   "upstream_reference_base": "f6e0c2d0833ffe772035f221fed923e1cd5fb408",
-  "upstream_head": "22ab0613120d3078af7eac93359bffbf342b8afd",
+  "upstream_head": "ff756e0316d93cf734e3f5edff67c5e97335fbe6",
   "upstream_pre_window_base": "3751be8138ebcf33343eb3f3d011b32fc814103c",
   "rune_desktop_repo": "anomalyco/opencode-rune",
-  "rune_desktop_head": "32277d402c",
-  "post_1114_commit_count": 864,
-  "post_1114_in_ledger": 333,
-  "post_1114_skipped": 531,
+  "rune_desktop_head": "de617697c1",
+  "post_1114_commit_count": 866,
+  "post_1114_in_ledger": 334,
+  "post_1114_skipped": 532,
   "post_1114_skipped_breakdown": {
     "test-only": 38,
     "ci-bench-deps": 32,
     "docs-site-data": 95,
     "tui-only": 36,
     "cli-acp-only": 19,
-    "server-core-ai-codemode-internal": 311
+    "server-core-ai-codemode-internal": 312
   },
   "pre_1114_carryover_rows": 15,
-  "total_ledger_rows": 354,
+  "total_ledger_rows": 355,
   "status_counts": {
     "have it": 266,
-    "not applicable": 86,
+    "not applicable": 87,
     "differs on purpose": 1,
     "partly": 1,
     "missing": 0
@@ -8888,6 +8888,31 @@
       "status": "not applicable",
       "status_evidence": "Not applicable to Rune desktop: official CSS change is strictly inside the legacy current-timeline block ([data-timeline-row=\"AssistantPart\"]:not([data-timeline=\"next\"]) in packages/session-ui/src/components/message-part.css:2182-2201); Rune renders only the New timeline in crates/session-view.",
       "depends_on": "UP-332",
+      "risks": "none",
+      "workstream": "UPSTREAM"
+    },
+    {
+      "id": "UP-334",
+      "window": "post-1120",
+      "pr": 66950,
+      "sha": "ff756e0316",
+      "title": "fix(core): make Noise XX work in workerd, log Link defects, and map shell start failure to 503",
+      "merged": "2026-11-28",
+      "packages": [
+        "core",
+        "server",
+        "protocol",
+        "client"
+      ],
+      "main_files": [
+        "packages/protocol/src/groups/session.ts",
+        "packages/client/src/promise/generated/client.ts"
+      ],
+      "summary": "Server-side Noise XX/workerd X25519 support, Link defect logging, and mapping Session.ShellStartError to HTTP 503 ServiceUnavailableError in session.shell with regenerated OpenAPI/TS SDK types.",
+      "size": "XS",
+      "status": "not applicable",
+      "status_evidence": "Not applicable to Rune desktop: server-side packages/core/src/machine/*, packages/server/src/handlers/session.ts, and regenerated TS SDK declaredStatuses only; crates/opencode-kit/src/wire_error.rs already decodes HTTP 503 ServiceUnavailableError {_tag, message} payloads natively.",
+      "depends_on": "none",
       "risks": "none",
       "workstream": "UPSTREAM"
     }
