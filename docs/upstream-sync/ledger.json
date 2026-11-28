@@ -2,26 +2,26 @@
   "generated_at": "2026-11-28",
   "upstream_repo": "anomalyco/opencode",
   "upstream_reference_base": "f6e0c2d0833ffe772035f221fed923e1cd5fb408",
-  "upstream_head": "af9dfecabfe8ee431b09301e67045510bddcb5c9",
+  "upstream_head": "2a2d46f7723279a1ecc72e6fd00ad02218094d12",
   "upstream_pre_window_base": "3751be8138ebcf33343eb3f3d011b32fc814103c",
   "rune_desktop_repo": "anomalyco/opencode-rune",
-  "rune_desktop_head": "8ff848b9b6",
-  "post_1114_commit_count": 841,
-  "post_1114_in_ledger": 328,
-  "post_1114_skipped": 513,
+  "rune_desktop_head": "4983c2c9e7",
+  "post_1114_commit_count": 845,
+  "post_1114_in_ledger": 329,
+  "post_1114_skipped": 516,
   "post_1114_skipped_breakdown": {
     "test-only": 37,
     "ci-bench-deps": 32,
-    "docs-site-data": 84,
+    "docs-site-data": 86,
     "tui-only": 36,
     "cli-acp-only": 17,
-    "server-core-ai-codemode-internal": 307
+    "server-core-ai-codemode-internal": 308
   },
   "pre_1114_carryover_rows": 15,
-  "total_ledger_rows": 349,
+  "total_ledger_rows": 350,
   "status_counts": {
     "have it": 264,
-    "not applicable": 83,
+    "not applicable": 84,
     "differs on purpose": 1,
     "partly": 1,
     "missing": 0
@@ -8770,6 +8770,27 @@
       "status": "not applicable",
       "status_evidence": "Not applicable to Rune desktop: server-side experimental spaces batch API and generated TS SDK only; no desktop UI consumer.",
       "depends_on": "none",
+      "risks": "none",
+      "workstream": "UPSTREAM"
+    },
+    {
+      "id": "UP-329",
+      "window": "post-1120",
+      "pr": 66926,
+      "sha": "f7ac3ac447",
+      "title": "fix(app): guard channel lookup in settings catalog",
+      "merged": "2026-11-27",
+      "packages": [
+        "app"
+      ],
+      "main_files": [
+        "packages/app/src/settings/search-catalog.ts"
+      ],
+      "summary": "Adds optional chaining on import.meta.env?.VITE_OPENCODE_CHANNEL in packages/app/src/settings/search-catalog.ts so non-Vite/test runtimes do not throw when import.meta.env is undefined.",
+      "size": "XS",
+      "status": "not applicable",
+      "status_evidence": "Not applicable to Rune desktop: Vite JS optional-chaining guard (import.meta.env?.VITE_OPENCODE_CHANNEL) in packages/app/src/settings/search-catalog.ts; Rune checks the build channel at compile time via Rust option_env! in features/settings/src/lib.rs (question_composer_available).",
+      "depends_on": "UP-275",
       "risks": "none",
       "workstream": "UPSTREAM"
     }
