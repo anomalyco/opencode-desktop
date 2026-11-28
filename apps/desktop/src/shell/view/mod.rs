@@ -141,7 +141,16 @@ pub fn app(s: &App, cx: &mut Cx<App>) -> El {
     // Arabic, Hebrew, Persian, Urdu… mirror the whole window, as Desktop's `dir` on the
     // document root does (`language.tsx:397`); the caption buttons Rune draws stay put.
     let root = root.dir(ui_direction());
-    root.on_key_up(|s: &mut App, ev, tx| crate::dictation::key_up(s, ev, tx))
+    root.on_key_preview(|s: &mut App, ev, tx| {
+            s.sidebar_inbox.focus.note_key(ev);
+            tx.live_only();
+            false
+        })
+        .on_any_press(|s: &mut App, _, _, tx| {
+            s.sidebar_inbox.focus.note_pointer();
+            tx.live_only();
+        })
+        .on_key_up(|s: &mut App, ev, tx| crate::dictation::key_up(s, ev, tx))
         .on_window_focus(|s: &mut App, focused, tx| {
             s.plugins.window_blurred.set(!focused);
             if !focused {

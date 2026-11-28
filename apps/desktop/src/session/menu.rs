@@ -293,19 +293,23 @@ impl SessionMenuHost for App {
         crate::servers::runtime::with_server(self, server, |s| App::unarchive_session(s, id));
     }
 
-    fn on_sessions_removed(&mut self, server: &ServerKey, gone: &[String]) {
+    fn record_inbox_shown(&mut self) {
+        App::record_inbox_shown(self);
+    }
+
+    fn on_sessions_removed(&mut self, server: &ServerKey, gone: &[String], tx: &mut Tx) {
         for sid in gone {
             self.close_browser_tabs_for_session(sid);
         }
         self.forget_history(|_, x| gone.iter().any(|g| g == x));
-        let open_gone = matches!(&*self.route, Route::Session { id: open, server: on } if on == server && gone.contains(open));
+        let open_gone = matches!(&*self.route, Route::Session { id: open, server: on } if on == server && (gone.contains(open) || gone.iter().any(|g| g == self.root_of(open))));
         self.tabs.retain(|t| t.is_draft() || t.server != *server || !gone.contains(&t.id));
         self.gestures.closed.remove(|id| gone.iter().any(|g| g == id));
         if open_gone {
             if let Some(next) = self.pick_inbox_successor(server, gone) {
-                self.open_inbox_session(&next, &mut Tx::default());
+                self.open_inbox_session(&next, tx);
             } else {
-                *self.route = Route::Home;
+                self.go_home(tx);
             }
         }
         App::save_tabs(self);
@@ -355,10 +359,12 @@ impl App {
     }
 
     pub fn ask_delete(&mut self, id: &str) {
+        self.record_inbox_shown();
         ask_delete(self, id);
     }
 
     pub fn ask_delete_on(&mut self, server: &ServerKey, id: &str) {
+        self.record_inbox_shown();
         ask_delete_on(self, server, id);
     }
 

@@ -1475,7 +1475,7 @@ The complete license, source credits, and verbatim component notices ship in `ap
 - **mimalloc** (`https://github.com/microsoft/mimalloc`, mimalloc 3.3, vendored via `vendor/libmimalloc-sys` 0.1.49) — MIT License
   - `Copyright (c) 2018-2025 Microsoft Corporation, Daan Leijen` (`vendor/libmimalloc-sys/c_src/mimalloc/v3/LICENSE`)
   - Rust bindings (`libmimalloc-sys`): `Copyright 2019 Octavian Oncescu` (MIT, `vendor/libmimalloc-sys/LICENSE.txt`)
-  - **Local modification:** `vendor/libmimalloc-sys.patch` patches `c_src/mimalloc/v3/include/mimalloc/types.h` and `c_src/mimalloc/v3/src/arena.c` so small (64 KiB) pages commit on demand in 16 KiB steps.
+  - **Local modification:** `vendor/libmimalloc-sys.patch` patches `build.rs`, `c_src/mimalloc/v3/include/mimalloc/types.h`, `c_src/mimalloc/v3/src/arena.c`, and `c_src/mimalloc/v3/src/prim/unix/prim.c` so small (64 KiB) pages commit on demand in 16 KiB steps and Linux mimalloc mappings default `MI_DEFAULT_ALLOW_THP=0` with per-VMA `MADV_NOHUGEPAGE` (without inheriting `PR_SET_THP_DISABLE` into child processes).
 - **Ghostty / `libghostty-vt`** (`https://github.com/ghostty-org/ghostty`, `v1.4.0`, commit `83fb95624b`, statically linked by `crates/terminal`) — MIT License
   - `Copyright (c) 2024 Mitchell Hashimoto, Ghostty contributors`
 - **Chromium Embedded Framework (CEF)** (`https://github.com/chromiumembedded/cef`, used by the on-demand `apps/browser-engine` sidecar) — BSD-3-Clause License
