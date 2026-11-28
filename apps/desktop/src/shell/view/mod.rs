@@ -97,7 +97,7 @@ pub fn app(s: &App, cx: &mut Cx<App>) -> El {
     // The caption buttons line up with the titlebar row at every zoom; on macOS the traffic
     // lights move to the layout's titlebar.
     if cfg!(target_os = "macos") {
-        cx.set_titlebar(mac_titlebar(layout, *s.zoom, chrome().bottom));
+        cx.set_titlebar(if s.window.standalone.is_some() { crate::session::standalone::titlebar() } else { mac_titlebar(layout, *s.zoom, chrome().bottom) });
     } else {
         cx.titlebar_height(titlebar_height(*s.zoom));
     }
@@ -126,6 +126,8 @@ pub fn app(s: &App, cx: &mut Cx<App>) -> El {
             cx.reduced_motion(*s.appearance_state.reduced_motion);
             crate::stories::page(s, p, st)
         }
+        // A standalone widget's window shows the widget alone (`session::standalone`).
+        None if s.window.standalone.is_some() => crate::session::standalone::view(s, cx),
         None => shell(s, cx),
     };
     inner = inner.children(s.kernel.overlay_dispatcher.render_all(s, cx));

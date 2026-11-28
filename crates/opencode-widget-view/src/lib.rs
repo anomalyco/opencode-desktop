@@ -109,12 +109,22 @@ pub struct Buttons<S> {
     pub expand: Option<Action<S>>,
     /// A program error the server recorded for the widget (`State.failure`).
     pub failure: Option<Recorded<S>>,
+    /// The host's own buttons, top right before the expand button, on hover and keyboard focus.
+    pub corner: Vec<Corner<S>>,
 }
 
 impl<S> Default for Buttons<S> {
     fn default() -> Self {
-        Buttons { retry: None, expand: None, failure: None }
+        Buttons { retry: None, expand: None, failure: None, corner: Vec::new() }
     }
+}
+
+/// A host's button in the frame's top-right corner: its glyph, its name (label and tooltip),
+/// and what it does.
+pub struct Corner<S> {
+    pub icon: &'static rune::Icon,
+    pub label: String,
+    pub press: Action<S>,
 }
 
 /// A program error the server recorded for an open widget (`widgets.md`, Failures), with what

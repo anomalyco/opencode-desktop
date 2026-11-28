@@ -296,6 +296,10 @@ pub fn open(s: &mut App, url: &str, tx: &mut Tx) {
         }
         return;
     }
+    if let Some((server, instance, size)) = crate::session::standalone::parse(url, crate::launch::product().scheme()) {
+        crate::session::standalone::open_link(s, &server, instance, size);
+        return;
+    }
     match jump(url, crate::launch::product().scheme()) {
         Some(Jump::NewWindow) => {
             crate::windows::new_window(s);
@@ -329,6 +333,10 @@ pub fn open(_: &mut App, _: &str, _: &mut Tx) {}
 
 /// Opens accepted links waiting for a server once it connects (from `poll`).
 pub fn drain(s: &mut App, tx: &mut Tx) -> bool {
+    // A standalone widget's link waits for its server: look again shortly.
+    if crate::session::standalone::drain(s) {
+        tx.wake_after(std::time::Duration::from_millis(250));
+    }
     let typed = type_prompt(s);
     if !s.services.deep_links.is_waiting() {
         return typed;

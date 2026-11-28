@@ -131,6 +131,55 @@ impl WidgetsHost for App {
         crate::session::widget_storage::write(self, server, name, key, value);
     }
 
+    /// "Move to dashboard" (Mini apps) and "Extract as standalone app" (a window of its own,
+    /// `standalone`): the same widget instance, followed there as it is here.
+    fn widget_corner(&self, session: &str, id: &str) -> Vec<session_view::widget::view::Corner<App>> {
+        use session_view::widget::view::Corner;
+        // Behind Settings › Experimental › Mini apps, as the dashboard is.
+        if !self.live() || self.window.standalone.is_some() || !crate::surfaces::mini_apps::enabled(self) {
+            return Vec::new();
+        }
+        let w = crate::session::standalone::Standalone::of(crate::servers::runtime::active(self).clone(), session, id).sized(self, id);
+        let key = w.instance.clone();
+        let dashboard = Corner {
+            icon: &rune_theme_opencode::icons::GRID_PLUS,
+            label: opencode_i18n::t!("rune.widget.toDashboard").to_owned(),
+            press: std::rc::Rc::new(move |s: &mut App, _tx: &mut Tx| {
+                crate::surfaces::mini_apps::add_to_dashboard(s, &key);
+                // A dashboard showing in another window takes the tile too.
+                for app in crate::windows::others(&s.window.id) {
+                    app.update(|s, _| crate::surfaces::mini_apps::reload(s));
+                }
+                crate::status_toast::say(s, opencode_i18n::t!("rune.widget.onDashboard"), "");
+            }),
+        };
+        let extract = Corner {
+            icon: &rune_theme_opencode::icons::SQUARE_ARROW_TOP_RIGHT,
+            label: opencode_i18n::t!("rune.widget.extract").to_owned(),
+            press: std::rc::Rc::new(move |s: &mut App, _tx: &mut Tx| crate::session::standalone::open(s, w.clone())),
+        };
+        vec![dashboard, extract]
+    }
+
+    /// A widget dragged onto the desktop is an app that opens it standalone (macOS).
+    /// Behind Settings › Experimental › Mini apps, with the dashboard.
+    fn widget_drags_out(&self) -> bool {
+        cfg!(target_os = "macos") && self.live() && self.window.standalone.is_none() && crate::surfaces::mini_apps::enabled(self)
+    }
+
+    #[cfg(target_os = "macos")]
+    fn widget_drag_out(&self, session: &str, id: &str) -> Option<rune::DragItem> {
+        let w = crate::session::standalone::Standalone::of(crate::servers::runtime::active(self).clone(), session, id).sized(self, id);
+        // Its title, else its session's when it goes by its widget template's name.
+        let title = crate::session::standalone::title(self, &w.instance).or_else(|| {
+            let e = self.widgets().entry(id)?;
+            let template = e.widget_template.split_once('@').map_or(e.widget_template.as_str(), |(name, _)| name);
+            let own = (e.label != template).then(|| e.label.clone());
+            own.or_else(|| self.session(session).map(|i| i.title.clone()).filter(|t| !t.is_empty()))
+        });
+        crate::session::standalone::bundle::drag_item(&w.url(self.server_base()), &title.unwrap_or_else(|| "Widget".to_owned()))
+    }
+
     fn post_message(&mut self, session: &str, message: &str, call: &str, value: Value, wake: bool) {
         let id = widget_key(message, call);
         // A fixture run or story has no server to take it: it is taken, as a server would.
@@ -221,6 +270,8 @@ impl Feature<App> for WidgetsFeature {
         builder.schedule(crate::tick::stage::INGEST_STREAM, "widgets.sync", |s, _, _| sync(s));
         builder.schedule(crate::tick::stage::INGEST_STREAM, "widgets.poll", |s, now, tx| poll(s, now, tx)).after("widgets.sync");
         // The storage spaces followed take what came in, whether or not a widget of theirs runs.
+        // A standalone widget's window opens and follows its widget (`standalone`).
+        builder.schedule(crate::tick::stage::INGEST_STREAM, "widgets.standalone", |s, _, _| crate::session::standalone::poll(s)).after("widgets.poll");
         builder.schedule(crate::tick::stage::INGEST_STREAM, "widgets.storage", |_, _, _| crate::session::widget_storage::poll()).after("widgets.poll");
         builder.add_rest("widgets.rest", |s, keep| rest(s, keep));
     }

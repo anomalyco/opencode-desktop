@@ -27,7 +27,7 @@ pub mod taskbar;
 pub mod tear;
 pub(crate) mod tear_stories;
 
-pub use open::new_window;
+pub use open::{new_window, open_standalone};
 #[cfg(not(target_arch = "wasm32"))]
 pub use open::{launch, open_rest, opened};
 pub use reopen::reopen;
@@ -63,6 +63,8 @@ pub struct Window {
     pub scale: f32,
     /// It holds the keyboard (`on_focus`): only then does it report what's seen as viewed.
     pub focused: bool,
+    /// The widget it shows alone, as a standalone widget's window (`session::standalone`).
+    pub standalone: Option<crate::session::standalone::Standalone>,
 }
 
 impl Window {
@@ -281,6 +283,11 @@ fn saved_ids() -> Vec<String> {
     OPEN.with(|o| o.borrow().iter().filter(|w| w.life.listed()).map(|w| w.id.clone()).collect())
 }
 
+/// The other open windows' apps, to tell them of something this one changed.
+pub fn others(id: &str) -> Vec<AppHandle<App>> {
+    OPEN.with(|o| o.borrow().iter().filter(|w| w.id != id && w.life != life::Life::Kept).map(|w| w.app.clone()).collect())
+}
+
 /// Window `id`'s native handle, while it's open (a kept window has closed: its frame was saved
 /// as it did).
 pub fn handle(id: &str) -> Option<WindowHandle> {
@@ -329,7 +336,7 @@ impl App {
             let id = self.window.id.clone();
             OPEN.with(|o| o.borrow_mut().iter_mut().filter(|w| w.id == id).for_each(|w| w.strip = None));
         }
-        if self.window.id.is_empty() || !self.persists() || (*self.clock - self.window.read_at.get()).abs() < 0.5 {
+        if self.window.id.is_empty() || !self.persists() || self.window.standalone.is_some() || (*self.clock - self.window.read_at.get()).abs() < 0.5 {
             return;
         }
         self.window.read_at.set(*self.clock);
@@ -383,7 +390,7 @@ impl App {
     /// this window's frame and everything it keeps go out now, so a quit, an update's restart or
     /// a Windows logoff opens every window again where it was.
     pub(crate) fn window_quitting(&mut self) {
-        if self.window.id.is_empty() || !self.persists() {
+        if self.window.id.is_empty() || !self.persists() || self.window.standalone.is_some() {
             return;
         }
         store::save_ids(&saved_ids());

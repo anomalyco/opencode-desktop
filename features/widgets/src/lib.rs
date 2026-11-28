@@ -35,7 +35,7 @@ pub use engine::{Compiled, Grants, Kind, LoadError, Program, compile, compile_as
 pub use opencode_widget::{RespondError, fixtures};
 pub use storage::StorageCopy;
 pub use instances::{Instances, InstancesError};
-pub use view::{instance_view, screen_key, screen_view, tile, view};
+pub use view::{instance_view, screen_key, screen_view, tile, view, window_view};
 /// The shader slots' GPU side, for the host's compositor.
 pub use opencode_widget_view::shader;
 
@@ -129,9 +129,17 @@ pub struct Widgets {
     outside: HashMap<&'static str, std::collections::HashSet<String>>,
     /// The server's widgets across its sessions, for views outside the timeline.
     pub instances: Instances,
+    /// Each widget's size in the timeline as last laid out (points), by key: what a window of
+    /// its own opens at.
+    laid: HashMap<String, [f32; 2]>,
 }
 
 impl Widgets {
+    /// Widget `id`'s size in the timeline as last laid out, in points.
+    pub fn laid(&self, id: &str) -> Option<[f32; 2]> {
+        self.laid.get(id).copied()
+    }
+
     pub fn entry(&self, id: &str) -> Option<&Entry> {
         self.entries.get(id)
     }
@@ -228,6 +236,24 @@ pub trait WidgetsHost {
     /// Hands a storage write of widget template `name` on `server` (`value` none: a delete) to its
     /// space's pending writes.
     fn storage_write(&mut self, server: &str, name: &str, key: String, value: Option<String>);
+    /// The host's own buttons on widget `id` of `session` where the timeline shows it (say "Move
+    /// to dashboard", "Extract as standalone app"); none by default.
+    fn widget_corner(&self, _session: &str, _id: &str) -> Vec<opencode_widget_view::Corner<Self>>
+    where
+        Self: Sized,
+    {
+        Vec::new()
+    }
+    /// Whether the timeline's widgets can be dragged out of the window
+    /// ([`WidgetsHost::widget_drag_out`]).
+    fn widget_drags_out(&self) -> bool {
+        false
+    }
+    /// What dragging widget `id` of `session` out of the window carries (say an app that starts
+    /// it standalone); `None`: no drag this time.
+    fn widget_drag_out(&self, _session: &str, _id: &str) -> Option<rune::DragItem> {
+        None
+    }
 }
 
 /// The one place a widget template's declared capabilities become what it may use. For now every

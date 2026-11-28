@@ -69,15 +69,18 @@ pub enum Place<S> {
     Elsewhere,
     /// Full screen, filling a window `size` points big; `close` leaves it.
     Screen { size: [f32; 2], close: Action<S> },
+    /// Filling a window of its own `size` points big (a standalone widget), which closes as any
+    /// window does.
+    Window { size: [f32; 2] },
 }
 
 /// Widget `id` (its key) of session `session`, called `label`, as `face` shows it, where
 /// `place` says; `chips` name the capabilities granted to it.
 #[allow(clippy::too_many_arguments)]
 pub fn frame<S: TimelineHost>(s: &S, p: &Pal, session: &str, id: &str, label: &str, face: Face<'_>, local: &Local, hooks: Option<&Hooks<S>>, place: Place<S>, chips: &[String]) -> El {
-    let fullscreen = matches!(place, Place::Screen { .. });
+    let fullscreen = matches!(place, Place::Screen { .. } | Place::Window { .. });
     let width = match &place {
-        Place::Screen { size, .. } => (size[0] - 2.0 * opencode_widget_view::PAD).max(200.0),
+        Place::Screen { size, .. } | Place::Window { size } => (size[0] - 2.0 * opencode_widget_view::PAD).max(200.0),
         Place::Tile { width, .. } => width.max(120.0),
         _ => crate::style::content_w(),
     };
@@ -95,7 +98,8 @@ pub fn frame<S: TimelineHost>(s: &S, p: &Pal, session: &str, id: &str, label: &s
     match place {
         Place::Inline(buttons) | Place::Tile { buttons, .. } => opencode_widget_view::frame(&look, local, hooks, face, label, buttons).key(format!("widget-{id}")),
         Place::Elsewhere => opencode_widget_view::placeholder(&look, label).key(format!("widget-{id}")),
-        Place::Screen { size, close } => opencode_widget_view::screen(&look, local, hooks, face, label, size[1], close).key(format!("widget-screen-{id}")),
+        Place::Screen { size, close } => opencode_widget_view::screen(&look, local, hooks, face, label, size[1], Some(close)).key(format!("widget-screen-{id}")),
+        Place::Window { size } => opencode_widget_view::screen(&look, local, hooks, face, label, size[1], None).key(format!("widget-window-{id}")),
     }
 }
 

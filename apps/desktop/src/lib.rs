@@ -317,10 +317,11 @@ pub fn run_native() {
     commit_pages_on_demand();
     #[cfg(feature = "alloc-sites")]
     plugin_host::memory::register_reports();
-    // A debug build COM starts for a proof's scratch toast activator (`LocalServer32`, whose
-    // command line is fixed in the registry and whose environment is the user's) takes its
-    // scratch root from the command line: it never runs without one. Release builds ignore it.
-    #[cfg(debug_assertions)]
+    // `--dirs-root=<folder>` puts every folder the app writes under one root (`RUNE_DIRS_ROOT`),
+    // its single-instance claim included (`launch::instance_id` follows the data folder), in every
+    // build: a second app beside the user's (a demo, a prototype) never touches their profile. A
+    // debug build COM starts for a proof's scratch toast activator (`LocalServer32`, whose command
+    // line is fixed in the registry and whose environment is the user's) takes it this way too.
     if let Some(root) = std::env::args().find_map(|a| a.strip_prefix("--dirs-root=").map(str::to_owned)) {
         // SAFETY: the first thing `main` does, before any other thread exists.
         #[allow(unsafe_code)]
