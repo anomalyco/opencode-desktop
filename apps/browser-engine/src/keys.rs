@@ -52,8 +52,12 @@ pub fn send_key(
         return;
     }
     let Some(name) = named else { return };
-    let Some((vk, mc, ch)) = named_codes(name) else { return };
+    let Some((vk, mc, mac_character)) = named_codes(name) else { return };
     let mc = native_key_code(vk, mc);
+    // CEF's macOS TranslateWebKeyEvent treats zero character fields as NSEventTypeFlagsChanged,
+    // even for KEYEVENT_KEYUP. Give named keys their AppKit character without emitting text.
+    let sends_char = name == "Enter";
+    let character = if cfg!(target_os = "macos") || sends_char { mac_character } else { 0 };
     let ty = if down {
         sys::cef_key_event_type_t::KEYEVENT_RAWKEYDOWN
     } else {
@@ -64,19 +68,19 @@ pub fn send_key(
         modifiers,
         windows_key_code: vk,
         native_key_code: mc,
-        character: ch.unwrap_or(0),
-        unmodified_character: ch.unwrap_or(0),
+        character,
+        unmodified_character: character,
         ..Default::default()
     };
     host.send_key_event(Some(&ev));
-    if down && let Some(c) = ch {
+    if down && sends_char {
         let chr = KeyEvent {
             type_: KeyEventType::from(sys::cef_key_event_type_t::KEYEVENT_CHAR),
             modifiers,
             windows_key_code: vk,
             native_key_code: mc,
-            character: c,
-            unmodified_character: c,
+            character,
+            unmodified_character: character,
             ..Default::default()
         };
         host.send_key_event(Some(&chr));

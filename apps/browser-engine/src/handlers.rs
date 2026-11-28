@@ -1430,34 +1430,35 @@ pub fn mac_key_code(ch: char) -> i32 {
     }
 }
 
-pub fn named_codes(name: &str) -> Option<(i32, i32, Option<u16>)> {
+/// Windows virtual key, macOS virtual key, and AppKit character (including function keys).
+pub fn named_codes(name: &str) -> Option<(i32, i32, u16)> {
     match name {
-        "Enter" => Some((0x0D, 36, Some('\r' as u16))),
-        "Backspace" => Some((0x08, 51, None)),
-        "Delete" => Some((0x2E, 117, None)),
-        "Tab" => Some((0x09, 48, None)),
-        "Escape" => Some((0x1B, 53, None)),
-        "ArrowLeft" => Some((0x25, 123, None)),
-        "ArrowRight" => Some((0x27, 124, None)),
-        "ArrowDown" => Some((0x28, 125, None)),
-        "ArrowUp" => Some((0x26, 126, None)),
-        "Home" => Some((0x24, 115, None)),
-        "End" => Some((0x23, 119, None)),
-        "PageUp" => Some((0x21, 116, None)),
-        "PageDown" => Some((0x22, 121, None)),
+        "Enter" => Some((0x0D, 36, 0x000D)),
+        "Backspace" => Some((0x08, 51, 0x007F)), // NSDeleteCharacter (backward delete)
+        "Delete" => Some((0x2E, 117, 0xF728)), // NSDeleteFunctionKey (forward delete)
+        "Tab" => Some((0x09, 48, 0x0009)),
+        "Escape" => Some((0x1B, 53, 0x001B)),
+        "ArrowLeft" => Some((0x25, 123, 0xF702)),
+        "ArrowRight" => Some((0x27, 124, 0xF703)),
+        "ArrowDown" => Some((0x28, 125, 0xF701)),
+        "ArrowUp" => Some((0x26, 126, 0xF700)),
+        "Home" => Some((0x24, 115, 0xF729)),
+        "End" => Some((0x23, 119, 0xF72B)),
+        "PageUp" => Some((0x21, 116, 0xF72C)),
+        "PageDown" => Some((0x22, 121, 0xF72D)),
         // Windows virtual-key codes 0x70..0x7B; macOS key codes (`kVK_F1`..`kVK_F12`).
-        "F1" => Some((0x70, 122, None)),
-        "F2" => Some((0x71, 120, None)),
-        "F3" => Some((0x72, 99, None)),
-        "F4" => Some((0x73, 118, None)),
-        "F5" => Some((0x74, 96, None)),
-        "F6" => Some((0x75, 97, None)),
-        "F7" => Some((0x76, 98, None)),
-        "F8" => Some((0x77, 100, None)),
-        "F9" => Some((0x78, 101, None)),
-        "F10" => Some((0x79, 109, None)),
-        "F11" => Some((0x7A, 103, None)),
-        "F12" => Some((0x7B, 111, None)),
+        "F1" => Some((0x70, 122, 0xF704)),
+        "F2" => Some((0x71, 120, 0xF705)),
+        "F3" => Some((0x72, 99, 0xF706)),
+        "F4" => Some((0x73, 118, 0xF707)),
+        "F5" => Some((0x74, 96, 0xF708)),
+        "F6" => Some((0x75, 97, 0xF709)),
+        "F7" => Some((0x76, 98, 0xF70A)),
+        "F8" => Some((0x77, 100, 0xF70B)),
+        "F9" => Some((0x78, 101, 0xF70C)),
+        "F10" => Some((0x79, 109, 0xF70D)),
+        "F11" => Some((0x7A, 103, 0xF70E)),
+        "F12" => Some((0x7B, 111, 0xF70F)),
         _ => None,
     }
 }
