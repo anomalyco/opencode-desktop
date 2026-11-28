@@ -185,9 +185,7 @@ fn sessions_column(s: &App, p: &Pal, selected: Option<&model::Project>, tier: Ti
     }
     // Headers and rows are siblings, as Desktop's are, so a stuck header stays until the next
     // one, drawn over it, takes its place; its title fades out as that one comes up
-    // (`home/scroll.ts`: by `stickyTop + 16` against the next header's offset in the list, which
-    // starts `list_top` down the page, over 16).
-    let list_top = tier.header_top() - if tier == Tier::Narrow { 4.0 } else { 12.0 };
+    // (`packages/app/src/home/scroll.ts`: `fadeEnd = stickyTop + 16` over 16, opencode#64665).
     let row_of = |ses: &SessionInfo| {
         let index = nav_ids.iter().position(|x| x == &ses.id).unwrap_or(0);
         list_row(s, p, ses, &nav_ids, index, show_project, labels_w, tier)
@@ -203,7 +201,7 @@ fn sessions_column(s: &App, p: &Pal, selected: Option<&model::Project>, tier: Ti
             .center_y()
             .fill(p.bg_base)
             .sticky_top(tier.header_top())
-            .stuck_fade(list_top + 16.0, 16.0)
+            .stuck_fade(16.0, 16.0)
             .child(text(title).font(HOME).color(p.muted))
             // `.home-session-group-header::before` and `::after` (`index.css:208-245`): a 12 pt
             // cover over the gap above it, and a 16 pt eased gradient into the rows under it; only
