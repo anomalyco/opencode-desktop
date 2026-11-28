@@ -140,6 +140,9 @@ fn field(a: &mut NodeArgs) -> Result<El, String> {
         if a.string("variant") == Some("bare") {
             return Ok(bare_field(a, edit, plugin, index));
         }
+        if a.flag("multiline") {
+            return Ok(multiline_field(a, edit, plugin, index));
+        }
         let edit_plugin = plugin.clone();
         let mut input = rune_kit::TextInput::new(edit)
             .placeholder(a.string("placeholder").unwrap_or_default().to_owned())
@@ -220,6 +223,66 @@ fn field(a: &mut NodeArgs) -> Result<El, String> {
         Ok(input.build(kit(&p(a))))
     })
     .ok_or_else(|| "ui.field draws only in a render".to_owned())?
+}
+
+/// `multiline`: official's `TextField multiline`, a `Kobalte.TextArea autoResize`
+/// (`packages/ui/src/components/text-field.tsx`). The field grows with its text; Enter inserts a
+/// line break and Mod+Enter fires the editor's `Submitted`, as the contract's `multiline` says. A
+/// multi-line `text_input` breaks a line natively only on Shift+Return and Option+Return and
+/// submits on plain Return (`rune::el::input`), so plain Return comes back through `on_submit`
+/// and inserts the break here, as the question dock's typed answer does
+/// (`session_view::dock::question::insert_typed_newline`).
+fn multiline_field(a: &NodeArgs, edit: &rune::TextEdit, plugin: String, index: usize) -> El {
+    let handed = handed_keys(a);
+    let read_only = a.flag("readOnly");
+    // A browser textarea starts two rows tall (`rows="2"`); a `small` field starts at one row, as
+    // tall as its single-line form, and grows from there. Past 20 lines it scrolls inside. Reading
+    // `size` here also keeps it from being decoded as the node's font size.
+    let min_rows = if a.string("size") == Some("small") { 1 } else { 2 };
+    let (edit_plugin, break_plugin, key_plugin) = (plugin.clone(), plugin.clone(), plugin);
+    let mut area = rune_kit::TextArea::new(edit)
+        .placeholder(a.string("placeholder").unwrap_or_default().to_owned())
+        .invalid(a.flag("invalid"))
+        .disabled(a.flag("disabled"))
+        .read_only(read_only)
+        .auto_grow(min_rows, 20);
+    if let Some(w) = a.number("w").filter(|w| *w > 0.0) {
+        area = area.width(Some(w as f32));
+    } else if a.string("w") == Some("full") {
+        area = area.width(None);
+    }
+    // A read-only field draws as usual and takes no edit.
+    if !read_only {
+        area = area
+            .on_edit(move |app: &mut App| {
+                super::editors::note_side_field(app, &edit_plugin);
+                super::editors::get_mut(app, &edit_plugin, index)
+            })
+            .on_submit(move |app: &mut App, tx: &mut Tx| {
+                super::editors::get_mut(app, &break_plugin, index).insert("\n");
+                input_changed(app, &break_plugin, index, tx);
+            });
+    }
+    area = area.on_key(move |app: &mut App, ev: &rune::KeyEvent, tx: &mut Tx| {
+        // Keys during IME composition belong to the candidate window.
+        if super::editors::is_composing(app, &key_plugin, index) {
+            return false;
+        }
+        if ev.key == rune::Key::Enter && (ev.mods.cmd || ev.mods.ctrl) && !ev.mods.alt && !ev.mods.shift {
+            tx.instant();
+            submitted(app, &key_plugin, index, tx);
+            return true;
+        }
+        let Some(&(_, _, name)) = handed.iter().find(|(key, shift, _)| {
+            ev.key == *key && ev.mods.shift == *shift && !ev.mods.cmd && !ev.mods.ctrl && !ev.mods.alt
+        }) else {
+            return false;
+        };
+        tx.instant();
+        key_pressed(app, &key_plugin, index, name, tx);
+        true
+    });
+    area.build(kit(&p(a)))
 }
 
 /// The `bare` variant: the text, caret and selection alone at 13 / 440 (tracking -0.04), on no
