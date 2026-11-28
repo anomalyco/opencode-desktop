@@ -294,7 +294,6 @@ fn build<S: PopupHost + 'static>(
                         .size(20.0, 20.0)
                         .radius(999.0)
                         .center()
-                        .cursor(rune::Cursor::Pointer)
                         .hover_fill(p.hover)
                         .press(p.pressed)
                         .child(dot);
