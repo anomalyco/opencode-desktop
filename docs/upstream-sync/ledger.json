@@ -5,7 +5,7 @@
   "upstream_head": "c7c2881c66361e4862049e927a11b164f1b2628e",
   "upstream_pre_window_base": "3751be8138ebcf33343eb3f3d011b32fc814103c",
   "rune_desktop_repo": "anomalyco/opencode-rune",
-  "rune_desktop_head": "c4778b9e85",
+  "rune_desktop_head": "720ad556cb",
   "post_1114_commit_count": 862,
   "post_1114_in_ledger": 331,
   "post_1114_skipped": 531,
@@ -20,11 +20,11 @@
   "pre_1114_carryover_rows": 15,
   "total_ledger_rows": 352,
   "status_counts": {
-    "have it": 264,
+    "have it": 266,
     "not applicable": 84,
     "differs on purpose": 1,
     "partly": 1,
-    "missing": 2
+    "missing": 0
   },
   "rows": [
     {
@@ -8809,15 +8809,14 @@
       ],
       "summary": "Allows tool-group titles to shrink and truncate with ellipsis instead of overflowing when a group names many tools.",
       "size": "XS",
-      "status": "missing",
+      "status": "have it",
       "rune_files": [
         "crates/session-view/src/turns/view.rs"
       ],
-      "status_evidence": "Ported in open PR #1582 (head 9bca115dc1): adds .w_full().min_w(0.0) on tool-group trigger and .shrink().min_w(0.0) on used_words title in crates/session-view/src/turns/view.rs.",
+      "status_evidence": "Merged in #1582 (dev 720ad556cb, head 9bca115dc1, CI run 46161927138 green across guardrails + macOS/Win x64/Win arm64/Linux x64; Linux arm64 skipped): adds .w_full().min_w(0.0) on tool-group trigger and .shrink().min_w(0.0) on used_words title in crates/session-view/src/turns/view.rs.",
       "depends_on": "none",
       "risks": "none",
-      "workstream": "UPSTREAM",
-      "open_pr": "#1582"
+      "workstream": "UPSTREAM"
     },
     {
       "id": "UP-331",
@@ -8837,7 +8836,7 @@
       ],
       "summary": "Prevents the no-tabs session-list layout from opening session tabs when routing or sending, opens the active session's tab when leaving that layout, and disables tab close/reopen shortcuts in that layout.",
       "size": "S",
-      "status": "missing",
+      "status": "have it",
       "rune_files": [
         "apps/desktop/src/session/meta/open.rs",
         "apps/desktop/src/shell/nav/layout_state.rs",
@@ -8845,11 +8844,10 @@
         "apps/desktop/src/shell/commands/mod.rs",
         "apps/desktop/src/workspace/windows/close.rs"
       ],
-      "status_evidence": "Ported in open PR #1582 (head 9bca115dc1): skips adding session tabs while in TabLayout::Inbox, adds ensure_routed_session_tab() when leaving TabLayout::Inbox, and disables Mod+W/Mod+Alt+W/Mod+Shift+T tab commands in TabLayout::Inbox.",
+      "status_evidence": "Merged in #1582 (dev 720ad556cb, head 9bca115dc1, CI run 46161927138 green across guardrails + macOS/Win x64/Win arm64/Linux x64; Linux arm64 skipped): skips pushing Tab::session while in TabLayout::Inbox (open_inbox_session, open_now, open_in_background, promote_draft), adds ensure_routed_session_tab() on leaving TabLayout::Inbox, routes to Home when archiving the last session without a tab, and disables Mod+W/Mod+Alt+W/Mod+Shift+T tab commands in TabLayout::Inbox.",
       "depends_on": "none",
       "risks": "none",
-      "workstream": "UPSTREAM",
-      "open_pr": "#1582"
+      "workstream": "UPSTREAM"
     }
   ],
   "browser_security_review": {
