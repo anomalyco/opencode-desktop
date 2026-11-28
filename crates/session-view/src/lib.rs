@@ -206,6 +206,11 @@ pub trait TimelineHost: Sized + 'static {
     fn session_waiting(&self, _session: &str) -> Option<working::Waiting> {
         None
     }
+    /// How many subagents alone keep session `session` live: its own turn has stopped and it
+    /// waits to hear back from them, which its status line says in place of Working.
+    fn subagents_awaited(&self, _session: &str) -> usize {
+        0
+    }
     fn session_revert(&self, _session: &str) -> Option<&str> {
         None
     }
