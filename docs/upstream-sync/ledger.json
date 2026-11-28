@@ -2,12 +2,12 @@
   "generated_at": "2026-11-29",
   "upstream_repo": "anomalyco/opencode",
   "upstream_reference_base": "f6e0c2d0833ffe772035f221fed923e1cd5fb408",
-  "upstream_head": "c7c2881c66361e4862049e927a11b164f1b2628e",
+  "upstream_head": "cc0677159ed1b2b5014d35a88bf51748fcc373b1",
   "upstream_pre_window_base": "3751be8138ebcf33343eb3f3d011b32fc814103c",
   "rune_desktop_repo": "anomalyco/opencode-rune",
-  "rune_desktop_head": "720ad556cb",
-  "post_1114_commit_count": 862,
-  "post_1114_in_ledger": 331,
+  "rune_desktop_head": "3c2838e560",
+  "post_1114_commit_count": 863,
+  "post_1114_in_ledger": 332,
   "post_1114_skipped": 531,
   "post_1114_skipped_breakdown": {
     "test-only": 38,
@@ -18,10 +18,10 @@
     "server-core-ai-codemode-internal": 311
   },
   "pre_1114_carryover_rows": 15,
-  "total_ledger_rows": 352,
+  "total_ledger_rows": 353,
   "status_counts": {
     "have it": 266,
-    "not applicable": 84,
+    "not applicable": 85,
     "differs on purpose": 1,
     "partly": 1,
     "missing": 0
@@ -8813,7 +8813,7 @@
       "rune_files": [
         "crates/session-view/src/turns/view.rs"
       ],
-      "status_evidence": "Merged in #1582 (dev 720ad556cb, head 9bca115dc1, CI run 46161927138 green across guardrails + macOS/Win x64/Win arm64/Linux x64; Linux arm64 skipped): adds .w_full().min_w(0.0) on tool-group trigger and .shrink().min_w(0.0) on used_words title in crates/session-view/src/turns/view.rs.",
+      "status_evidence": "Merged in #1582 (dev 720ad556cb, head 9bca115dc1, CI run 46161927138 green across guardrails + macOS/Win x64/Win arm64/Linux x64; Linux arm64 skipped): adds .w_full().min_w(0.0) on tool-group trigger and .shrink().min_w(0.0) on used_words title in crates/session-view/src/turns/view.rs. Verified headless on Windows x64 PR build (run 46161927138, peak <= 0.45 GiB): 10-tool group trigger stays bounded at [102,200,696,28] with chevron at [782,206,16,16] and clean fade truncation. Not run: real window, macOS, Linux.",
       "depends_on": "none",
       "risks": "none",
       "workstream": "UPSTREAM"
@@ -8844,7 +8844,28 @@
         "apps/desktop/src/shell/commands/mod.rs",
         "apps/desktop/src/workspace/windows/close.rs"
       ],
-      "status_evidence": "Merged in #1582 (dev 720ad556cb, head 9bca115dc1, CI run 46161927138 green across guardrails + macOS/Win x64/Win arm64/Linux x64; Linux arm64 skipped): skips pushing Tab::session while in TabLayout::Inbox (open_inbox_session, open_now, open_in_background, promote_draft), adds ensure_routed_session_tab() on leaving TabLayout::Inbox, routes to Home when archiving the last session without a tab, and disables Mod+W/Mod+Alt+W/Mod+Shift+T tab commands in TabLayout::Inbox.",
+      "status_evidence": "Merged in #1582 (dev 720ad556cb, head 9bca115dc1, CI run 46161927138 green across guardrails + macOS/Win x64/Win arm64/Linux x64; Linux arm64 skipped): skips pushing Tab::session while in TabLayout::Inbox (open_inbox_session, open_now, open_in_background, promote_draft), adds ensure_routed_session_tab() on leaving TabLayout::Inbox, routes to Home when archiving the last session without a tab, and disables Mod+W/Mod+Alt+W/Mod+Shift+T tab commands in TabLayout::Inbox. Verified headless on Windows x64 PR build (run 46161927138, peak <= 0.45 GiB): navigating untabbed sessions in TabLayout::Inbox creates 0 tabs (tabs=8 vs tabs=9 before), leaving TabLayout::Inbox opens the active session's root tab (tabs=9), and Ctrl+W stays a no-op in TabLayout::Inbox. Not run: real window, macOS, Linux.",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "UPSTREAM"
+    },
+    {
+      "id": "UP-332",
+      "window": "post-1120",
+      "pr": 66918,
+      "sha": "cc0677159e",
+      "title": "fix(session-ui): keep subagent cards apart in the current timeline",
+      "merged": "2026-11-28",
+      "packages": [
+        "session-ui"
+      ],
+      "main_files": [
+        "packages/session-ui/src/components/message-part.css"
+      ],
+      "summary": "Excludes legacy task-tool-card triggers from the current-timeline (:not([data-timeline=\"next\"])) 28px/negative-margin CSS rule so consecutive subagent cards keep vertical spacing.",
+      "size": "XS",
+      "status": "not applicable",
+      "status_evidence": "Not applicable to Rune desktop: official CSS fix targets only the legacy current timeline ([data-timeline-row=\"AssistantPart\"]:not([data-timeline=\"next\"]) task-tool-card in packages/session-ui/src/components/message-part.css:2182); Rune renders only the New timeline (event_row::subagent in crates/session-view/src/turns/view.rs:623) with explicit M=20pt rhythm spacing in crates/session-view/src/timeline/rhythm.rs:178.",
       "depends_on": "none",
       "risks": "none",
       "workstream": "UPSTREAM"
