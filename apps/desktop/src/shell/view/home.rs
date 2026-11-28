@@ -193,7 +193,7 @@ fn sessions_column(s: &App, p: &Pal, selected: Option<&model::Project>, tier: Ti
     for (n, group) in groups.iter().enumerate() {
         let title = group.title;
         // `sticky h-7 ps-1.5 md:ps-3`, the label `text-muted [font-weight:440]`.
-        let head = row()
+        let mut head = row()
             .key(format!("h-{title}"))
             .w_full()
             .h(28.0)
@@ -202,12 +202,16 @@ fn sessions_column(s: &App, p: &Pal, selected: Option<&model::Project>, tier: Ti
             .fill(p.bg_base)
             .sticky_top(tier.header_top())
             .stuck_fade(16.0, 16.0)
-            .child(text(title).font(HOME).color(p.muted))
-            // `.home-session-group-header::before` and `::after` (`index.css:208-245`): a 12 pt
-            // cover over the gap above it, and a 16 pt eased gradient into the rows under it; only
-            // the title fades as the next header comes up.
-            .child(el().key("cover").absolute(0.0, -12.0).w_full().h(12.0).fill(p.bg_base))
-            .child(el().key("shade").absolute(0.0, 28.0).w_full().h(16.0).linear_gradient(std::f32::consts::PI, session_view::style::eased_fade(p.bg_base)));
+            .child(text(title).font(HOME).color(p.muted));
+        if n == 0 {
+            // Only the first header carries `.home-session-group-header::before` and `::after`
+            // (`packages/app/src/home/sessions/view.tsx` `elevated={index === 0}`,
+            // `index.css:208-245`): a 12 pt cover above and 16 pt eased gradient below. It stays
+            // stuck behind later headers while rising headers keep clear of the fading title.
+            head = head
+                .child(el().key("cover").absolute(0.0, -12.0).w_full().h(12.0).fill(p.bg_base))
+                .child(el().key("shade").absolute(0.0, 28.0).w_full().h(16.0).linear_gradient(std::f32::consts::PI, session_view::style::eased_fade(p.bg_base)));
+        }
         // `gap-px pt-2 md:pt-4`, `mb-6` but the last. Rows are the list's own children, so one
         // that changes day glides to its new group rather than leaving one and entering another.
         list = list.child(head).child(el().key(format!("pad-{title}")).w_full().h(if tier == Tier::Narrow { 8.0 } else { 16.0 }));
