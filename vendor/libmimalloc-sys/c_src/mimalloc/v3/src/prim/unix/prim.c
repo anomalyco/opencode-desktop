@@ -220,13 +220,19 @@ void _mi_prim_mem_init( mi_os_mem_config_t* config )
   config->has_transparent_huge_pages = unix_detect_thp();
 
   // disable transparent huge pages for mimalloc mappings?
-  // rune-desktop: mark THP disabled in config without calling prctl(PR_SET_THP_DISABLE, 1),
-  // which is inherited across fork/exec into user terminals and child processes. Instead,
-  // unix_mmap applies MADV_NOHUGEPAGE per-VMA to mimalloc's own mappings.
+  // rune-desktop: on desktop Linux, mark THP disabled in config without calling
+  // prctl(PR_SET_THP_DISABLE, 1), which is inherited across fork/exec into user terminals
+  // and child processes. Instead, unix_mmap applies MADV_NOHUGEPAGE per-VMA to mimalloc's
+  // own mappings. Android keeps upstream's prctl behavior unchanged.
   #if defined(__linux__) || defined(__ANDROID__)
   if (!mi_option_is_enabled(mi_option_allow_thp)) // disable THP if requested through an option
   {
     config->has_transparent_huge_pages = false;
+    #if defined(__ANDROID__) && defined(PR_GET_THP_DISABLE)
+    if (prctl(PR_GET_THP_DISABLE, 0, 0, 0, 0) == 0) {   // -1 on error, 1 if already disabled
+      (void)prctl(PR_SET_THP_DISABLE, 1, 0, 0, 0);
+    }
+    #endif
   }
   #endif
 }

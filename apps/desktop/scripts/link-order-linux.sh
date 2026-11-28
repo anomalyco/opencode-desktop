@@ -82,8 +82,9 @@ fi
 
 order=$(mktemp "${TMPDIR:-/tmp}/opencode-order.XXXXXX") || exec cc "$@"
 trap 'rm -f "$order" "$order.ranked"' EXIT
-# nm prints an archive's member names and its complaints about members that are not objects: only
-# lines that are Rust names (or main) pass. The two patterns are the list's own (startup-order.sh).
+# nm prints archive member headers (ending in ':') and complaints about non-object members: skip
+# headers and whitespace, and match any listed symbol (Rust, C, or main). The two regexes in plain()
+# are the list's own (startup-order.sh).
 { nm --defined-only --format=just-symbols "${objects[@]}" 2>/dev/null || true; } | awk -v list="$list" '
   function plain(name) {
     sub(/\.llvm\.[0-9]+$/, "", name)
@@ -94,19 +95,17 @@ trap 'rm -f "$order" "$order.ranked"' EXIT
   BEGIN {
     while ((getline line < list) > 0) if (line != "" && line !~ /^#/ && !(line in rank)) rank[line] = ++count
   }
-  $0 != "" { key = plain($0); if (key in rank && !($0 in seen)) { seen[$0] = 1; print rank[key] "\t" $0 } }
+  $0 != "" && $0 !~ /[:[:space:]]/ { key = plain($0); if (key in rank && !($0 in seen)) { seen[$0] = 1; print rank[key] "\t" $0 } }
 ' | sort -n -s -k1,1 > "$order.ranked"
 cut -f2 "$order.ranked" > "$order"
 found=$(cut -f1 "$order.ranked" | uniq | wc -l | tr -d ' ')
 listed=$(grep -c -v -e '^#' -e '^$' "$list")
 if [ ! -s "$order" ]; then
-  note "none of the $listed listed functions are in this build; linked with safe ICF only"
-  cc "$@" -Wl,--icf=safe && exit 0
+  note "none of the $listed listed functions are in this build; linked without the order"
   exec cc "$@"
 fi
 note "$found of $listed listed functions are in this build ($(wc -l < "$order" | tr -d ' ') symbols)"
-# Safe ICF folds identical monomorphized functions whose address is not taken, shrinking .text
-# before laying out startup symbols. Fall back cleanly if the linker rejects either flag.
-cc "$@" -Wl,--icf=safe -Wl,--symbol-ordering-file="$order" -Wl,--no-warn-symbol-ordering && exit 0
+# A link that fails with the order is made again without it, with the arguments as they came.
+cc "$@" -Wl,--symbol-ordering-file="$order" -Wl,--no-warn-symbol-ordering && exit 0
 note "THE LINK FAILED WITH THE ORDER FILE; linking without it"
 exec cc "$@"

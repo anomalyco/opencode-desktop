@@ -343,148 +343,23 @@ fn retain_global_user_messages(s: &App) {
     opencode_kit::model::retain_user_messages(&|id| messages.contains(id));
 }
 
+/// Bounds glibc's per-thread C-library arenas at startup on Linux/glibc before worker threads
+/// spawn, unless the caller explicitly configured `MALLOC_ARENA_MAX` or `GLIBC_TUNABLES`.
+/// Four arenas accommodate concurrent Mesa/Vulkan shader-compile, GLib/GIO, and fontconfig
+/// threads without letting 30+ app threads allocate unbounded 64 MiB glibc arenas.
 #[cfg(all(target_os = "linux", target_env = "gnu"))]
-mod linux_glibc {
-    use std::sync::{Mutex, OnceLock};
-    use std::time::{Duration, Instant};
-
-    /// glibc `M_ARENA_MAX` from `<malloc.h>`: caps per-thread 64 MiB C-library arenas.
-    const M_ARENA_MAX: libc::c_int = -8;
-    /// Two arenas suffice for Mesa/Vulkan, fontconfig, and GLib/GIO without 30+ thread bloat.
-    const MAX_ARENAS: libc::c_int = 2;
-    /// Cooldown between completed off-thread `malloc_trim(0)` sweeps, matching Rune's rest trim.
-    const TRIM_COOLDOWN: Duration = Duration::from_secs(30);
-
-    type MalloptFn = unsafe extern "C" fn(libc::c_int, libc::c_int) -> libc::c_int;
-    type MallocTrimFn = unsafe extern "C" fn(libc::size_t) -> libc::c_int;
-
-    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-    enum TrimState {
-        Idle { last_done: Option<Instant> },
-        Running,
-    }
-
-    enum TrimEvent {
-        Requested { now: Instant },
-        Finished { now: Instant },
-    }
-
-    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-    enum TrimEffect {
-        None,
-        Spawn,
-    }
-
-    fn step_trim(state: &mut TrimState, event: TrimEvent) -> TrimEffect {
-        match (*state, event) {
-            (TrimState::Idle { last_done: None }, TrimEvent::Requested { .. }) => {
-                *state = TrimState::Running;
-                TrimEffect::Spawn
-            }
-            (TrimState::Idle { last_done: Some(at) }, TrimEvent::Requested { now })
-                if now.saturating_duration_since(at) >= TRIM_COOLDOWN =>
-            {
-                *state = TrimState::Running;
-                TrimEffect::Spawn
-            }
-            (TrimState::Idle { .. } | TrimState::Running, TrimEvent::Requested { .. }) => {
-                TrimEffect::None
-            }
-            (_, TrimEvent::Finished { now }) => {
-                *state = TrimState::Idle { last_done: Some(now) };
-                TrimEffect::None
-            }
-        }
-    }
-
-    fn state_lock() -> &'static Mutex<TrimState> {
-        static STATE: OnceLock<Mutex<TrimState>> = OnceLock::new();
-        STATE.get_or_init(|| Mutex::new(TrimState::Idle { last_done: None }))
-    }
-
-    #[allow(unsafe_code)]
-    fn resolve_malloc_trim() -> Option<MallocTrimFn> {
-        static FN: OnceLock<Option<MallocTrimFn>> = OnceLock::new();
-        *FN.get_or_init(|| {
-            // SAFETY: looking up glibc's `malloc_trim` in the default symbol scope; signature
-            // matches `int malloc_trim(size_t pad)` in `<malloc.h>`.
-            let sym = unsafe { libc::dlsym(libc::RTLD_DEFAULT, c"malloc_trim".as_ptr()) };
-            (!sym.is_null()).then(|| unsafe { std::mem::transmute::<*mut libc::c_void, MallocTrimFn>(sym) })
-        })
-    }
-
-    fn trim_opted_out() -> bool {
-        static OPT_OUT: OnceLock<bool> = OnceLock::new();
-        *OPT_OUT.get_or_init(|| {
-            std::env::var_os("OPENCODE_RUNE_MALLOC_TRIM").is_some_and(|v| v == "0")
-                || std::env::var_os("RUNE_MALLOC_TRIM").is_some_and(|v| v == "0")
-        })
-    }
-
-    /// Bounds glibc's per-thread C-library arenas at startup before worker threads spawn, unless
-    /// the caller explicitly configured `MALLOC_ARENA_MAX`.
-    #[allow(unsafe_code)]
-    pub(crate) fn bound_arenas() {
-        if std::env::var_os("MALLOC_ARENA_MAX").is_some() {
-            return;
-        }
-        // SAFETY: looking up glibc's `mallopt` in the default symbol scope; `M_ARENA_MAX` (-8)
-        // takes an `int` arena cap and is safe to call before worker threads start.
-        unsafe {
-            let sym = libc::dlsym(libc::RTLD_DEFAULT, c"mallopt".as_ptr());
-            if !sym.is_null() {
-                let mallopt: MalloptFn = std::mem::transmute(sym);
-                let _ = mallopt(M_ARENA_MAX, MAX_ARENAS);
-            }
-        }
-    }
-
-    /// Trims freed pages from glibc's C-library arenas (Mesa/Vulkan, GLib/GIO, fontconfig) on a
-    /// low-priority background thread with a 30 s cooldown. Rune's built-in rest trim skips under
-    /// a custom `#[global_allocator]` (mimalloc), leaving C-library arenas untrimmed.
-    #[allow(unsafe_code)]
-    pub(crate) fn schedule_trim() {
-        if trim_opted_out() {
-            return;
-        }
-        let Some(malloc_trim) = resolve_malloc_trim() else {
-            return;
-        };
-        let effect = {
-            let mut st = state_lock().lock().unwrap_or_else(|e| e.into_inner());
-            step_trim(&mut st, TrimEvent::Requested { now: Instant::now() })
-        };
-        if effect != TrimEffect::Spawn {
-            return;
-        }
-        let spawned = std::thread::Builder::new()
-            .name("glibc-trim".into())
-            .spawn(move || {
-                // Lower priority so trimming never competes with UI frames; refusal is harmless.
-                // SAFETY: sets niceness for this thread's own kernel tid.
-                unsafe {
-                    libc::setpriority(libc::PRIO_PROCESS, libc::gettid() as libc::id_t, 10);
-                }
-                // SAFETY: `malloc_trim(0)` is thread-safe in glibc and returns free arena pages.
-                unsafe {
-                    let _ = malloc_trim(0);
-                }
-                let mut st = state_lock().lock().unwrap_or_else(|e| e.into_inner());
-                let _ = step_trim(&mut st, TrimEvent::Finished { now: Instant::now() });
-            });
-        if spawned.is_err() {
-            let mut st = state_lock().lock().unwrap_or_else(|e| e.into_inner());
-            let _ = step_trim(&mut st, TrimEvent::Finished { now: Instant::now() });
-        }
-    }
-}
-
-#[cfg(all(target_os = "linux", target_env = "gnu"))]
+#[allow(unsafe_code)]
 pub(crate) fn bound_glibc_arenas() {
-    linux_glibc::bound_arenas();
-}
-
-#[cfg(all(target_os = "linux", target_env = "gnu"))]
-pub(crate) fn schedule_glibc_trim() {
-    linux_glibc::schedule_trim();
+    const MAX_ARENAS: libc::c_int = 4;
+    if std::env::var_os("MALLOC_ARENA_MAX").is_some() {
+        return;
+    }
+    if std::env::var("GLIBC_TUNABLES").is_ok_and(|v| v.contains("glibc.malloc.arena_max")) {
+        return;
+    }
+    // SAFETY: `mallopt(M_ARENA_MAX, 4)` is a standard glibc tuning call invoked once at startup
+    // before worker threads spawn; failure is harmless and ignored.
+    unsafe {
+        let _ = libc::mallopt(libc::M_ARENA_MAX, MAX_ARENAS);
+    }
 }
