@@ -2,12 +2,12 @@
   "generated_at": "2026-11-29",
   "upstream_repo": "anomalyco/opencode",
   "upstream_reference_base": "f6e0c2d0833ffe772035f221fed923e1cd5fb408",
-  "upstream_head": "cc0677159ed1b2b5014d35a88bf51748fcc373b1",
+  "upstream_head": "22ab0613120d3078af7eac93359bffbf342b8afd",
   "upstream_pre_window_base": "3751be8138ebcf33343eb3f3d011b32fc814103c",
   "rune_desktop_repo": "anomalyco/opencode-rune",
-  "rune_desktop_head": "bb3fd0c92e",
-  "post_1114_commit_count": 863,
-  "post_1114_in_ledger": 332,
+  "rune_desktop_head": "32277d402c",
+  "post_1114_commit_count": 864,
+  "post_1114_in_ledger": 333,
   "post_1114_skipped": 531,
   "post_1114_skipped_breakdown": {
     "test-only": 38,
@@ -18,10 +18,10 @@
     "server-core-ai-codemode-internal": 311
   },
   "pre_1114_carryover_rows": 15,
-  "total_ledger_rows": 353,
+  "total_ledger_rows": 354,
   "status_counts": {
     "have it": 266,
-    "not applicable": 85,
+    "not applicable": 86,
     "differs on purpose": 1,
     "partly": 1,
     "missing": 0
@@ -8867,6 +8867,27 @@
       "status": "not applicable",
       "status_evidence": "Not applicable to Rune desktop: official CSS fix targets only the legacy current timeline ([data-timeline-row=\"AssistantPart\"]:not([data-timeline=\"next\"]) task-tool-card in packages/session-ui/src/components/message-part.css:2182); Rune renders only the New timeline (event_row::subagent in crates/session-view/src/turns/view.rs:623) with explicit M=20pt rhythm spacing in crates/session-view/src/timeline/rhythm.rs:178. [verified-hunks]",
       "depends_on": "none",
+      "risks": "none",
+      "workstream": "UPSTREAM"
+    },
+    {
+      "id": "UP-333",
+      "window": "post-1120",
+      "pr": 67006,
+      "sha": "22ab061312",
+      "title": "fix(session-ui): fix current-timeline error card trigger height and tighten subagent tests",
+      "merged": "2026-11-28",
+      "packages": [
+        "session-ui"
+      ],
+      "main_files": [
+        "packages/session-ui/src/components/message-part.css"
+      ],
+      "summary": "Follow-up to #66918 inside the legacy current-timeline (:not([data-timeline=\"next\"])) CSS block wrapping :has(task-tool-card) in :where() and restoring 28px trigger height on legacy tool-error-card triggers.",
+      "size": "XS",
+      "status": "not applicable",
+      "status_evidence": "Not applicable to Rune desktop: official CSS change is strictly inside the legacy current-timeline block ([data-timeline-row=\"AssistantPart\"]:not([data-timeline=\"next\"]) in packages/session-ui/src/components/message-part.css:2182-2201); Rune renders only the New timeline in crates/session-view.",
+      "depends_on": "UP-332",
       "risks": "none",
       "workstream": "UPSTREAM"
     }
