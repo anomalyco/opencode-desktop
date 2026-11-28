@@ -5,7 +5,7 @@
   "upstream_head": "5410c21e3ea8a2e910157ba876ca1c41d3d798d9",
   "upstream_pre_window_base": "3751be8138ebcf33343eb3f3d011b32fc814103c",
   "rune_desktop_repo": "anomalyco/opencode-rune",
-  "rune_desktop_head": "2ba252006d",
+  "rune_desktop_head": "c83e0e2e12",
   "post_1114_commit_count": 835,
   "post_1114_in_ledger": 287,
   "post_1114_skipped": 548,
@@ -6803,7 +6803,7 @@
       "summary": "Displays image attachments returned in tool call results as clickable 88 px 3:2 thumbnail tiles below the tool call in the timeline (fetching media: refs or inline data: images from the tool result on demand and opening the image preview on click).",
       "size": "M",
       "status": "have it",
-      "status_evidence": "Ported in opencode-rune #1321 (b60e692ec, head 3d13135037, CI run 45848899722 green across guardrails + macOS/Win x64/Win arm64/Linux x64; Linux arm64 skipped) on top of Rune's existing Part::Tool.files parsing, RowContent::ToolImages, and images::gallery bento grid + lightbox: removed duplicate step-images-* inside open Block::Group (crates/session-view/src/turns/view.rs), rendered failed image refs as retryable OUTLINE_PHOTO button tiles with pointer cursor (crates/session-view/src/images/mod.rs, timeline/attachments.rs, scripts/cursor-allow.txt), and guarded grouped_read with !images::shows(files) (crates/session-view/src/turns/mod.rs). Official: packages/session-ui/src/tools/tool-result-images.tsx, timeline-next/tools/{tool-display,context-group}.tsx, components/message-part.css. Verified headless on Windows x64 PR build (--scene tool-result-images), all 3/3 cases pass: folded group shows loaded PNG + retryable failed tile, expanding group shows zero duplicate step-images-*, clicking loaded tile opens full-size image-preview lightbox. Not run: real window, macOS, Linux.",
+      "status_evidence": "Ported in opencode-rune #1321 (b60e692ec, head 3d13135037, CI run 45848899722 green across guardrails + macOS/Win x64/Win arm64/Linux x64; Linux arm64 skipped) on top of Rune's existing Part::Tool.files parsing, RowContent::ToolImages, and images::gallery bento grid + lightbox: removed duplicate step-images-* inside open Block::Group (crates/session-view/src/turns/view.rs), rendered failed image refs as retryable OUTLINE_PHOTO button tiles with pointer cursor (crates/session-view/src/images/mod.rs, timeline/attachments.rs, scripts/cursor-allow.txt), and guarded grouped_read with !images::shows(files) (crates/session-view/src/turns/mod.rs). Official: packages/session-ui/src/tools/tool-result-images.tsx, timeline-next/tools/{tool-display,context-group}.tsx, components/message-part.css. Verified headless on Windows x64 PR build (--scene tool-result-images), all 3/3 cases pass: folded group shows loaded PNG + retryable failed tile, expanding group shows zero duplicate step-images-*, clicking loaded tile opens full-size image-preview lightbox. Not run: real window, macOS, Linux. Follow-up #1476 (dev c83e0e2e1) restored tool-result image tile hover border parity.",
       "depends_on": "none",
       "risks": "none",
       "workstream": "UPSTREAM"
@@ -7734,7 +7734,7 @@
         "features/settings/src/jobs.rs",
         "features/settings/src/pages/extensions.rs"
       ],
-      "status_evidence": "Merged in #1474 (dev 2ba252006d, head 84d6a6951e, CI run 46084604472 green across guardrails + macOS/Win x64/Win arm64/Linux x64; Linux arm64 skipped): wires command.updated, skill.updated, and agent.updated (directory-scoped and locationless) in apps/desktop/src/session/events/mod.rs to invalidate Slash, step CatalogEvent::Invalidated in Mentions (with live poll re-fetch when open), and reload Settings Extensions skills.",
+      "status_evidence": "Merged in #1474 (dev 2ba252006d, head 84d6a6951e, CI run 46084604472 green across guardrails + macOS/Win x64/Win arm64/Linux x64; Linux arm64 skipped): wires command.updated, skill.updated, and agent.updated (directory-scoped and locationless) in apps/desktop/src/session/events/mod.rs to invalidate Slash, step CatalogEvent::Invalidated in Mentions (with live poll re-fetch when open), and reload Settings Extensions skills. Post-merge verified headless on Windows x64 PR build (run 46084604472, peak <= 0.83 GiB): typing '/' fetches /api/command #1, locationless SSE command.updated immediately triggers /api/command #2 and populates /deferred-plugin-cmd live while the slash menu is open (before build stayed stale). Not run: real window, macOS, Linux.",
       "depends_on": "none",
       "risks": "none",
       "workstream": "UPSTREAM"
@@ -7795,7 +7795,7 @@
         "apps/desktop/src/shell/view/sidebar.rs",
         "features/settings/src/lib.rs"
       ],
-      "status_evidence": "Merged in #1471 (dev 4b446fe3be): removes general.automations experimental gate, always exposes Automations in Home/sidebar/titlebar/commands, updates list rows with trigger-first subtitles and status pill chips (Live/Failed/Ended/short_duration), drops Runs on and unknown creator row, and falls back to automations.session.unknown ('another session').",
+      "status_evidence": "Merged in #1471 (dev 4b446fe3be, CI run 46083827450): removes general.automations experimental gate, always exposes Automations in Home/sidebar/titlebar/commands, updates list rows with trigger-first subtitles and status pill chips (Live/Failed/Ended/short_duration), drops Runs on and unknown creator row, and falls back to automations.session.unknown ('another session'). Post-merge verified headless on Windows x64 PR build (run 46083827450, 7/7 exit 0, peak <= 0.78 GiB): --scene automations renders pill chips ['2h','1d','2d','Live','Failed'], trigger-first subtitles, sidebar count 4, and inspector without Runs on; default Home exposes home-automations and titlebar automations without experimental flag; Settings > Experimental omits settings-automations. Not run: real window, macOS, Linux.",
       "depends_on": "UP-254",
       "risks": "none",
       "workstream": "UPSTREAM"
@@ -7819,7 +7819,7 @@
       "rune_files": [
         "apps/desktop/src/surfaces/automations/format.rs"
       ],
-      "status_evidence": "Merged in #1471 (dev 4b446fe3be): apps/desktop/src/surfaces/automations/format.rs checks hours.len() * step == 24 with uniform spacing before formatting automations.trigger.hours.",
+      "status_evidence": "Merged in #1471 (dev 4b446fe3be, CI run 46083827450): apps/desktop/src/surfaces/automations/format.rs checks hours.len() * step == 24 with uniform spacing before formatting automations.trigger.hours. Post-merge verified headless on Windows x64 PR build (run 46083827450, 7/7 exit 0): --scene automations renders 'Every 6 hours at :30' for full-day evenly spaced cron. Not run: real window, macOS, Linux.",
       "depends_on": "UP-285",
       "risks": "none",
       "workstream": "UPSTREAM"
@@ -7851,7 +7851,7 @@
         "features/inbox/src/send_failed/mod.rs",
         "apps/desktop/src/workspace/system/errors.rs"
       ],
-      "status_evidence": "Merged in #1474 (dev 2ba252006d, head 84d6a6951e, CI run 46084604472 green across guardrails + macOS/Win x64/Win arm64/Linux x64; Linux arm64 skipped): decodes structured SkillLoadError ({ skill, message }, HTTP 502) in crates/opencode-kit/src/wire_error.rs, marks it non-transient and failed_for_sure, cleans up orphan sessions in Server::start_as, and surfaces skill-specific errors in UserError, send_reason, and journaled outbox (Verdict::Rejected).",
+      "status_evidence": "Merged in #1474 (dev 2ba252006d, head 84d6a6951e, CI run 46084604472 green across guardrails + macOS/Win x64/Win arm64/Linux x64; Linux arm64 skipped): decodes structured SkillLoadError ({ skill, message }, HTTP 502) in crates/opencode-kit/src/wire_error.rs, marks it non-transient and failed_for_sure, cleans up orphan sessions in Server::start_as, and surfaces skill-specific errors in UserError, send_reason, and journaled outbox (Verdict::Rejected). Post-merge verified headless on Windows x64 PR build (run 46084604472, peak <= 0.83 GiB): HTTP 502 SkillLoadError classifies as rejected (non-transient), shows 'Not sent - Skill \"broken-skill\": missing SKILL.md frontmatter' + Retry, and restores draft into composer (before build stuck on Checking delivery / server error). Not run: real window, macOS, Linux.",
       "depends_on": "none",
       "risks": "none",
       "workstream": "UPSTREAM"
