@@ -22,6 +22,9 @@ impl session_view::TimelineHost for App {
     fn clock(&self) -> f64 {
         *self.clock
     }
+    fn display_hz(&self) -> Option<f64> {
+        self.kernel.slots.untracked(&crate::app::DISPLAY_HZ).0.get()
+    }
     fn now_ms(&self) -> i64 {
         *self.now_ms
     }

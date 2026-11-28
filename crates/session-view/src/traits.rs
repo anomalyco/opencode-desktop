@@ -24,6 +24,9 @@ use crate::{TimelineHost, copied, diagram, disclosure, images, jump, line_reveal
 pub trait TimelineClock {
     fn knobs(&self) -> &Knobs;
     fn clock(&self) -> f64;
+    fn display_hz(&self) -> Option<f64> {
+        None
+    }
     fn now_ms(&self) -> i64 {
         0
     }
@@ -43,6 +46,10 @@ impl<T: TimelineHost> TimelineClock for T {
 
     fn clock(&self) -> f64 {
         TimelineHost::clock(self)
+    }
+
+    fn display_hz(&self) -> Option<f64> {
+        TimelineHost::display_hz(self)
     }
 
     fn now_ms(&self) -> i64 {
