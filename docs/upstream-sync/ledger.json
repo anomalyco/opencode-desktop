@@ -2,12 +2,12 @@
   "generated_at": "2026-11-29",
   "upstream_repo": "anomalyco/opencode",
   "upstream_reference_base": "f6e0c2d0833ffe772035f221fed923e1cd5fb408",
-  "upstream_head": "c3fa442b45255b9eb3e1943cbbcf66bbadaf14b1",
+  "upstream_head": "3456865d1695276618639b81f66624904f2703d5",
   "upstream_pre_window_base": "3751be8138ebcf33343eb3f3d011b32fc814103c",
   "rune_desktop_repo": "anomalyco/opencode-rune",
-  "rune_desktop_head": "38af35fc07",
-  "post_1114_commit_count": 859,
-  "post_1114_in_ledger": 329,
+  "rune_desktop_head": "fa52a9a4be",
+  "post_1114_commit_count": 861,
+  "post_1114_in_ledger": 331,
   "post_1114_skipped": 530,
   "post_1114_skipped_breakdown": {
     "test-only": 37,
@@ -18,13 +18,13 @@
     "server-core-ai-codemode-internal": 311
   },
   "pre_1114_carryover_rows": 15,
-  "total_ledger_rows": 350,
+  "total_ledger_rows": 352,
   "status_counts": {
     "have it": 264,
     "not applicable": 84,
     "differs on purpose": 1,
     "partly": 1,
-    "missing": 0
+    "missing": 2
   },
   "rows": [
     {
@@ -8793,6 +8793,63 @@
       "depends_on": "UP-275",
       "risks": "none",
       "workstream": "UPSTREAM"
+    },
+    {
+      "id": "UP-330",
+      "window": "post-1120",
+      "pr": 66821,
+      "sha": "fdacacb2c5",
+      "title": "fix(session-ui): truncate tool group labels that name many tools",
+      "merged": "2026-11-28",
+      "packages": [
+        "session-ui"
+      ],
+      "main_files": [
+        "packages/session-ui/src/components/message-part.css"
+      ],
+      "summary": "Allows tool-group titles to shrink and truncate with ellipsis instead of overflowing when a group names many tools.",
+      "size": "XS",
+      "status": "missing",
+      "rune_files": [
+        "crates/session-view/src/turns/view.rs"
+      ],
+      "status_evidence": "Ported in open PR #1582 (head 9bca115dc1): adds .w_full().min_w(0.0) on tool-group trigger and .shrink().min_w(0.0) on used_words title in crates/session-view/src/turns/view.rs.",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "UPSTREAM",
+      "open_pr": "#1582"
+    },
+    {
+      "id": "UP-331",
+      "window": "post-1120",
+      "pr": 66496,
+      "sha": "3456865d16",
+      "title": "fix(app): keep the inbox from opening tabs or taking tab shortcuts",
+      "merged": "2026-11-28",
+      "packages": [
+        "app"
+      ],
+      "main_files": [
+        "packages/app/src/shell/titlebar/inbox-model.ts",
+        "packages/app/src/shell/titlebar/route-machine.ts",
+        "packages/app/src/shell/titlebar/route-sync.ts",
+        "packages/app/src/shell/titlebar/titlebar.tsx"
+      ],
+      "summary": "Prevents the no-tabs session-list layout from opening session tabs when routing or sending, opens the active session's tab when leaving that layout, and disables tab close/reopen shortcuts in that layout.",
+      "size": "S",
+      "status": "missing",
+      "rune_files": [
+        "apps/desktop/src/session/meta/open.rs",
+        "apps/desktop/src/shell/nav/layout_state.rs",
+        "apps/desktop/src/shell/tabs/actions.rs",
+        "apps/desktop/src/shell/commands/mod.rs",
+        "apps/desktop/src/workspace/windows/close.rs"
+      ],
+      "status_evidence": "Ported in open PR #1582 (head 9bca115dc1): skips adding session tabs while in TabLayout::Inbox, adds ensure_routed_session_tab() when leaving TabLayout::Inbox, and disables Mod+W/Mod+Alt+W/Mod+Shift+T tab commands in TabLayout::Inbox.",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "UPSTREAM",
+      "open_pr": "#1582"
     }
   ],
   "browser_security_review": {
