@@ -69,8 +69,8 @@ impl Entry<'_> {
 
 /// A root session of a server the window isn't checked out on, as of its last checkout.
 #[derive(Clone, Debug)]
-pub struct Row {
-    session: SessionInfo,
+pub(super) struct Row {
+    pub(super) session: SessionInfo,
     status: InboxStatus,
     since: Option<i64>,
     project: Option<Project>,
@@ -261,16 +261,16 @@ impl App {
     }
 
     /// The Working shelf opens or shuts (`workingExpanded`).
-    pub fn toggle_inbox_working(&mut self) { let w = &mut self.kernel.slots.get_mut(&crate::restore::RESTORE).inbox.working_expanded; *w = !*w; }
+    pub fn toggle_inbox_working(&mut self) { let w = &mut self.kernel.slots.get_mut(&crate::restore::RESTORE).inbox.working_expanded; *w = !*w; self.record_inbox_shown(); }
 
     /// Archived opens or shuts (`archivedExpanded`).
-    pub fn toggle_inbox_archived(&mut self) { let a = &mut self.kernel.slots.get_mut(&crate::restore::RESTORE).inbox.archived_expanded; *a = !*a; }
+    pub fn toggle_inbox_archived(&mut self) { let a = &mut self.kernel.slots.get_mut(&crate::restore::RESTORE).inbox.archived_expanded; *a = !*a; self.record_inbox_shown(); }
 
     /// Working sessions go to the shelf or into the list (`workingPlacement`).
-    pub fn place_inbox_working(&mut self, at: crate::restore::WorkingPlacement) { self.kernel.slots.get_mut(&crate::restore::RESTORE).inbox.working_placement = at; }
+    pub fn place_inbox_working(&mut self, at: crate::restore::WorkingPlacement) { self.kernel.slots.get_mut(&crate::restore::RESTORE).inbox.working_placement = at; self.record_inbox_shown(); }
 
     /// Show more / Show less under Recent (`recentExpanded`).
-    pub fn toggle_inbox_recent(&mut self) { let r = &mut self.kernel.slots.get_mut(&crate::restore::RESTORE).inbox.recent_expanded; *r = !*r; }
+    pub fn toggle_inbox_recent(&mut self) { let r = &mut self.kernel.slots.get_mut(&crate::restore::RESTORE).inbox.recent_expanded; *r = !*r; self.record_inbox_shown(); }
 
     /// The server and session the inbox row `key` names (`Entry::key`): a session of the server
     /// the window works against when no row of another server has that key.
@@ -294,6 +294,7 @@ impl App {
             self.save_tabs();
         }
         self.open(&id, tx);
+        self.record_inbox_shown();
     }
 
     /// Runs `f` on the server of inbox row `key`, with its session's id.
@@ -324,6 +325,10 @@ impl App {
         let successor = archive_current
             .then(|| self.pick_inbox_successor(&here, &[id.to_owned()]))
             .flatten();
+        if let Some(next) = successor {
+            // Open the successor before closing the archived tab (`opencode#66558`).
+            self.open_inbox_session(&next, tx);
+        }
         if let Some(uid) = &tab {
             self.close_tab(uid, tx);
         } else {
@@ -336,11 +341,12 @@ impl App {
                 self.hibernate_browser_tabs_for_session(id);
             }
         }
-        if let Some(next) = successor {
-            self.open_inbox_session(&next, tx);
-        }
-        let sent = self.write(opencode_kit::client::Write::Archive(id.to_owned()));
-        self.archive_move_sent(id, super::moves::Was::Listed { tab: was }, sent, tx);
+        let sent = crate::servers::runtime::with_server(self, &here, |s| {
+            let sent = s.write(opencode_kit::client::Write::Archive(id.to_owned()));
+            s.archive_move_sent(id, super::moves::Was::Listed { tab: was }, sent, tx);
+            sent
+        })
+        .unwrap_or(false);
         if sent {
             // Beyond Desktop: the toast offers it back, tab and all.
             crate::undo::offer(self, opencode_i18n::t!("rune.undo.sessionArchived"), crate::undo::Undoable::Archived { server: here, session: id.to_owned() });
@@ -399,7 +405,7 @@ pub struct SidebarInbox {
     pub branches: Branches,
     /// The root sessions of each server the window isn't checked out on, in listing order, as of
     /// its last checkout (`snap`).
-    servers: Vec<(ServerKey, Vec<Row>)>,
+    pub(super) servers: Vec<(ServerKey, Vec<Row>)>,
     /// Another server's rows changed since the inbox last drew.
     pub(crate) redraw: bool,
     /// The first load, which shows Desktop's loader in the inbox's place.
@@ -408,10 +414,12 @@ pub struct SidebarInbox {
     /// to the branch reads.
     pub(crate) order: crate::inbox_order::Kept,
     enqueued: u64,
-    /// A row Home or End scrolled to, focused once the scroll has built it (`view::inbox`).
-    pub(crate) focus_next: Option<String>,
+    /// A row scrolled to, focused once the scroll has built it (`view::inbox`).
+    pub(crate) focus_next: Option<(String, bool)>,
     /// Last visible inbox order for the open non-archived session (`inbox.tsx:214`, `opencode#66558`).
     pub(crate) shown: Option<(String, Vec<String>)>,
+    /// Focus-rescue state machine (`focus-rescue.tsx`, `opencode#65690`, `opencode#66547`).
+    pub(crate) focus: super::focus::FocusRescue,
 }
 
 /// The longest the inbox hides behind its loader on first open, so a stalled server can't hide
@@ -603,9 +611,9 @@ pub fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     // person shows in Needs attention rather than Working (`inbox-settle-machine`).
     // Read first: writing the inbox's state every poll would build the sidebar again each frame.
     if s.sidebar_inbox.focus_next.is_some()
-        && let Some(key) = s.sidebar_inbox.focus_next.take()
+        && let Some((key, ring)) = s.sidebar_inbox.focus_next.take()
     {
-        tx.focus(key, true);
+        tx.focus(key, ring);
     }
     let mut changed = settle_now(s, tx);
     if s.sidebar_inbox.redraw {

@@ -166,12 +166,18 @@ impl App {
             return;
         }
         let (server, sid) = self.inbox_target(&current);
-        let archived = (server == *crate::servers::runtime::active(self) && self.session(&sid).is_some_and(|s| s.archived.is_some()))
-            || self.inbox_archived().iter().any(|a| a.id == sid);
+        let archived = if server == *crate::servers::runtime::active(self) {
+            self.session(&sid).is_some_and(|s| s.archived.is_some()) || self.inbox_archived().iter().any(|a| a.id == sid)
+        } else {
+            self.sidebar_inbox.servers.iter().find(|(s, _)| s == &server).is_some_and(|(_, rows)| rows.iter().any(|r| r.session.id == sid && r.session.archived.is_some()))
+                || self.sidebar_inbox.archives.get(&server).is_some_and(|a| a.list.iter().any(|s| s.id == sid))
+        };
         if archived && self.sidebar_inbox.shown.as_ref().is_some_and(|(k, _)| k == &current) {
             return;
         }
         self.sidebar_inbox.shown = Some((current, keys));
+        let card_order = super::focus::visible_card_keys(self);
+        self.sidebar_inbox.focus.note_order(card_order);
     }
 
     /// Picks the inbox successor row after `gone` (sessions on `server`) left the list
@@ -190,6 +196,47 @@ impl App {
         }
         let visible: std::collections::HashSet<String> = self.nav_order().into_iter().collect();
         inbox_successor(shown_keys, shown_key, |k| visible.contains(k) && !is_gone(k))
+    }
+
+    /// Handles server-pushed `session.archived` / `session.deleted` removals in Inbox layout:
+    /// if the removed session is currently open, opens its inbox successor before dropping its tab
+    /// (`packages/app/src/shell/tabs/tabs.tsx:739-810`, `inbox.tsx:226-248`, `opencode#66558`).
+    /// Returns `true` when this handler took over navigation for the removed session.
+    pub(crate) fn on_server_inbox_removed(&mut self, server: &ServerKey, id: &str, archived: bool, tx: &mut rune::Tx) -> bool {
+        if self.tab_layout() != crate::layout_state::TabLayout::Inbox {
+            return false;
+        }
+        let open_gone = matches!(
+            &*self.route,
+            crate::Route::Session { id: open, server: on } if on == server && (open == id || self.root_of(open) == id)
+        );
+        let tab = self.tabs.iter().find(|t| t.is(server, id) && !t.is_draft()).map(crate::tabs::Tab::uid);
+        if !open_gone {
+            if let Some(uid) = tab {
+                self.close_tab(&uid, tx);
+            }
+            return false;
+        }
+        let gone = [id.to_owned()];
+        if let Some(next) = self.pick_inbox_successor(server, &gone) {
+            self.open_inbox_session(&next, tx);
+            if let Some(uid) = tab {
+                self.close_tab(&uid, tx);
+            } else {
+                self.tabs.retain(|t| t.is_draft() || !t.is(server, id));
+                self.save_tabs();
+            }
+            return true;
+        }
+        if archived {
+            if let Some(uid) = tab {
+                self.close_tab(&uid, tx);
+            } else {
+                self.go_home(tx);
+            }
+            return true;
+        }
+        false
     }
 
     /// The inbox's rows in order (`inbox_sections`), read again only when something they're read
