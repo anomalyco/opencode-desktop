@@ -35,7 +35,7 @@ pub use host::{
     build_version, configure,
 };
 pub use jobs::{SettingsJob, SettingsReply, SettingsRequest, apply_reply, execute_request};
-pub use prefs::{BackgroundActivity, Choice, FollowUp, Navigation, Organize, QuestionSubmitKey, SOUNDS, Sounds, StartIn, TabGrouping, TimelineWidth, TitlebarPosition, Worktree};
+pub use prefs::{BackgroundActivity, Choice, FileLinks, FollowUp, Navigation, Organize, QuestionSubmitKey, SOUNDS, Sounds, StartIn, TabGrouping, TimelineWidth, TitlebarPosition, Worktree};
 pub use types::{
     CODE_FONTS, DockPlacement, Font, NotifyKind, NotifyKinds, ReduceMotion, Scheme, TERMINAL_FONTS, TabLayout, TerminalMarkShell, TextRenderer, UI_FONTS, ZOOM_LEVELS, ZOOM_MAX, ZOOM_MIN,
     css_family, custom_name, font_index, step_zoom,
@@ -176,6 +176,8 @@ pub struct Settings {
     pub background_activity: BackgroundActivity,
     pub turn_diffs: bool,
     pub wrap_code_blocks: bool,
+    /// Preferences › Timeline › Open file links in (Rune's own `fileLinks`).
+    pub file_links: FileLinks,
 }
 
 impl Default for Settings {
@@ -234,6 +236,7 @@ impl Default for Settings {
             background_activity: BackgroundActivity::default(),
             turn_diffs: false,
             wrap_code_blocks: false,
+            file_links: FileLinks::default(),
         }
     }
 }
@@ -303,6 +306,7 @@ impl Settings {
             "backgroundActivity": self.background_activity.name(),
             "showTurnDiffs": self.turn_diffs,
             "wrapCodeBlocks": self.wrap_code_blocks,
+            "fileLinks": self.file_links.name(),
         })
     }
 
@@ -398,6 +402,7 @@ impl Settings {
             background_activity: BackgroundActivity::parse(v["backgroundActivity"].as_str()),
             turn_diffs: v["showTurnDiffs"].as_bool().unwrap_or(false),
             wrap_code_blocks: v["wrapCodeBlocks"].as_bool().unwrap_or(false),
+            file_links: FileLinks::parse(v["fileLinks"].as_str()),
         }
     }
 

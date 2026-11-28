@@ -193,10 +193,15 @@ pub(crate) fn menu(app: &mut App, href: &str, press: PointerPress, tx: &mut Tx) 
     if !app.can_reveal_outside() { return false; }
     let Some((dir, link)) = target(app, href) else { return false };
     let (inside, path) = match link {
-        Link::Inside { path, .. } => {
-            let Some(root) = app.pinned_local_root(&dir) else { return false };
-            (true, opencode_kit::path::absolute(&root, &path))
-        }
+        // `target` gives the pinned physical root, or the session's own directory where
+        // `pinned_local_root` refused it: that pin enforces the browser HTML preview scope
+        // (`is_safe_workspace_root`, official `packages/gui-plugins/src/browser/disk/preview-scope.ts`)
+        // and refuses broad folders such as `$HOME`, where official still opens and reveals a
+        // linked file (`packages/app/src/workspaces/files/model.tsx`), as `ops::ensure_file_loaded`
+        // does for videos. `verify_local_path` below still walks every component of the file's
+        // path (`O_NOFOLLOW`, local fixed drive / `MNT_LOCAL`), so a symlinked, UNC or network
+        // root shows no file menu.
+        Link::Inside { path, .. } => (true, opencode_kit::path::absolute(&dir, &path)),
         Link::Outside { path } => (false, path),
         _ => return false,
     };

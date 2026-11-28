@@ -13,7 +13,7 @@ use opencode_ui::palette::{Elevate as _, Pal};
 
 use super::choice;
 use crate::host::SettingsHost;
-use crate::{BackgroundActivity, Choice as _, TimelineWidth, change_settings, list, neutral_lift, set_fold_user, setting, switch};
+use crate::{BackgroundActivity, Choice as _, FileLinks, TimelineWidth, change_settings, list, neutral_lift, set_fold_user, setting, switch};
 
 const BODY: TextStyle = TextStyle::new(13.0, 440.0).lh(20.0).tracking(-0.04);
 const LINE: TextStyle = TextStyle::new(13.0, 440.0).lh(16.0).tracking(-0.04);
@@ -57,6 +57,10 @@ fn pick_width(s: &mut dyn SettingsHost, id: &str, _tx: &mut Tx) {
 
 fn pick_background_activity(s: &mut dyn SettingsHost, id: &str, _tx: &mut Tx) {
     change_settings(s, |x| x.background_activity = BackgroundActivity::parse(Some(id)));
+}
+
+fn pick_file_links(s: &mut dyn SettingsHost, id: &str, _tx: &mut Tx) {
+    change_settings(s, |x| x.file_links = FileLinks::parse(Some(id)));
 }
 
 fn toggle_fold_user(s: &mut dyn SettingsHost) {
@@ -130,7 +134,7 @@ fn toggle_category_collapsed(s: &mut dyn SettingsHost, c: Category) {
 /// The section: its title over the preference rows.
 pub fn section<H: SettingsHost + PopupHost + 'static>(s: &H, p: &Pal) -> El {
     let st = s.settings();
-    let rows = vec![
+    let mut rows = vec![
         ("settings-timeline-detail", col().key("setting-settings-timeline-detail").w_full().py(20.0).child(detail(s, p))),
         (
             "settings-timeline-width",
@@ -185,6 +189,19 @@ pub fn section<H: SettingsHost + PopupHost + 'static>(s: &H, p: &Pal) -> El {
             ),
         ),
     ];
+    // A reveal needs this machine's file manager: the browser build has none.
+    if cfg!(not(target_arch = "wasm32")) {
+        rows.push((
+            "settings-file-links",
+            setting(
+                p,
+                "settings-file-links",
+                t!("rune.settings.timeline.row.fileLinks.title"),
+                t!("rune.settings.timeline.row.fileLinks.description"),
+                choice(s, p, "settings-file-links-select", t!("rune.settings.timeline.row.fileLinks.title"), st.file_links, pick_file_links),
+            ),
+        ));
+    }
     let rows = super::rows(s, p, 20.0, rows);
     super::section(p, "settings-timeline-section", Some(t!("settings.timeline.title")), list(p, "settings-timeline-list", rows))
 }

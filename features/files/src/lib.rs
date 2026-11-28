@@ -43,7 +43,7 @@ pub use host::{
     FilesHost, FilesJob, FilesKeyMatch, FilesReply, MenuPick, OpenInCurrent, OpenInMenuOption,
     ResolvedCodeLink,
 };
-pub use links::{Link, link_directory, open_link, open_reply_link};
+pub use links::{Link, ReplyFileClick, click_reply_link, link_directory, open_link, open_reply_link};
 pub use markdown::{
     MdView, PreviewMode, PreviewModeEvent, READ_ICON, READ_W, WRAP_STORAGE_KEY, WRAP_STORAGE_NS,
     WrapPrefs, file_find_step, scroll_to_heading, set_file_wrap, sync_rendered_find,

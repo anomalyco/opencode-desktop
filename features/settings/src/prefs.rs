@@ -115,6 +115,37 @@ impl TimelineWidth {
     }
 }
 
+/// What a click on a file link in a reply does (Rune's own `fileLinks`; official always opens
+/// the viewer): open it in the side panel, or reveal it in the system file manager, worded as
+/// the location card's reveal (`fileManagerApp(os).actionLabel`). Never its default app
+/// (`features/files/src/links.rs`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum FileLinks {
+    #[default]
+    SidePanel,
+    FileManager,
+}
+
+impl Choice for FileLinks {
+    const ALL: &'static [Self] = &[FileLinks::SidePanel, FileLinks::FileManager];
+
+    fn name(self) -> &'static str {
+        match self {
+            FileLinks::SidePanel => "side-panel",
+            FileLinks::FileManager => "file-manager",
+        }
+    }
+
+    fn label(self) -> &'static str {
+        match self {
+            FileLinks::SidePanel => opencode_i18n::t!("rune.settings.timeline.row.fileLinks.sidePanel"),
+            FileLinks::FileManager if cfg!(target_os = "macos") => opencode_i18n::t!("session.header.reveal.finder"),
+            FileLinks::FileManager if cfg!(windows) => opencode_i18n::t!("session.header.reveal.fileExplorer"),
+            FileLinks::FileManager => opencode_i18n::t!("session.header.reveal.containingFolder"),
+        }
+    }
+}
+
 choice! {
     /// Where running subagents and shells show over the composer (`general.backgroundActivity`).
     BackgroundActivity { Off => "off", "settings.timeline.row.backgroundActivity.off", Left => "left", "settings.timeline.row.backgroundActivity.left", Center => "center", "settings.timeline.row.backgroundActivity.center", Right => "right", "settings.timeline.row.backgroundActivity.right" } default Left
