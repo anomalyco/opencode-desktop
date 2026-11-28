@@ -5,7 +5,7 @@
   "upstream_head": "59af60fbf44b6144e1c2e1051e7f8fd576c8d8d9",
   "upstream_pre_window_base": "3751be8138ebcf33343eb3f3d011b32fc814103c",
   "rune_desktop_repo": "anomalyco/opencode-rune",
-  "rune_desktop_head": "b25ac0c9bc",
+  "rune_desktop_head": "3ee3787d8e",
   "post_1114_commit_count": 837,
   "post_1114_in_ledger": 328,
   "post_1114_skipped": 509,
@@ -20,8 +20,8 @@
   "pre_1114_carryover_rows": 15,
   "total_ledger_rows": 349,
   "status_counts": {
-    "have it": 263,
-    "not applicable": 84,
+    "have it": 264,
+    "not applicable": 83,
     "differs on purpose": 1,
     "partly": 1,
     "missing": 0
@@ -2178,11 +2178,14 @@
       ],
       "summary": "Fix Home date headers disappearing while scrolling when SolidJS `<Index>` reuses header DOM nodes.",
       "size": "S",
-      "status": "not applicable",
-      "status_evidence": "SolidJS DOM `<Index>` + `offsetTop` bug; apps/desktop/src/shell/view/home.rs:172-186 uses Rune native `.sticky_top().stuck_fade()` keyed per group title. [verified-hunks]",
+      "status": "have it",
+      "status_evidence": "Merged in #1491 (dev 3ee3787d8e, head c42e14cf3b, CI run 46096068784 green across guardrails + macOS/Win x64/Win arm64/Linux x64; Linux arm64 skipped): apps/desktop/src/shell/view/home.rs passes .stuck_fade(16.0, 16.0) instead of .stuck_fade(list_top + 16.0, 16.0), matching packages/app/src/home/scroll.ts (HOME_SESSION_HEADER_TEXT_HEIGHT=16, HOME_SESSION_HEADER_FADE_DISTANCE=16, opencode#64665) so single-session Home date headers stay visible at scroll 0.",
       "depends_on": "none",
       "risks": "none",
-      "workstream": "none"
+      "workstream": "none",
+      "rune_files": [
+        "apps/desktop/src/shell/view/home.rs"
+      ]
     },
     {
       "id": "UP-072",
