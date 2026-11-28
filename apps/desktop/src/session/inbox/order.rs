@@ -167,7 +167,7 @@ impl App {
         }
         let (server, sid) = self.inbox_target(&current);
         let archived = (server == *crate::servers::runtime::active(self) && self.session(&sid).is_some_and(|s| s.archived.is_some()))
-            || self.inbox_archived().iter().any(|a| a.id == sid);
+            || self.sidebar_inbox.is_archived_on(&server, &sid);
         if archived && self.sidebar_inbox.shown.as_ref().is_some_and(|(k, _)| k == &current) {
             return;
         }

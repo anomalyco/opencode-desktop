@@ -517,17 +517,18 @@ fn card(s: &App, p: &Pal, e: &Entry<'_>, in_shelf: bool) -> El {
                 return;
             }
             let ui = s.kernel.slots.get(&crate::restore::RESTORE).inbox;
-            if ui.working_placement != WorkingPlacement::Shelf {
-                return;
-            }
             let order = s.inbox_order();
             let folds = Folds::from(ui);
-            let now_in_shelf = order.shows(Group::Working, folds).iter().any(|&at| order.rows[at].key == follow_key);
-            let now_in_list = [Group::Current, Group::Needs, Group::Recent, Group::Archived]
-                .into_iter()
-                .any(|g| order.shows(g, folds).iter().any(|&at| order.rows[at].key == follow_key));
+            let shelf_on = ui.working_placement == WorkingPlacement::Shelf;
+            let in_working = order.shows(Group::Working, folds).iter().any(|&at| order.rows[at].key == follow_key);
+            let now_in_shelf = shelf_on && in_working;
+            let now_in_list = (!shelf_on && in_working)
+                || [Group::Current, Group::Needs, Group::Recent, Group::Archived]
+                    .into_iter()
+                    .any(|g| order.shows(g, folds).iter().any(|&at| order.rows[at].key == follow_key));
+            // Follow across main list <-> Working shelf (including Shelf <-> Inline toggle), preserving keyboard vs pointer ring (`focus-rescue.tsx`, opencode#66547).
             if (in_shelf && !now_in_shelf && now_in_list) || (!in_shelf && now_in_shelf) {
-                tx.focus(follow_key.clone(), false);
+                tx.focus(follow_key.clone(), tx.focus_visible());
             }
         })
         .on_press_tx(move |s: &mut App, tx: &mut Tx| s.open_inbox_session(&id, tx))

@@ -277,7 +277,7 @@ pub(crate) fn sent_event(host: &mut dyn SessionMenuHost, event: SentEvent, why: 
                     if let Some(sessions) = h.sessions_mut() {
                         sessions.retain(|s| !gone.contains(&s.id));
                     }
-                    h.on_sessions_removed(&server, &gone);
+                    h.on_sessions_removed(&server, &gone, tx);
                 });
             }
             SentEffect::Failed(server, hidden) => {

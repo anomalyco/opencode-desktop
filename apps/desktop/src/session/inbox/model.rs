@@ -294,6 +294,7 @@ impl App {
             self.save_tabs();
         }
         self.open(&id, tx);
+        self.record_inbox_shown();
     }
 
     /// Runs `f` on the server of inbox row `key`, with its session's id.
@@ -527,6 +528,12 @@ impl SidebarInbox {
                 (&r.session.id, &r.session.title, r.session.updated, r.session.archived, r.status, r.since).hash(h);
             }
         }
+    }
+
+    /// Whether session `id` on `server` is archived in the sidebar's server or archive lists.
+    pub(super) fn is_archived_on(&self, server: &ServerKey, id: &str) -> bool {
+        self.servers.iter().any(|(k, rows)| k == server && rows.iter().any(|r| r.session.id == id && r.session.archived.is_some()))
+            || self.archives.get(server).is_some_and(|a| a.list.iter().any(|s| s.id == id))
     }
 
     /// A request arrived live at `at`.

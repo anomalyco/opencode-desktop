@@ -713,8 +713,22 @@ pub fn gallery<S: TimelineHost>(s: &S, p: &Pal, key: &str, files: &[Attachment],
         block = block.child(match st {
             TileState::Ready(img) => {
                 let held = el().key(format!("{k}-held")).size(w, h).absolute(x, y);
-                // The tile crops to its slot rather than letterboxing inside it.
-                let thumb = tile.box_shadow(Pal::ring_in(p.border_muted)).pixels_fit(img.pixels(), SurfaceFit::Fill).absolute(x, y);
+                // The tile crops to its slot rather than letterboxing inside it, shifting its hairline to
+                // `border-strong` on hover (`[data-slot="tool-result-image"]:hover::after`, opencode#66430).
+                let hover_ring = el()
+                    .key("hover-ring")
+                    .absolute(0.0, 0.0)
+                    .size(w, h)
+                    .radius(bento::RADIUS)
+                    .box_shadow(Pal::ring_in(p.q.border_strong))
+                    .group_opacity(0.0, 1.0)
+                    .inert();
+                let thumb = tile
+                    .box_shadow(Pal::ring_in(p.border_muted))
+                    .pixels_fit(img.pixels(), SurfaceFit::Fill)
+                    .hover_group()
+                    .child(hover_ring)
+                    .absolute(x, y);
                 // `[data-slot="tool-result-image"] { cursor: zoom-in }` (`message-part.css:772,799`).
                 opens(s, thumb, held, Strip::new(key, strip.clone(), i), img, message).cursor(rune::Cursor::ZoomIn)
             }

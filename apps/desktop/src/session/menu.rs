@@ -293,7 +293,7 @@ impl SessionMenuHost for App {
         crate::servers::runtime::with_server(self, server, |s| App::unarchive_session(s, id));
     }
 
-    fn on_sessions_removed(&mut self, server: &ServerKey, gone: &[String]) {
+    fn on_sessions_removed(&mut self, server: &ServerKey, gone: &[String], tx: &mut Tx) {
         for sid in gone {
             self.close_browser_tabs_for_session(sid);
         }
@@ -303,7 +303,7 @@ impl SessionMenuHost for App {
         self.gestures.closed.remove(|id| gone.iter().any(|g| g == id));
         if open_gone {
             if let Some(next) = self.pick_inbox_successor(server, gone) {
-                self.open_inbox_session(&next, &mut Tx::default());
+                self.open_inbox_session(&next, tx);
             } else {
                 *self.route = Route::Home;
             }

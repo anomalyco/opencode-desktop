@@ -42,7 +42,16 @@ pub(crate) fn poll(s: &mut App, tx: &mut Tx) -> bool {
                     crate::pickers::saved::forget(s, id);
                 }
                 if gone && let Some(id) = e.data["sessionID"].as_str() { crate::session_state::missing(s, id, tx); }
-                s.react_live(e) | gone
+                let server_archived = e.ty == "session.archived"
+                    && e.data["sessionID"].as_str().is_some_and(|id| s.route == Route::here(id.to_owned()));
+                let reacted = s.react_live(e);
+                if server_archived && let Some(id) = e.data["sessionID"].as_str() {
+                    let srv = crate::servers::runtime::active(s).clone();
+                    if let Some(next) = s.pick_inbox_successor(&srv, &[id.to_owned()]) {
+                        s.open_inbox_session(&next, tx);
+                    }
+                }
+                reacted | gone | server_archived
             }
             crate::events::Heard::Message(m) => message(s, (**m).clone(), tx),
         };
