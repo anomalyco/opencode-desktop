@@ -44,6 +44,9 @@ pub struct Projection {
     /// Which projection made the rows: a virtual list keeps the keys of the last commit given
     /// the same one (`El::virtual_rows_version`).
     pub generation: u64,
+    /// Extra bottom tail room past the 36 pt Working lane (`rhythm::tail_extra`), cached with the
+    /// projection so `timeline()` does not re-fold the last turn on every view build.
+    pub tail_extra: f32,
 }
 
 impl Projection {
@@ -61,7 +64,7 @@ impl Projection {
             GENERATION.set(g);
             g
         });
-        let mut p = Projection { spans, starts, len, seams: Vec::new(), generation };
+        let mut p = Projection { spans, starts, len, seams: Vec::new(), generation, tail_extra: 0.0 };
         p.seams = p.space_seams(t, detail, script_diffs);
         // The first row with messages still to land above takes no room over it: the row that
         // lands above it brings the room between them (`rhythm::space_at`), so the first row is
@@ -77,6 +80,7 @@ impl Projection {
                 None => p.seams.insert(0, (0, first)),
             }
         }
+        p.tail_extra = rhythm::tail_extra(t, detail, script_diffs, &p);
         p
     }
 
