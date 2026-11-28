@@ -376,6 +376,8 @@ const ROWS: &[Row] = &[
     (Page::General, "settings-fold-user-messages", key!("settings.timeline.row.foldUserMessages.title"), TIMELINE, Some(key!("settings.timeline.row.foldUserMessages.description")), "fold collapse long messages prompts read more"),
     (Page::General, "settings-show-turn-diffs", key!("settings.timeline.row.turnDiffs.title"), TIMELINE, Some(key!("settings.timeline.row.turnDiffs.description")), ""),
     (Page::General, "settings-wrap-code-blocks", key!("settings.timeline.row.wrapCodeBlocks.title"), TIMELINE, Some(key!("settings.timeline.row.wrapCodeBlocks.description")), "code wrap lines horizontal scroll"),
+    #[cfg(not(target_arch = "wasm32"))]
+    (Page::General, "settings-file-links", key!("rune.settings.timeline.row.fileLinks.title"), TIMELINE, Some(key!("rune.settings.timeline.row.fileLinks.description")), "file link click open reveal finder explorer folder side panel viewer"),
     (Page::General, "settings-show-custom-agents", key!("settings.general.row.showCustomAgents.title"), Some(key!("settings.general.section.general")), None, ""),
     (Page::General, "settings-follow-up-behavior", key!("settings.general.row.followUpBehavior.title"), None, None, "queue steer follow up"),
     (Page::General, "settings-question-submit-key", key!("settings.general.row.questionSubmitKey.title"), None, None, "question answer enter shift submit send keyboard newline multiline custom"),

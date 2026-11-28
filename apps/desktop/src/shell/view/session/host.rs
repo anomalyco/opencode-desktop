@@ -197,7 +197,11 @@ impl session_view::TimelineHost for App {
         self.settings.fold_user
     }
     fn open_link(&mut self, url: &str, tx: &mut Tx) {
-        self.open_reply_link(url, tx);
+        let click = match self.settings.file_links {
+            settings::FileLinks::SidePanel => crate::files::ReplyFileClick::SidePanel,
+            settings::FileLinks::FileManager => crate::files::ReplyFileClick::FileManager,
+        };
+        crate::files::click_reply_link(self, url, click, tx);
     }
     fn open_file(&mut self, path: std::path::PathBuf) {
         crate::open_in::reveal_abs(self, path.to_string_lossy().into_owned());

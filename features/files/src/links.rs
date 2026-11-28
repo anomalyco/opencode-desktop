@@ -240,8 +240,27 @@ pub fn link_directory(host: &dyn FilesHost, sid: &str) -> String {
         .to_owned()
 }
 
-/// Follows `href` clicked in the open session's timeline (a reply, a note, a card).
+/// What a left click on a file link in the timeline does (Settings › Timeline › Open file links
+/// in, Rune's own: official always opens the viewer, `gui-plugins/src/file/renderer.tsx`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum ReplyFileClick {
+    /// Opens the file in the side panel's viewer.
+    #[default]
+    SidePanel,
+    /// Reveals the file in the system file manager (never opens it with its default app).
+    FileManager,
+}
+
+/// Follows `href` clicked in the open session's timeline (a reply, a note, a card), opening a
+/// file link in the side panel (the link menu's Open file, a built-in plugin's link).
 pub fn open_reply_link(host: &mut dyn FilesHost, href: &str, tx: &mut Tx) {
+    click_reply_link(host, href, ReplyFileClick::SidePanel, tx);
+}
+
+/// Follows `href` clicked in the open session's timeline, a file link going where `click` says.
+/// Web, mail and heading links, inline code naming a file, a middle click and a plugin's link
+/// handler behave as [`open_reply_link`].
+pub fn click_reply_link(host: &mut dyn FilesHost, href: &str, click: ReplyFileClick, tx: &mut Tx) {
     // Refuse raw UNC/SMB/device paths BEFORE anything touches the filesystem or invokes plugins.
     if browser_policy::is_raw_unc_href(href) {
         host.toast_say(opencode_i18n::t!("rune.files.link.outside").to_owned(), href.trim().to_owned());
@@ -259,6 +278,9 @@ pub fn open_reply_link(host: &mut dyn FilesHost, href: &str, tx: &mut Tx) {
         return;
     }
     if let Some(sid) = host.active_session_id().map(str::to_owned) {
+        if click == ReplyFileClick::FileManager && reveal_reply_file(host, &sid, href) {
+            return;
+        }
         return open_link(host, &sid, None, href, tx);
     }
     // A new session's page: no side panel to open a file in. Never execute via OS default app;
@@ -293,6 +315,53 @@ pub fn open_reply_link(host: &mut dyn FilesHost, href: &str, tx: &mut Tx) {
         Link::Inside { .. } | Link::Outside { .. } | Link::Skill { .. } => {
             host.toast_say(opencode_i18n::t!("rune.files.link.outside").to_owned(), href.trim().to_owned());
         }
+    }
+}
+
+/// [`ReplyFileClick::FileManager`]: a reply's file link, in the session's folder or outside it, is
+/// revealed in the file manager instead of opening in the side panel; `false` for a link that
+/// isn't a file (web, heading, a skill's virtual file), which opens as before. A remote server, a
+/// refused path or a missing file says so in a toast, never falling back to the side panel.
+fn reveal_reply_file(host: &mut dyn FilesHost, sid: &str, href: &str) -> bool {
+    // A `file:` URL names a local file only with no host, as the link menu checks
+    // (`reply::target`): a foreign or UNC host is refused before anything touches disk.
+    if browser_policy::is_file_scheme(href) && browser_policy::local_file_path(href).is_none() {
+        host.toast_say(opencode_i18n::t!("rune.files.link.outside").to_owned(), href.trim().to_owned());
+        return true;
+    }
+    let dir = link_directory(host, sid);
+    let home = host.home_directory().into_owned();
+    let phys = host.session_physical_directory(sid);
+    let mut classified = classify(href, "", &dir, &home);
+    if matches!(classified, Link::Outside { .. })
+        && let Some(ref p) = phys
+        && p != &dir
+    {
+        let phys_link = classify(href, "", p, &home);
+        if matches!(phys_link, Link::Inside { .. }) {
+            classified = phys_link;
+        }
+    }
+    match classified {
+        Link::Inside { path, .. } => {
+            if !host.can_reveal_outside() {
+                host.toast_fail(opencode_i18n::t!("rune.openIn.failed").to_owned(), path);
+                return true;
+            }
+            // `session_physical_directory` is `None` where the pin refused a broad folder such as
+            // `$HOME` (the browser preview scope, `is_safe_workspace_root`): fall back to `dir`
+            // as `ops::ensure_file_loaded` does. The reveal still verifies the file's whole path
+            // (`verify_local_path`: `O_NOFOLLOW`, local fixed drive), so a symlinked, UNC or
+            // network root stays refused.
+            let root = phys.unwrap_or(dir);
+            reveal_outside_file(host, &opencode_kit::path::absolute(&root, &path));
+            true
+        }
+        Link::Outside { path } => {
+            reveal_outside_file(host, &path);
+            true
+        }
+        Link::Web(_) | Link::Heading(_) | Link::Skill { .. } => false,
     }
 }
 
