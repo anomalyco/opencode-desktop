@@ -5,7 +5,7 @@
   "upstream_head": "2d938ac178adecab7a66c1411550bb5ce0f3ef26",
   "upstream_pre_window_base": "3751be8138ebcf33343eb3f3d011b32fc814103c",
   "rune_desktop_repo": "anomalyco/opencode-rune",
-  "rune_desktop_head": "00b1b970ed",
+  "rune_desktop_head": "244c25f921",
   "post_1114_commit_count": 868,
   "post_1114_in_ledger": 334,
   "post_1114_skipped": 534,
@@ -8886,7 +8886,7 @@
       "summary": "Follow-up to #66918 inside the legacy current-timeline (:not([data-timeline=\"next\"])) CSS block wrapping :has(task-tool-card) in :where() and restoring 28px trigger height on legacy tool-error-card triggers.",
       "size": "XS",
       "status": "not applicable",
-      "status_evidence": "Not applicable to Rune desktop: official CSS change is strictly inside the legacy current-timeline block ([data-timeline-row=\"AssistantPart\"]:not([data-timeline=\"next\"]) in packages/session-ui/src/components/message-part.css:2182-2201); Rune renders only the New timeline in crates/session-view.",
+      "status_evidence": "Not applicable to Rune desktop: official CSS change is strictly inside the legacy current-timeline block ([data-timeline-row=\"AssistantPart\"]:not([data-timeline=\"next\"]) in packages/session-ui/src/components/message-part.css:2182-2201); Rune renders only the New timeline in crates/session-view. [verified-hunks]",
       "depends_on": "UP-332",
       "risks": "none",
       "workstream": "UPSTREAM"
@@ -8911,7 +8911,7 @@
       "summary": "Server-side Noise XX/workerd X25519 support, Link defect logging, and mapping Session.ShellStartError to HTTP 503 ServiceUnavailableError in session.shell with regenerated OpenAPI/TS SDK types.",
       "size": "XS",
       "status": "not applicable",
-      "status_evidence": "Not applicable to Rune desktop: server-side packages/core/src/machine/*, packages/server/src/handlers/session.ts, and regenerated TS SDK declaredStatuses only; crates/opencode-kit/src/wire_error.rs already decodes HTTP 503 ServiceUnavailableError {_tag, message} payloads natively.",
+      "status_evidence": "Not applicable to Rune desktop: server-side packages/core/src/machine/*, packages/server/src/handlers/session.ts, and regenerated TS SDK declaredStatuses only; crates/opencode-kit/src/wire_error.rs already decodes HTTP 503 ServiceUnavailableError {_tag, message} payloads natively. [verified-hunks]",
       "depends_on": "none",
       "risks": "none",
       "workstream": "UPSTREAM"
