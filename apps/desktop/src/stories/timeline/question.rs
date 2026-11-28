@@ -1,7 +1,7 @@
 //! The storybook's Question answers story (Timeline › Question answers): the agent asks, the dock
-//! opens while the timeline shows nothing for the call, and the answer lands as the call's row
-//! listing each question over its answer. Variants: one question, several, multi-select, a typed
-//! answer, dismissed. A answers the pending one, R replays.
+//! opens while the timeline shows nothing for the call, and the answer lands as the call's row:
+//! each answer after its question's header. Variants: one question, several, multi-select, a
+//! typed answer, dismissed, a question with no header. A answers the pending one, R replays.
 
 use opencode_kit::model::{Message, Part};
 use rune::{Play, Tx};
@@ -10,7 +10,7 @@ use serde_json::{Value, json};
 use crate::App;
 use crate::stories::{Trigger, emit, replay};
 
-pub const VARIANTS: &[(&str, usize)] = &[("One", 0), ("Several", 1), ("Multi-select", 2), ("Custom typed", 3), ("Dismissed", 4)];
+pub const VARIANTS: &[(&str, usize)] = &[("One", 0), ("Several", 1), ("Multi-select", 2), ("Custom typed", 3), ("Dismissed", 4), ("No header", 5)];
 pub const KEYS: &[Trigger] = &[
     replay(open),
     Trigger { key: 'a', label: "Answer the pending one", run: |s, tx| {
@@ -30,6 +30,8 @@ const CLOCK: Q = ("Backoff test", "How should the backoff test control time?", &
 const CASES: Q = ("Cases", "Which cases should it cover?", &["Reset after success", "Cap at 30 s", "Jitter stays in range"], true);
 const HOME: Q = ("Location", "Where should the test live?", &["Next to backoff.ts", "In test/net/"], false);
 const CI: Q = ("CI", "Should it run on every push, or only nightly with the slow suite?", &["Every push", "Nightly"], false);
+/// A question the agent gave no header: the row shows the question itself in its place.
+const BARE: Q = ("", "Should the test also check that a timer still fires after the laptop wakes from sleep?", &["Yes", "No"], false);
 
 /// Variant `v`'s questions and the answers given (`None`: dismissed).
 fn variant(v: usize) -> (&'static [Q], Option<Vec<Vec<&'static str>>>) {
@@ -38,6 +40,7 @@ fn variant(v: usize) -> (&'static [Q], Option<Vec<Vec<&'static str>>>) {
         2 => (&[CASES], Some(vec![vec!["Reset after success", "Cap at 30 s", "Jitter stays in range"]])),
         3 => (&[CLOCK], Some(vec![vec!["Fake clock, but keep one slow test on real timers so we still catch a timer that never fires after the laptop wakes"]])),
         4 => (&[CLOCK], None),
+        5 => (&[BARE, HOME], Some(vec![vec!["Yes"], vec!["In test/net/"]])),
         _ => (&[CLOCK], Some(vec![vec!["Fake clock"]])),
     }
 }

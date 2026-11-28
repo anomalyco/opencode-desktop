@@ -192,7 +192,12 @@ fn edges_of<'a>(t: &'a Transcript, detail: &crate::detail::Detail, script_diffs:
                         ..edges(Who::Agent, Item::Line, LINE_INSET)
                     }
                 }
-                Some(Block::Question { .. }) => Edges { assistant_part: true, ..edges(Who::Agent, Item::Line, 0.0) },
+                // Answered, its lines' text sits 6 in (`question_row`); dismissed and failed,
+                // spaced from the row's box as before.
+                Some(Block::Question { status, metadata, .. }) => {
+                    let inset = if crate::question_row::is_answered(status, metadata) { LINE_INSET } else { 0.0 };
+                    Edges { assistant_part: true, ..edges(Who::Agent, Item::Line, inset) }
+                }
                 None => return None,
             }
         }
