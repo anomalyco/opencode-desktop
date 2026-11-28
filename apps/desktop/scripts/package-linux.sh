@@ -19,7 +19,10 @@ work=$(mktemp -d "$out/.package.XXXXXXXX")
 trap 'rm -rf "$work"' EXIT
 repo_root=$(realpath "$(dirname "$0")/../../..")
 root=$work/root
-icon=share/icons/hicolor/1024x1024/apps/opencode-rune.png
+# Standard hicolor-icon-theme sizes (freedesktop hicolor index.theme stops at 512x512; 1024x1024
+# is not listed in index.theme so KDE/GTK icon loaders ignore it).
+icon_dir=share/icons/hicolor
+icon=$icon_dir/512x512/apps/opencode-rune.png
 desktop=share/applications/opencode-rune.desktop
 doc=share/doc/opencode-rune
 # The app's own URL scheme, as the binary has it (`win_install::Product::from_build`): the one
@@ -95,7 +98,16 @@ if [ "${OPENCODE_RUNE_BUNDLE_CLI:-1}" != "0" ]; then
     --target "linux-$arch" --dest "$root/usr/share/opencode-rune" --channel "$OPENCODE_RUNE_BUILD_CHANNEL"
   cli_rpm_files=$'/usr/share/opencode-rune/opencode-cli\n/usr/share/opencode-rune/opencode-cli.version'
 fi
-install -Dm644 "$(dirname "$0")/../assets/icon/icon-1024.png" "$root/usr/$icon"
+icon_assets="$(dirname "$0")/../assets/icon"
+icon_rpm_files=""
+for size in 16 22 24 32 48 64 128 256; do
+  rel="$icon_dir/${size}x${size}/apps/opencode-rune.png"
+  install -Dm644 "$icon_assets/linux/${size}.png" "$root/usr/$rel"
+  icon_rpm_files+=$'\n'"/usr/$rel"
+done
+install -Dm644 "$icon_assets/art-512.png" "$root/usr/$icon"
+icon_rpm_files+=$'\n'"/usr/$icon"
+icon_rpm_files=${icon_rpm_files#$'\n'}
 install -Dm644 "$repo_root/LICENSE" "$root/usr/$doc/LICENSE"
 install -Dm644 "$repo_root/THIRD_PARTY_NOTICES.md" "$root/usr/$doc/THIRD_PARTY_NOTICES.md"
 # Ubuntu 24.04+ restricts unprivileged user namespaces (`kernel.apparmor_restrict_unprivileged_userns=1`).
@@ -122,6 +134,7 @@ Type=Application
 Name=OpenCode (Rune)
 Exec=opencode-rune %u
 Icon=opencode-rune
+StartupWMClass=opencode-rune
 Categories=Development;
 Terminal=false
 MimeType=x-scheme-handler/$scheme;
@@ -174,7 +187,7 @@ cp -a "$root/usr" "%{buildroot}/"
 
 %files
 /usr/bin/opencode-rune
-/usr/$icon
+$icon_rpm_files
 /usr/$desktop
 /usr/$doc/LICENSE
 /usr/$doc/THIRD_PARTY_NOTICES.md
@@ -191,11 +204,27 @@ if command -v apparmor_status >/dev/null 2>&1 && apparmor_status --enabled >/dev
     fi
   fi
 fi
-# The desktop file's scheme, known to the desktop at once.
+# The desktop file's scheme and hicolor icons, known to the desktop at once.
 if command -v update-desktop-database >/dev/null 2>&1; then update-desktop-database -q /usr/share/applications || true; fi
+if [ -d /usr/share/icons/hicolor ]; then
+  touch --no-create /usr/share/icons/hicolor || true
+  if command -v gtk-update-icon-cache >/dev/null 2>&1; then
+    gtk-update-icon-cache -q -t -f /usr/share/icons/hicolor || true
+  elif command -v gtk4-update-icon-cache >/dev/null 2>&1; then
+    gtk4-update-icon-cache -q -t -f /usr/share/icons/hicolor || true
+  fi
+fi
 
 %postun
 if command -v update-desktop-database >/dev/null 2>&1; then update-desktop-database -q /usr/share/applications || true; fi
+if [ -d /usr/share/icons/hicolor ]; then
+  touch --no-create /usr/share/icons/hicolor || true
+  if command -v gtk-update-icon-cache >/dev/null 2>&1; then
+    gtk-update-icon-cache -q -t -f /usr/share/icons/hicolor || true
+  elif command -v gtk4-update-icon-cache >/dev/null 2>&1; then
+    gtk4-update-icon-cache -q -t -f /usr/share/icons/hicolor || true
+  fi
+fi
 if [ "\$1" = "0" ] && [ -f /etc/apparmor.d/opencode-rune-browser-engine ]; then
   if command -v apparmor_parser >/dev/null 2>&1 && ! { [ -x /usr/bin/ischroot ] && /usr/bin/ischroot; }; then
     apparmor_parser --remove /etc/apparmor.d/opencode-rune-browser-engine >/dev/null 2>&1 || true
@@ -207,6 +236,9 @@ EOF
 rpmbuild -bb --define "_topdir $work/rpm" --define 'debug_package %{nil}' --define '__strip /bin/true' "$work/app.spec"
 cp "$work/rpm/RPMS/$machine/"*.rpm "$stem.rpm"
 rpm -qp --list "$stem.rpm" | grep -Fx /usr/bin/opencode-rune
+for size in 16 22 24 32 48 64 128 256 512; do
+  rpm -qp --list "$stem.rpm" | grep -Fx "/usr/$icon_dir/${size}x${size}/apps/opencode-rune.png"
+done
 if [ "$office" = "1" ]; then
   rpm -qp --list "$stem.rpm" | grep -Fx /usr/lib/opencode-rune/libopencode_office.so
 fi
@@ -234,8 +266,16 @@ if [ "${1:-}" = "configure" ]; then
       fi
     fi
   fi
-  # The desktop file's scheme, known to the desktop at once.
+  # The desktop file's scheme and hicolor icons, known to the desktop at once.
   if command -v update-desktop-database >/dev/null 2>&1; then update-desktop-database -q /usr/share/applications || true; fi
+  if [ -d /usr/share/icons/hicolor ]; then
+    touch --no-create /usr/share/icons/hicolor || true
+    if command -v gtk-update-icon-cache >/dev/null 2>&1; then
+      gtk-update-icon-cache -q -t -f /usr/share/icons/hicolor || true
+    elif command -v gtk4-update-icon-cache >/dev/null 2>&1; then
+      gtk4-update-icon-cache -q -t -f /usr/share/icons/hicolor || true
+    fi
+  fi
 fi
 EOF
 cat > "$root/DEBIAN/postrm" <<'EOF'
@@ -250,6 +290,14 @@ if [ "${1:-}" = "remove" ] || [ "${1:-}" = "purge" ]; then
     rm -f "$DST"
   fi
   if command -v update-desktop-database >/dev/null 2>&1; then update-desktop-database -q /usr/share/applications || true; fi
+  if [ -d /usr/share/icons/hicolor ]; then
+    touch --no-create /usr/share/icons/hicolor || true
+    if command -v gtk-update-icon-cache >/dev/null 2>&1; then
+      gtk-update-icon-cache -q -t -f /usr/share/icons/hicolor || true
+    elif command -v gtk4-update-icon-cache >/dev/null 2>&1; then
+      gtk4-update-icon-cache -q -t -f /usr/share/icons/hicolor || true
+    fi
+  fi
 fi
 EOF
 chmod 0755 "$root/DEBIAN/postinst" "$root/DEBIAN/postrm"
@@ -266,6 +314,11 @@ if [ "$office" = "1" ]; then
     exit 1
   }
 fi
-# The installed desktop file takes a link and claims the app's scheme.
+# The installed desktop file takes a link, matches the window's app_id/WM_CLASS, and ships hicolor icons.
 grep -Fxq "Exec=opencode-rune %u" "$work/installed/usr/$desktop"
+grep -Fxq "Icon=opencode-rune" "$work/installed/usr/$desktop"
+grep -Fxq "StartupWMClass=opencode-rune" "$work/installed/usr/$desktop"
 grep -Fxq "MimeType=x-scheme-handler/$scheme;" "$work/installed/usr/$desktop"
+for size in 16 22 24 32 48 64 128 256 512; do
+  [[ -f "$work/installed/usr/$icon_dir/${size}x${size}/apps/opencode-rune.png" ]]
+done

@@ -2,7 +2,10 @@
 (body = 824/1024 of the canvas, centred, soft drop shadow beneath). Run: uv run --with pillow --with numpy --with scipy python build.py
 
 ../icon.ico (Windows: the exe, Start menu, taskbar and Explorer icon) is the full-bleed art at every size the shell
-asks for, BMP below 256 px and PNG at 256: magick art-512.png -define icon:auto-resize=256,128,96,64,48,40,32,24,20,16 ../icon.ico"""
+asks for, BMP below 256 px and PNG at 256: magick art-512.png -define icon:auto-resize=256,128,96,64,48,40,32,24,20,16 ../icon.ico
+
+linux/<size>.png (Linux hicolor icon theme sizes below 512; 512x512 uses art-512.png directly) is the full-bleed art
+downscaled with Lanczos."""
 import os, subprocess, tempfile
 import numpy as np
 from PIL import Image
@@ -35,3 +38,7 @@ with tempfile.TemporaryDirectory() as t:
         render(s).save(os.path.join(d, f"icon_{name}.png"))
     subprocess.run(["iconutil", "-c", "icns", d, "-o", os.path.join(HERE, "..", "icon.icns")], check=True)
 render(1024).save(os.path.join(HERE, "icon-1024.png"))
+linux_dir = os.path.join(HERE, "linux")
+os.makedirs(linux_dir, exist_ok=True)
+for s in (16, 22, 24, 32, 48, 64, 128, 256):
+    ART.resize((s, s), Image.LANCZOS).save(os.path.join(linux_dir, f"{s}.png"), optimize=True)

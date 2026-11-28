@@ -218,7 +218,7 @@ pub fn apply_app_icon() {
 pub fn apply_app_icon() {
     #[cfg(target_os = "linux")]
     rune::set_app_id("opencode-rune");
-    #[cfg(not(bundle_assets))]
+    #[cfg(all(target_os = "macos", not(bundle_assets)))]
     {
         let bundled = std::env::current_exe()
             .ok()
