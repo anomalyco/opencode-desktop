@@ -29,21 +29,22 @@ pub fn script_output_text(c: &Call) -> String {
 }
 
 pub fn execute<S: TimelineHost>(s: &S, p: &Pal, cx: Ctx, c: &Call, after_changes: bool) -> El {
-    let calls = calls(c.metadata);
+    let raw_calls = c.metadata["toolCalls"].as_array().map(Vec::as_slice).unwrap_or(&[]);
+    let any_calls = raw_calls.iter().any(|v| v["tool"].is_string());
     let error = error(c);
-    let out = script_output_text(c);
     let flat = s.full_codemode(cx.session);
     // When its changes are drawn right after it under `full_codemode`, its Output row follows
     // them: steps, changes, then Output (`tool-renderer.tsx:2126`).
-    let output_here = !out.is_empty() && !(flat && after_changes);
-    let opens = !calls.is_empty() || error.is_some() || output_here;
+    let out = if error.is_some() || (flat && after_changes) { String::new() } else { script_output_text(c) };
+    let output_here = !out.is_empty();
+    let opens = any_calls || error.is_some() || output_here;
     let mut d = Display::of(s, cx, c, opens);
     if flat {
         // Flat, the title is static and the calls always show under it: the block never collapses
         // (`tool-renderer.tsx:2155-2167`).
         d.fold = if opens { Fold::Expanded } else { Fold::Collapsed };
     }
-    let subtitle = (!flat && !d.open()).then(|| subtitle(&calls)).flatten();
+    let subtitle = (!flat && !d.open() && any_calls).then(|| subtitle_raw(raw_calls)).flatten();
     let t = Trigger { title: opencode_i18n::t!("ui.tool.execute").into(), compact: true, subtitle, code: true, ..Default::default() };
     let press = if opens && !flat { Press::Toggle(super::key(c.id)) } else { Press::None };
     let code = field(c.input, "code").map(str::trim_end).filter(|code| !code.is_empty());
@@ -51,22 +52,31 @@ pub fn execute<S: TimelineHost>(s: &S, p: &Pal, cx: Ctx, c: &Call, after_changes
     let view_code = code.filter(|_| *c.status != ToolStatus::Pending).map(|_| view_code_button::<S>(p, cx.session, c.id));
     let line = trigger(s, p, cx, c, d, t, press, view_code);
     let build_body = || {
-        let owner = calls.iter().rposition(|v| v["status"] == "error");
         // A script can make thousands of calls, so the list shows the latest and each press of "+N
         // more" reveals earlier ones (`executeCallsShown`, `executeCallsRevealed`, opencode#65696).
-        let presses = (1..).take_while(|k| s.expanded().contains(&sub_key(c.id, format!("more-{k}")))).count();
-        let hidden = calls.len().saturating_sub(CALLS_SHOWN + presses * CALLS_REVEALED);
+        let (presses, limit) = shown_calls(s, c.id);
+        let total = if any_calls { raw_calls.iter().filter(|v| v["tool"].is_string()).count() } else { 0 };
+        let hidden = total.saturating_sub(limit);
+        let owner = error.as_ref().and_then(|_| {
+            raw_calls
+                .iter()
+                .rev()
+                .filter(|v| v["tool"].is_string())
+                .enumerate()
+                .find(|(_, v)| v["status"] == "error")
+                .map(|(from_end, _)| total - 1 - from_end)
+        });
         let mut list = col().key(calls_key(c.id)).w_full().gap(6.0);
         if hidden > 0 {
             list = list.child(more_button::<S>(p, c.id, presses + 1, hidden, flat));
         }
-        for (n, call) in calls.iter().enumerate().skip(hidden) {
+        for (n, call) in raw_calls.iter().filter(|v| v["tool"].is_string()).enumerate().skip(hidden) {
             let err = if Some(n) == owner { error.as_deref() } else { None };
             list = list.child(call_row(s, p, cx, c.id, n, Some(call), err, flat));
         }
         // A failure with no call, or one that belongs to a call still hidden above, shows on its own.
         if let (true, Some(e)) = (owner.is_none_or(|o| o < hidden), error.as_deref()) {
-            list = list.child(call_row(s, p, cx, c.id, calls.len(), None, Some(e), flat));
+            list = list.child(call_row(s, p, cx, c.id, total, None, Some(e), flat));
         }
         if output_here {
             list = list.child(output_row(s, p, cx.session, c.id, &out, flat));
@@ -85,6 +95,22 @@ pub fn execute<S: TimelineHost>(s: &S, p: &Pal, cx: Ctx, c: &Call, after_changes
 /// How many of a script's latest calls show when it opens, and how many more each "+N more" adds.
 const CALLS_SHOWN: usize = 10;
 const CALLS_REVEALED: usize = 50;
+
+/// How many "+N more" reveals are open on script `id`, and the resulting visible call count.
+pub fn shown_calls<S: TimelineHost>(s: &S, id: &str) -> (usize, usize) {
+    let presses = (1..).take_while(|k| s.expanded().contains(&sub_key(id, format!("more-{k}")))).count();
+    (presses, CALLS_SHOWN + presses * CALLS_REVEALED)
+}
+
+/// Whether Code Mode reported at least one nested call, without allocating.
+pub fn has_calls(metadata: &Value) -> bool {
+    metadata["toolCalls"].as_array().is_some_and(|a| a.iter().any(|v| v["tool"].is_string()))
+}
+
+/// Whether an `execute` call failed, without allocating or stripping ANSI.
+pub fn has_error(c: &Call) -> bool {
+    *c.status == ToolStatus::Error || c.metadata["error"] == Value::Bool(true)
+}
 
 /// The calls list of script `id`: its own key, so focus can be sent to its first call.
 fn calls_key(id: &str) -> String {
@@ -119,11 +145,6 @@ fn more_button<S: TimelineHost>(p: &Pal, id: &str, press: usize, hidden: usize, 
         .child(text(label).font(TOOL_CODE).color(p.faint).group_color(p.text))
 }
 
-/// The nested calls Code Mode reported (`metadata.toolCalls`).
-pub fn calls(metadata: &Value) -> Vec<&Value> {
-    metadata["toolCalls"].as_array().map(|a| a.iter().filter(|v| v["tool"].is_string()).collect()).unwrap_or_default()
-}
-
 /// A runtime failure's message, without its "Error:" prefix; "Failed" when it says nothing.
 pub fn error(c: &Call) -> Option<String> {
     let failed = *c.status == ToolStatus::Error || c.metadata["error"] == Value::Bool(true);
@@ -136,8 +157,16 @@ pub fn error(c: &Call) -> Option<String> {
 }
 
 /// "read [path=ci/toolchain.env]": the failed call, else the latest.
-fn subtitle(calls: &[&Value]) -> Option<String> {
-    let call = calls.iter().find(|v| v["status"] == "error").or(calls.last())?;
+fn subtitle_raw(raw_calls: &[Value]) -> Option<String> {
+    let mut last = None;
+    let mut err = None;
+    for v in raw_calls.iter().filter(|v| v["tool"].is_string()) {
+        if err.is_none() && v["status"] == "error" {
+            err = Some(v);
+        }
+        last = Some(v);
+    }
+    let call = err.or(last)?;
     let tool = call["tool"].as_str()?;
     let args = call_args(call);
     Some(if args.is_empty() { tool.to_owned() } else { format!("{tool} [{}]", args.join(", ")) })

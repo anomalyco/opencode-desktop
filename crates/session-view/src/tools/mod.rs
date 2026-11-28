@@ -178,12 +178,10 @@ pub fn shows_body_with<S: TimelineHost>(s: &S, cx: Ctx, c: &Call, after_changes:
         }
         "shell" | "bash" => matches!(log::Excerpt::new(console::current_output(s, c)), log::Excerpt::Ends { .. }) || Display::of(s, cx, c, true).open(),
         "execute" => {
-            let calls = execute::calls(c.metadata);
-            let err = execute::error(c);
-            let out = execute::script_output_text(c);
             let flat = s.full_codemode(cx.session);
-            let output_here = !out.is_empty() && !(flat && after_changes);
-            let opens = !calls.is_empty() || err.is_some() || output_here;
+            let opens = execute::has_calls(c.metadata)
+                || execute::has_error(c)
+                || (!(flat && after_changes) && !execute::script_output_text(c).is_empty());
             if flat { opens } else { Display::of(s, cx, c, opens).open() }
         }
         "edit" | "multiedit" | "write" | "patch" | "apply_patch" => files::draws_card(c),
@@ -272,11 +270,17 @@ fn cached_with<S: TimelineHost>(s: &S, p: &Pal, cx: Ctx, calls: &[Call], after_c
     let mut h = std::hash::DefaultHasher::new();
     (cx.session, cx.live, cx.sticky.to_bits(), crate::scroller::device_scale().to_bits(), p.theme, p.generation, p.dark, opencode_i18n::locale().id(), crate::style::hover_none(), s.reduced_motion(), s.session_directory(cx.session), s.timeline_detail()).hash(&mut h);
     (s.full_codemode(cx.session), after_changes).hash(&mut h);
+    let flat = s.full_codemode(cx.session);
     let copied = crate::copied::current(s);
     for c in calls {
         (c.id, c.name, std::mem::discriminant(c.status), s.tool_row_action_version(c.id)).hash(&mut h);
         fingerprint(c.input, &mut h);
-        fingerprint(c.metadata, &mut h);
+        if c.name == "execute" {
+            let (_, shown) = execute::shown_calls(s, c.id);
+            fingerprint_execute_metadata(c, shown, flat, &mut h);
+        } else {
+            fingerprint(c.metadata, &mut h);
+        }
         // The output the host read from the call's shell (`console::follow`).
         console::follow(c, |_| false).and_then(|(id, _)| s.shell_output(id)).map(str::len).hash(&mut h);
         // Each part of it the reader touched, and how: one shut where it opens by default reads
@@ -289,6 +293,39 @@ fn cached_with<S: TimelineHost>(s: &S, p: &Pal, cx: Ctx, calls: &[Call], after_c
     }
     // The memo keys its root with its own id, so the row keeps its keys one level down.
     rune::memo(format!("tm-{}", first.id), h.finish(), || col().w_full().child(build()))
+}
+
+/// Fingerprints an `execute` call's `metadata` in O(shown) time instead of hashing thousands of
+/// hidden `toolCalls` entries that `execute::execute` skips.
+fn fingerprint_execute_metadata(c: &Call, shown: usize, flat: bool, h: &mut impl Hasher) {
+    let Some(o) = c.metadata.as_object() else {
+        fingerprint(c.metadata, h);
+        return;
+    };
+    (5u8, o.len()).hash(h);
+    let need_error_scan = !flat || execute::has_error(c);
+    for (k, x) in o {
+        k.hash(h);
+        if k == "toolCalls"
+            && let Value::Array(a) = x
+        {
+            (4u8, a.len()).hash(h);
+            let start = a.len().saturating_sub(shown);
+            for item in &a[start..] {
+                fingerprint(item, h);
+            }
+            if need_error_scan && start > 0 {
+                let first_err = a[..start].iter().position(|v| v["tool"].is_string() && v["status"] == "error");
+                let last_err = a[..start].iter().rposition(|v| v["tool"].is_string() && v["status"] == "error");
+                (first_err, last_err).hash(h);
+                if let Some(i) = first_err {
+                    fingerprint(&a[i], h);
+                }
+            }
+        } else {
+            fingerprint(x, h);
+        }
+    }
 }
 
 /// A cheap stand-in for `v`'s content: its shape, numbers, and each string's length and ends.

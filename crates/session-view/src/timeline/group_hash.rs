@@ -169,8 +169,23 @@ fn message_hash(m: &Message, edits: bool, script_diffs: bool) -> u64 {
         (&a.id, a.completed, a.parts.len(), &a.text_phases).hash(&mut h);
         for p in &a.parts {
             match p {
-                Part::Tool { id, name, status, metadata, .. } => {
-                    (0u8, id, name, std::mem::discriminant(status)).hash(&mut h);
+                Part::Tool { id, name, status, input, files, metadata, .. } => {
+                    let empty_input = input.as_object().is_none_or(|o| o.is_empty());
+                    let out = opencode_kit::model::tool_output(status, metadata).unwrap_or("");
+                    let ob = out.as_bytes();
+                    (0u8, id, name, std::mem::discriminant(status), empty_input, crate::tools::path(input), files.len()).hash(&mut h);
+                    (
+                        metadata["error"].as_bool(),
+                        opencode_kit::model::tool_error(metadata).map(str::len),
+                        ob.len(),
+                        &ob[..ob.len().min(16)],
+                        &ob[ob.len().saturating_sub(16)..],
+                        metadata["status"].as_str(),
+                        metadata["exit"].as_i64(),
+                        metadata["loaded"].as_array().map(Vec::len),
+                        metadata["files"].as_array().map(Vec::len),
+                    )
+                        .hash(&mut h);
                     // A script's changes name the group as they arrive; progress that adds
                     // none keeps the row.
                     if edits {
@@ -183,6 +198,7 @@ fn message_hash(m: &Message, edits: bool, script_diffs: bool) -> u64 {
                                 c["tool"].as_str(),
                                 c["status"].as_str(),
                                 c["input"]["method"].as_str(),
+                                c["input"]["filePath"].as_str(),
                                 c["input"]["path"].as_str(),
                             )
                                 .hash(&mut h);

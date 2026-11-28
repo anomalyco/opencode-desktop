@@ -240,18 +240,29 @@ impl RowSpec {
                         });
                     }
                 }
-                RowContent::Turn { start, end, block, live, pt }
-                    if self.key.starts_with("c-") && !s.expanded().contains(&self.key) && !crate::disclosure::is_shutting(s, &self.key) =>
-                {
+                RowContent::Turn { start, end, block, live, pt } if self.key.starts_with("c-") => {
+                    let open = s.expanded().contains(&self.key);
+                    let shutting = !open && crate::disclosure::is_shutting(s, &self.key);
                     let fold = crate::disclosure::fold(k).duration.to_bits();
+                    let feather = k.get(&crate::disclosure::FOLD_FEATHER).to_bits();
                     let detail = s.timeline_detail();
                     let script_diffs = s.full_codemode(&t.session);
-                    // A group of thoughts alone is a thought row (`turns::group`), which opens by
-                    // its first thought's key and not by the group's: the row is shut as a
-                    // group and may be open as a thought, so the thoughts' toggles are part of it.
+                    // A group of thoughts alone opens by its first thought's key (`r-`); an open
+                    // or shutting group's inner row gaps also depend on nested tool toggles (`tool:`),
+                    // while its inner `virtual_rows` closure still builds mounted steps with live `s`.
                     let thoughts = s.expanded().stamp("r-");
+                    let tools_exp = (open || shutting).then(|| s.expanded().stamp("tool:"));
                     let look = (p.theme, p.generation, p.dark, opencode_i18n::locale().id(), crate::style::hover_none());
-                    let ver = (&t.session, group_hash::of(s, t, *start..*end, &detail, script_diffs), *block, *live, [pt.to_bits(), self.room_under(s).to_bits()], look, self.streaming, (fold, crate::style::content_w().to_bits(), crate::scroller::device_scale().to_bits(), detail, script_diffs, s.shell_output_version(), crate::style::sticky_top().to_bits(), s.reduced_motion(), thoughts));
+                    let ver = (
+                        &t.session,
+                        group_hash::of(s, t, *start..*end, &detail, script_diffs),
+                        *block,
+                        *live,
+                        [pt.to_bits(), self.room_under(s).to_bits(), fade.to_bits()],
+                        look,
+                        (self.streaming, open, shutting),
+                        (fold, feather, crate::style::content_w().to_bits(), crate::scroller::device_scale().to_bits(), detail, script_diffs, s.shell_output_version(), crate::style::sticky_top().to_bits(), s.reduced_motion(), thoughts, tools_exp),
+                    );
                     return rune::memo(self.key.clone(), ver, || {
                         ROW_BUILDS.set(ROW_BUILDS.get() + 1);
                         let blocks = turns::fold_with_flags(&entries(&t.messages[*start..*end], &detail), *live, &detail, script_diffs);
@@ -459,7 +470,7 @@ pub fn timeline<S: TimelineHost>(s: &S, p: &Pal, id: &str, t: Option<&Transcript
     let held_room = crate::line_reveal::reveal(s.knobs()) == crate::line_reveal::Reveal::HeldRoom;
     let e = rune::growth::StreamEdge { overflow: held_room, ..edge::FEATHER };
     let specs = t.map(|t| rows(s, t)).unwrap_or_default();
-    let tail_extra = t.map_or(0.0, |t| rhythm::tail_extra(t, &s.timeline_detail(), s.full_codemode(&t.session), &specs));
+    let tail_extra = specs.tail_extra;
     let working_foot = crate::working::LANE - crate::working::LANE_TEXT_TOP - crate::working::LINE;
     let fade_floor = (crate::jump::fade(s, lane) - working_foot).max(crate::jump::fade(s, 0.0));
     let mut stack = col()
