@@ -120,9 +120,9 @@ pub type RawEvent = objc2::rc::Retained<objc2::runtime::ProtocolObject<dyn objc2
 #[cfg(target_os = "macos")]
 static SHARE: std::sync::OnceLock<MetalShare> = std::sync::OnceLock::new();
 
-/// The canvases' rings, once made on Rune's `MTLDevice`.
+/// The canvases' rings, once made on Rune's `MTLDevice` (at that address).
 #[cfg(target_os = "macos")]
-static RINGS: std::sync::Mutex<Option<Arc<super::handoff::Rings>>> = std::sync::Mutex::new(None);
+static RINGS: std::sync::Mutex<Option<(usize, Arc<super::handoff::Rings>)>> = std::sync::Mutex::new(None);
 
 /// How live GPU canvases share Rune's Metal device: without it, on Rune's Metal backend they show
 /// their placeholder.
@@ -132,20 +132,26 @@ pub fn share_metal(share: MetalShare) {
     SHARE.get_or_init(|| share);
 }
 
-/// The rings on `device` (Rune's `MTLDevice`), made again for a new one.
+/// The rings on `device` (Rune's `MTLDevice`), made again for a new one. Every window draws on
+/// the same device: a window opening later (a widget's own window) keeps the rings the runs
+/// already hand their frames through, so the canvases show in each window.
 #[cfg(target_os = "macos")]
 fn rings(device: &objc2::runtime::ProtocolObject<dyn objc2_metal::MTLDevice>) -> Option<Arc<super::handoff::Rings>> {
     let share = *SHARE.get()?;
+    let at = device as *const objc2::runtime::ProtocolObject<dyn objc2_metal::MTLDevice> as usize;
     let mut r = RINGS.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    if let Some((_, rings)) = r.as_ref().filter(|(on, _)| *on == at) {
+        return Some(rings.clone());
+    }
     let rings = Arc::new(super::handoff::Rings::new(share, device, super::handoff::SLOTS));
-    *r = Some(rings.clone());
+    *r = Some((at, rings.clone()));
     Some(rings)
 }
 
 /// The rings live canvases are handed over through, if any.
 #[cfg(target_os = "macos")]
 fn current_rings() -> Option<Arc<super::handoff::Rings>> {
-    RINGS.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone()
+    RINGS.lock().unwrap_or_else(std::sync::PoisonError::into_inner).as_ref().map(|(_, rings)| rings.clone())
 }
 
 impl Live {
