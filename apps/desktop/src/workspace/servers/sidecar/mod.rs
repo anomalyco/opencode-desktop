@@ -19,7 +19,7 @@ mod pty_handoff;
 mod service;
 mod shell_env;
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, Once, OnceLock, mpsc};
@@ -75,6 +75,23 @@ pub fn connection() -> Result<Server, String> {
 /// Reconnects to (or restarts) the local background service (BackgroundService.reconnect).
 pub fn reconnect() -> Result<Server, String> {
     request(true)
+}
+
+/// Resolves the OpenCode CLI command and service environment identically to [`ensure_service`]:
+/// bundled/staged `opencode-cli` first, then login-shell `PATH`, standard install locations, and
+/// official Desktop's CLI (mirroring official Desktop's `ctx.cli` in
+/// `packages/gui-plugins/src/pairing/main.ts:76-81`).
+pub fn resolve_cli_command() -> (Option<Vec<String>>, BTreeMap<String, String>) {
+    let (_, isolated) = server_flags();
+    let env = shell_env::service_env(isolated);
+    let command = cli::resolve(&env, isolated).ok().map(|c| c.command).filter(|c| !c.is_empty());
+    (command, env)
+}
+
+/// Full user environment merged with the cached Unix login-shell environment, or `None` on
+/// Windows or when the login shell probe is unavailable.
+pub fn login_env() -> Option<BTreeMap<String, String>> {
+    shell_env::login_env()
 }
 
 /// Latest published local background service, if any (non-blocking).
