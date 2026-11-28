@@ -5,7 +5,7 @@
   "upstream_head": "cc0677159ed1b2b5014d35a88bf51748fcc373b1",
   "upstream_pre_window_base": "3751be8138ebcf33343eb3f3d011b32fc814103c",
   "rune_desktop_repo": "anomalyco/opencode-rune",
-  "rune_desktop_head": "3c2838e560",
+  "rune_desktop_head": "bb3fd0c92e",
   "post_1114_commit_count": 863,
   "post_1114_in_ledger": 332,
   "post_1114_skipped": 531,
@@ -8865,7 +8865,7 @@
       "summary": "Excludes legacy task-tool-card triggers from the current-timeline (:not([data-timeline=\"next\"])) 28px/negative-margin CSS rule so consecutive subagent cards keep vertical spacing.",
       "size": "XS",
       "status": "not applicable",
-      "status_evidence": "Not applicable to Rune desktop: official CSS fix targets only the legacy current timeline ([data-timeline-row=\"AssistantPart\"]:not([data-timeline=\"next\"]) task-tool-card in packages/session-ui/src/components/message-part.css:2182); Rune renders only the New timeline (event_row::subagent in crates/session-view/src/turns/view.rs:623) with explicit M=20pt rhythm spacing in crates/session-view/src/timeline/rhythm.rs:178.",
+      "status_evidence": "Not applicable to Rune desktop: official CSS fix targets only the legacy current timeline ([data-timeline-row=\"AssistantPart\"]:not([data-timeline=\"next\"]) task-tool-card in packages/session-ui/src/components/message-part.css:2182); Rune renders only the New timeline (event_row::subagent in crates/session-view/src/turns/view.rs:623) with explicit M=20pt rhythm spacing in crates/session-view/src/timeline/rhythm.rs:178. [verified-hunks]",
       "depends_on": "none",
       "risks": "none",
       "workstream": "UPSTREAM"
