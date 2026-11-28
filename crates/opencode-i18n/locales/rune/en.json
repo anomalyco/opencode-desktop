@@ -26,8 +26,6 @@
   "rune.automations.outcome.skipped": "Skipped",
   "rune.automations.output.prompted": "Prompted {{session}}",
   "rune.automations.output.subagent": "Started subagent {{session}}",
-  "rune.automations.trigger.hours": "Every {{count}} hours",
-  "rune.automations.trigger.hoursAt": "Every {{count}} hours at :{{minute}}",
   "rune.automations.trigger.monthly": "Day {{day}} of every month at {{time}}",
   "rune.branch.choose": "Choose branch",
   "rune.branch.loadFailed": "Couldn't load branches",

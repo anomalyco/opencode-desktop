@@ -40,21 +40,13 @@ pub(super) fn inspector(s: &App, p: &Pal, entry: &Entry, context: &[String]) -> 
         // A path's end names the folder: the cut falls at its start, the whole path on hover.
         text(folder).key("auto-detail-folder").font(CODE).color(p.muted).dir(Direction::Ltr).truncate_head().help(info.directory.clone()),
     ));
-    if let Some(id) = &info.session_id {
+    // Only a creator the app can name: a raw session ID says nothing (view.tsx:AutomationInspector).
+    if let (Some(id), Some(name)) = (&info.session_id, &entry.creator) {
         meta = meta.child(field(
             p,
             t!("automations.creator"),
             META,
-            row().child(session_link(p, "auto-creator-link", entry.server.clone(), id, entry.creator.clone(), META_MED)),
-        ));
-    }
-    // A server with no name (this machine's own) has nothing to say here.
-    if !entry.server_label.trim().is_empty() {
-        meta = meta.child(field(
-            p,
-            t!("automations.runsOn"),
-            META,
-            text(entry.server_label.clone()).key("auto-detail-server").font(META).color(p.muted).truncate(),
+            row().child(session_link(p, "auto-creator-link", entry.server.clone(), id, name.clone(), META_MED)),
         ));
     }
 
@@ -197,7 +189,7 @@ fn do_block(s: &App, p: &Pal, entry: &Entry) -> El {
         AutomationAction::Prompt { prompt, to } => {
             let summary = match to {
                 AutomationTarget::Session(id) => {
-                    let link = session_link(p, "auto-recipient-link", entry.server.clone(), id, entry.recipient.clone(), BODY_MED);
+                    let link = session_link(p, "auto-recipient-link", entry.server.clone(), id, unknown_session(entry.recipient.clone()), BODY_MED);
                     sentence(p, t!("automations.do.prompt", session = SLOT), link)
                 }
                 AutomationTarget::Subagent(agent) => text(t!("automations.do.subagent", agent = agent)).font(BODY).color(p.text).wrap(),
@@ -248,7 +240,7 @@ fn last_run_block(s: &App, p: &Pal, entry: &Entry) -> El {
     let (delivery, log) = info.last_output.as_deref().map_or((None, ""), split_output);
     if let Some(delivery) = delivery.filter(|d| !restates_do(&info.action, *d)) {
         let id = delivery.session();
-        let link = session_link(p, "auto-last-session-link", entry.server.clone(), id, source::session_title(s, &entry.server, id), BODY_MED);
+        let link = session_link(p, "auto-last-session-link", entry.server.clone(), id, unknown_session(source::session_title(s, &entry.server, id)), BODY_MED);
         let template = match delivery {
             Delivery::Prompted(_) => t!("rune.automations.output.prompted", session = SLOT),
             Delivery::Subagent(_) => t!("rune.automations.output.subagent", session = SLOT),
@@ -273,6 +265,11 @@ fn restates_do(action: &AutomationAction, delivery: Delivery<'_>) -> bool {
         (action, delivery),
         (AutomationAction::Prompt { to: AutomationTarget::Session(to), .. }, Delivery::Prompted(id)) if to == id
     )
+}
+
+/// A session the app can't name reads "another session" (view.tsx:AutomationInspector).
+fn unknown_session(title: Option<String>) -> String {
+    title.unwrap_or_else(|| t!("automations.session.unknown").to_owned())
 }
 
 /// Where a session's link goes in a translated sentence.

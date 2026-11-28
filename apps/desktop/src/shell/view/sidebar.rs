@@ -264,22 +264,21 @@ fn actions(s: &App, p: &Pal, home: bool, new: impl Fn() -> El) -> Vec<El> {
         }
         r
     };
-    let show_auto = crate::automations::available(s);
     let mut out = Vec::with_capacity(4);
     if s.settings.navigation_prototype() {
         out.push(new());
         out.push(home_row());
-        if show_auto { out.push(automations()); }
+        out.push(automations());
         out.push(settings());
     } else if s.project_navigation() {
         out.push(new());
         out.push(search());
-        if show_auto { out.push(automations()); }
+        out.push(automations());
         out.push(settings());
     } else {
         out.push(home_row());
         out.push(search());
-        if show_auto { out.push(automations()); }
+        out.push(automations());
         out.push(new());
     }
     out
