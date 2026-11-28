@@ -3486,6 +3486,7 @@ dependencies = [
  "mimalloc",
  "mlua",
  "net-trust",
+ "objc2 0.6.5",
  "office-preview",
  "opencode-code-view",
  "opencode-feature-annotations",

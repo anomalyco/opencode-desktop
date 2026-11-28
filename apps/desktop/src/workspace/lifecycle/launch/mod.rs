@@ -7,6 +7,7 @@
 mod boot;
 #[cfg(target_os = "windows")]
 pub mod compat_layer;
+pub mod gpu;
 #[cfg(target_os = "windows")]
 pub mod image_pages;
 #[cfg(target_os = "linux")]

@@ -219,7 +219,8 @@ pub(crate) fn spec(init: fn() -> App) -> AppSpec<App> {
 }
 
 /// The app as it runs: its history, its storybook (⌘⇧D), its window chrome, and Rune's native
-/// Metal backend (`RUNE_GPU_BACKEND=wgpu` draws with wgpu again, no rebuild).
+/// Metal backend (`RUNE_GPU_BACKEND=wgpu` draws with wgpu again, no rebuild; so does a Mac whose
+/// driver has no shared events — `launch::gpu`).
 pub(crate) fn rune_app(spec: AppSpec<App>) -> rune::App<App> {
     let app = rune::App::new(spec);
     // Office pages draw their Vello scenes into effect slots, and the new-session Easter egg its
@@ -227,7 +228,7 @@ pub(crate) fn rune_app(spec: AppSpec<App>) -> rune::App<App> {
     let app = app.compositor(compositor::AppCompositor::default());
     menubar::install(
         app
-            .gpu_backend(rune::GpuBackend::Metal)
+            .gpu_backend(launch::gpu::selected())
             .playground(stories::playground())
             .on_ime(|s, ime, _| s.panels_ime(ime))
             .on_open_url(deep_links::open)
@@ -406,7 +407,10 @@ pub fn run_native() {
     }
     telemetry::startup("launch.platform", rune_mac::launch);
     telemetry::startup("launch.notifications", notifications::identify);
-    telemetry::startup("launch.gpu", rune::prewarm_gpu);
+    // Which backend this machine can draw with, before the prewarm that draws with it: a Metal
+    // driver without shared events would otherwise panic in `rune-gpu` (`launch::gpu`).
+    let backend = launch::gpu::select();
+    telemetry::startup("launch.gpu", || rune::prewarm_gpu_on(backend));
     // Windows: no GPU before the first frame. Rune paints it on the CPU and makes the window's GPU
     // on a below-normal thread once it's on screen, then hands over. Warming the GPU here put its
     // driver loads beside the launch's: the first frame came 8 ms and the first input 15 ms later

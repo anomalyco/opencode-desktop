@@ -142,6 +142,9 @@ browser-pane = { path = "../../crates/browser-pane", features = ["engine"] }
 # Ogg and Opus audio tracks in videos, which AVPlayer can't play (Rune decodes them).
 rune = { workspace = true, features = ["ogg-audio"] }
 libc = "0.2"
+# One message to Metal, asking whether this driver has the shared event Rune's Metal backend
+# signals on (`launch::gpu`). Rune links the same framework.
+objc2 = "0.6"
 
 # sha2 0.10 hashes in software on aarch64 unless `asm` is on; with it SHA-256 uses the Arm SHA2 instructions
 # (the browser engine's archive, an update's, the plugins'). macOS only: sha2-asm does not build with MSVC.
