@@ -571,6 +571,24 @@ impl App {
                 crate::connect::picker_reads::schedule(self, list, now);
             }
         }
+        if ty == "command.updated" {
+            // Refresh composer slash commands on both location-scoped and locationless deferred
+            // plugin registrations (`packages/client/src/solid/data.ts:1522-1540`, `opencode#66813`).
+            let loc = data["eventLocation"]["directory"].as_str();
+            self.kernel.slots.get_mut(&crate::add_menu::ADD_MENU).slash.invalidate(loc);
+            changed = true;
+        }
+        if ty == "skill.updated" {
+            let loc = data["eventLocation"]["directory"].as_str();
+            self.kernel.slots.get_mut(&crate::mentions::MENTIONS).invalidate_catalog(loc);
+            crate::settings::pages::extensions::on_skill_updated(self);
+            crate::settings::pages::project_extensions::on_updated(self, loc);
+            changed = true;
+        }
+        if ty == "agent.updated" {
+            let loc = data["eventLocation"]["directory"].as_str();
+            self.kernel.slots.get_mut(&crate::mentions::MENTIONS).invalidate_catalog(loc);
+        }
         if ty == "config.updated" {
             let loc = data["eventLocation"]["directory"].as_str();
             crate::settings::pages::extensions::on_config_updated(self);
