@@ -399,7 +399,9 @@ impl EngineManager {
                         match self.contexts.gate_navigation(tab_id, &url) {
                             Ok(true) => {
                                 self.ensure_tab_unfrozen(tab_id);
-                                if let Some(t) = self.tabs.get(&tab_id) {
+                                if self.gate_remote_sign_in_nav(tab_id, &url) {
+                                    self.mark_tab_waiting_sign_in(tab_id);
+                                } else if let Some(t) = self.tabs.get(&tab_id) {
                                     t.deferred_initial.store(false, Ordering::Release);
                                     if !t.clipboard_gate.replace_held_first_load(&url) && let Some(frame) = t.browser.main_frame() {
                                         t.prompts.set_pending_top_url(Some(url.clone()));
@@ -408,6 +410,7 @@ impl EngineManager {
                                 }
                             }
                             Ok(false) => {
+                                self.cookies.cancel_tab_gate(tab_id);
                                 if let Some(t) = self.tabs.get(&tab_id) {
                                     t.deferred_initial.store(
                                         !url.trim().eq_ignore_ascii_case("about:blank"),
@@ -430,52 +433,40 @@ impl EngineManager {
             }
             HostMsg::Back { tab_id } => {
                 self.ensure_tab_unfrozen(tab_id);
+                self.cancel_tab_sign_in_gate(tab_id, false);
                 if let Some(t) = self.tabs.get(&tab_id) {
                     if self.contexts.is_tab_ready(tab_id) {
-                        if !self.refuse_history_nav_if_inherited(tab_id, t, -1) {
-                            t.browser.go_back();
-                        }
+                        if !self.refuse_history_nav_if_inherited(tab_id, t, -1) { t.browser.go_back(); }
                     } else if self.contexts.is_tab_suspended(tab_id) {
-                        let _ = self.out_tx.send(EngineMsg::Refused {
-                            tab_id,
-                            reason: "browser.proxy.required".to_owned(),
-                        });
+                        let _ = self.out_tx.send(EngineMsg::Refused { tab_id, reason: "browser.proxy.required".to_owned() });
                     }
                 }
             }
             HostMsg::Forward { tab_id } => {
                 self.ensure_tab_unfrozen(tab_id);
+                self.cancel_tab_sign_in_gate(tab_id, false);
                 if let Some(t) = self.tabs.get(&tab_id) {
                     if self.contexts.is_tab_ready(tab_id) {
-                        if !self.refuse_history_nav_if_inherited(tab_id, t, 1) {
-                            t.browser.go_forward();
-                        }
+                        if !self.refuse_history_nav_if_inherited(tab_id, t, 1) { t.browser.go_forward(); }
                     } else if self.contexts.is_tab_suspended(tab_id) {
-                        let _ = self.out_tx.send(EngineMsg::Refused {
-                            tab_id,
-                            reason: "browser.proxy.required".to_owned(),
-                        });
+                        let _ = self.out_tx.send(EngineMsg::Refused { tab_id, reason: "browser.proxy.required".to_owned() });
                     }
                 }
             }
             HostMsg::Reload { tab_id, ignore_cache } => {
                 self.ensure_tab_unfrozen(tab_id);
+                // A reload while waiting on the initial sign-in copy lets the held URL satisfy it (`navigation-turn.ts:51`).
+                if self.cookies.is_tab_gated(tab_id) { return true; }
                 if let Some(t) = self.tabs.get(&tab_id) {
                     if self.contexts.is_tab_ready(tab_id) {
-                        if ignore_cache {
-                            t.browser.reload_ignore_cache();
-                        } else {
-                            t.browser.reload();
-                        }
+                        if ignore_cache { t.browser.reload_ignore_cache(); } else { t.browser.reload(); }
                     } else if self.contexts.is_tab_suspended(tab_id) {
-                        let _ = self.out_tx.send(EngineMsg::Refused {
-                            tab_id,
-                            reason: "browser.proxy.required".to_owned(),
-                        });
+                        let _ = self.out_tx.send(EngineMsg::Refused { tab_id, reason: "browser.proxy.required".to_owned() });
                     }
                 }
             }
             HostMsg::Stop { tab_id } => {
+                self.cancel_tab_sign_in_gate(tab_id, true);
                 if let Some(t) = self.tabs.get(&tab_id) {
                     t.browser.stop_load();
                     t.prompts.clear_auth_on_nav(tab_id, &self.out_tx);
@@ -845,6 +836,7 @@ impl EngineManager {
                         // Transient proxy loss: keep live tabs & unsaved state intact while blocking
                         // every request/CDP/menu/navigation fail-closed until a new proxy arrives.
                         for tid in tabs {
+                            self.cookies.cancel_tab_gate(tid);
                             self.downloads.cancel_pending_saves_for_tab(tid);
                             if let Some(t) = self.tabs.get_mut(&tid) {
                                 if let crate::wire::ContextKind::RemoteServer { proxy: cur, .. } = &mut t.context {
@@ -1097,7 +1089,13 @@ impl EngineManager {
             context_ready = resolved_ctx.ready;
             deferred_initial = resolved_ctx.deferred_initial;
             tab_generation = resolved_ctx.generation;
-            let (init, display) = crate::clipboard_gate::first_load_urls(agent_driven, resolved_ctx.defer_initial_load, is_allowed_ext_url.is_some(), target_url, &mut first_load_url);
+            self.seed_remote_partition(&effective_context);
+            let sign_in_defers = !resolved_ctx.defer_initial_load
+                && self.gate_remote_open(&effective_context, tab_id, tab_generation, target_url);
+            if sign_in_defers {
+                deferred_initial.store(true, Ordering::Release);
+            }
+            let (init, display) = crate::clipboard_gate::first_load_urls(agent_driven, resolved_ctx.defer_initial_load || sign_in_defers, is_allowed_ext_url.is_some(), target_url, &mut first_load_url);
             (init, display, isolated, allow_ext, is_popup_valid)
         };
         let is_preview = preview_grant.is_some();
@@ -1379,8 +1377,6 @@ impl EngineManager {
         if let Some(dark) = self.dark {
             self.send_color_scheme(&host, dark);
         }
-
-        self.seed_remote_partition(&effective_context);
         // Only consume preserved hibernated download generations after browser creation succeeds.
         let prior_download_gens = self.hibernated_downloads.remove(&tab_id).unwrap_or_default();
         self.tabs.insert(
@@ -1480,3 +1476,4 @@ mod frames;
 mod lifecycle;
 mod picks;
 mod profile_cookies;
+pub(crate) mod sign_in_gate;
