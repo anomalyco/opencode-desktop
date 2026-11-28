@@ -37,7 +37,8 @@ const HEADER_PAD: f32 = GROUP_GAP - TRIGGER_INSET;
 /// shut on the timeline's growth, the timeline holding as Desktop's does
 /// (`disclosure::toggle_group`), and while open the header sticks to the timeline's top until
 /// the group scrolls past. `live`: the turn is still running, so a step still under way
-/// shimmers.
+/// shimmers. Where the stretch called on subagents (`agents`, Rune-only) the label is one line
+/// about them (`activity::agents`), and opening it lists them, a row each, before the steps.
 #[allow(clippy::too_many_arguments)]
 pub fn group<S: TimelineHost>(
     s: &S,
@@ -46,18 +47,24 @@ pub fn group<S: TimelineHost>(
     key: &str,
     steps: &[Step],
     at: &[Loc],
+    agents: &[super::agents::Called],
     turn: std::ops::Range<usize>,
     live: bool,
     fade: f32,
     extra_after: &std::collections::HashSet<&str>,
 ) -> El {
     let open = s.expanded().contains(key);
-    if steps.iter().all(|st| matches!(st, Step::Thought { .. })) {
+    // Rune-only: a stretch that called on subagents is one line about them (`activity::agents`).
+    let agents = crate::activity::agents::agents(agents);
+    if agents.is_empty() && steps.is_empty() {
+        return col();
+    }
+    if agents.is_empty() && steps.iter().all(|st| matches!(st, Step::Thought { .. })) {
         let foot = thought_foot(s, live, false, steps);
         return thoughts(s, p, steps, live, false, fade).pb((TRIGGER_INSET - foot).max(0.0));
     }
     let work = activity::work_events(steps);
-    let work_only = !work.is_empty() && steps.iter().all(is_work);
+    let work_only = agents.is_empty() && !work.is_empty() && steps.iter().all(is_work);
     if work_only {
         return event_row::view(
             s,
@@ -71,7 +78,14 @@ pub fn group<S: TimelineHost>(
     }
     let shutting = !open && crate::disclosure::is_shutting(s, key);
     let named = activity::activity_with_work(steps, &work, s.full_codemode(session));
-    let words_text = named.as_ref().map_or_else(|| label(steps).text(), activity::Activity::text);
+    let line = (!agents.is_empty()).then(|| {
+        let lead = named.as_ref().map(|a| crate::activity::agents::Lead { words: activity_words(p, a), w: crate::activity::agents::activity_w(a), said: a.text() });
+        crate::activity::agents::line(s, p, session, key, lead, &agents)
+    });
+    let words_text = match &line {
+        Some((_, said)) => said.clone(),
+        None => named.as_ref().map_or_else(|| label(steps).text(), activity::Activity::text),
+    };
     let mut trigger = row()
         .key("trigger")
         .role("button")
@@ -106,9 +120,10 @@ pub fn group<S: TimelineHost>(
             trigger.stuck_shadow(rune::Shadow { y: 10.0, blur: 20.0, color: p.bg_base, ..Default::default() })
         };
     }
-    trigger = match named {
-        Some(a) => trigger.child(activity_words(p, &a)),
-        None => trigger.child(used_words(p, &label(steps))),
+    trigger = match (line, named) {
+        (Some((words, _)), _) => trigger.child(words),
+        (None, Some(a)) => trigger.child(activity_words(p, &a)),
+        (None, None) => trigger.child(used_words(p, &label(steps))),
     };
     // The arrow shows while the pointer is over the label, and always while open.
     let a = el().key("arrow").w(16.0).h(24.0).ml(2.0).center().child(arrow(p, open));
@@ -135,7 +150,10 @@ pub fn group<S: TimelineHost>(
                 (step_head(slice), step_foot(s, session, live, slice, &after_refs, &placement.output_after))
             })
             .collect();
-        let first_head = edges.first().map_or(TRIGGER_INSET, |&(h, _)| h);
+        // The line's agents list first, a row each, then the steps.
+        let agent_rows = (!agents.is_empty()).then(|| crate::activity::agents::list(s, p, session, &agents));
+        let first_head = if agent_rows.is_some() { TRIGGER_INSET } else { edges.first().map_or(TRIGGER_INSET, |&(h, _)| h) };
+        let agents_pb = edges.first().map_or(0.0, |&(h, _)| (GROUP_GAP - TRIGGER_INSET - h).max(0.0));
         let last_foot = edges.last().map_or(TRIGGER_INSET, |&(_, f)| f);
         let top_gap = (GROUP_GAP - TRIGGER_INSET - first_head).max(0.0);
         let row_gaps: std::rc::Rc<Vec<f32>> = std::rc::Rc::new(
@@ -193,7 +211,9 @@ pub fn group<S: TimelineHost>(
             let line = p.border.alpha(p.border.a * 0.5);
             el().key("rail").pin(Some(2.0), Some(rail_top), None, Some(rail_bottom)).w(1.0).fill(line)
         };
-        let list = col().key("steps").w_full().pt(top_gap).pb(pb).pl(14.0).transition(rune::Transition::none()).child(rail).child(list);
+        let list = col().key("steps").w_full().pt(top_gap).pb(pb).pl(14.0).transition(rune::Transition::none()).child(rail)
+            .children(agent_rows.map(|a| a.pb(agents_pb)))
+            .child(list);
 
         // Shutting, the steps stay laid out below a row that's only the header, and the row's
         // clip folds them away as its height springs down to it.
@@ -563,7 +583,7 @@ pub fn block_row<S: TimelineHost>(
 ) -> El {
     let placement = super::script_output_for_blocks(blocks, flat);
     match blocks.get(block) {
-        Some(super::Block::Group { key, steps, at }) => group(s, p, session, key, steps, at, turn, live, fade, &placement.after_changes).pt(pt),
+        Some(super::Block::Group { key, steps, at, agents }) => group(s, p, session, key, steps, at, agents, turn, live, fade, &placement.after_changes).pt(pt),
         Some(super::Block::Events { key, steps }) => events(s, p, session, key, steps).pt(pt),
         Some(super::Block::Subagent { step, .. }) => subagent(s, p, session, step).pt(pt),
         Some(super::Block::Question { id, status, input, metadata }) => crate::question_row::view(s, p, session, id, status, input, metadata).pt(pt),

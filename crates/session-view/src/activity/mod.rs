@@ -1,8 +1,10 @@
 //! The timeline as Desktop's New timeline draws it (Settings › Experimental › New timeline,
 //! `settings.general.newTimeline`, `session-ui/src/timeline-next`), which is Rune's only
 //! timeline: what each call is ([`rules`]), work that runs on as events ([`events`],
-//! [`event_row`]), and a group named by what the agent did ([`label`]).
+//! [`event_row`]), and a group named by what the agent did ([`label`]), which Rune draws as one
+//! line about the subagents a stretch of work called on ([`agents`]).
 
+pub mod agents;
 pub mod event_row;
 pub mod events;
 pub mod label;
