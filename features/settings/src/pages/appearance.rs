@@ -1,16 +1,17 @@
 //! Settings › Appearance (`settings/appearance/appearance.tsx`): Color scheme, Theme (with Learn
-//! more), the UI, Code and Terminal fonts as 220 pt fields in their own faces, Zoom and Reduce
-//! motion, and this app's Text rendering.
+//! more), the UI, Code and Terminal fonts as 220 pt fields in their own faces with a family list
+//! under each (`font_field`), Zoom and Reduce motion, and this app's Text rendering.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Mutex, OnceLock};
 
 use opencode_i18n::t;
-use opencode_ui::popup::PopupHost;
-use rune::{El, Family, Link, LinkPaint, Span, TextEdit, TextStyle, Tx, text};
 use opencode_ui::palette::Pal;
+use opencode_ui::popup::{Item, Menu, PopupHost};
+use rune::{El, Family, Link, LinkPaint, Span, TextEdit, TextStyle, Tx, text};
 
-use super::{BODY, header, page, select, select_some, text_field};
+use super::font_field::{USE_TYPED, font_field};
+use super::{BODY, State, header, page, select, select_some};
 use crate::host::SettingsHost;
 use crate::types::{CODE_FONTS, ReduceMotion, Scheme, TERMINAL_FONTS, TextRenderer, UI_FONTS, ZOOM_LEVELS};
 use crate::{Settings, list, setting, setting_with};
@@ -74,9 +75,13 @@ impl Fields {
     }
 }
 
+/// A font name without case or spaces, which the bundled tables and installed families match by.
+fn squash(s: &str) -> String {
+    s.chars().filter(|c| !c.is_whitespace()).collect::<String>().to_lowercase()
+}
+
 /// The bundled face a typed name is: matched without case or spaces.
 fn find(names: &[&str], typed: &str) -> Option<usize> {
-    let squash = |s: &str| s.chars().filter(|c| !c.is_whitespace()).collect::<String>().to_lowercase();
     let typed = squash(typed);
     names.iter().position(|n| squash(n) == typed)
 }
@@ -110,6 +115,133 @@ fn terminal_changed(s: &mut dyn SettingsHost, tx: &mut Tx) {
         Some(i) => s.set_terminal_font(i, "", tx),
         None => s.set_terminal_font(3, &typed, tx),
     }
+}
+
+/// One of Appearance's three font rows: what its list offers and which name is in effect.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Slot {
+    Ui,
+    Code,
+    Terminal,
+}
+
+impl Slot {
+    /// Its bundled names, in the order its list shows them.
+    fn bundled(self) -> Vec<&'static str> {
+        match self {
+            Self::Ui => UI_FONTS.iter().map(|f| f.name).collect(),
+            Self::Code => CODE_FONTS.iter().map(|f| f.name).collect(),
+            Self::Terminal => TERMINAL_FONTS.to_vec(),
+        }
+    }
+
+    /// Whether its list offers monospace families only: the code and terminal rows'.
+    fn mono_only(self) -> bool {
+        !matches!(self, Self::Ui)
+    }
+
+    fn label(self) -> &'static str {
+        match self {
+            Self::Ui => t!("settings.general.row.uiFont.title"),
+            Self::Code => t!("settings.general.row.font.title"),
+            Self::Terminal => t!("settings.general.row.terminalFont.title"),
+        }
+    }
+
+    /// The list id of the font in effect: its bundled name (`b:`), else the typed one (`s:`).
+    fn current(self, s: &Settings) -> String {
+        match self {
+            Self::Ui if !s.ui_font_name.trim().is_empty() => format!("s:{}", s.ui_font_name.trim()),
+            Self::Code if !s.code_font_name.trim().is_empty() => format!("s:{}", s.code_font_name.trim()),
+            Self::Terminal if !s.terminal_font_name.trim().is_empty() => format!("s:{}", s.terminal_font_name.trim()),
+            Self::Ui => format!("b:{}", UI_FONTS[s.ui_font.min(UI_FONTS.len() - 1)].name),
+            Self::Code => format!("b:{}", CODE_FONTS[s.code_font.min(CODE_FONTS.len() - 1)].name),
+            Self::Terminal => format!("b:{}", TERMINAL_FONTS[s.terminal_font.min(TERMINAL_FONTS.len() - 1)]),
+        }
+    }
+
+    /// What its row's field holds now.
+    fn typed(self, st: &State) -> &str {
+        match self {
+            Self::Ui => &st.fonts.ui.text,
+            Self::Code => &st.fonts.code.text,
+            Self::Terminal => &st.fonts.terminal.text,
+        }
+    }
+}
+
+/// The list under a font row's field: its bundled fonts, the installed families (monospace only
+/// for Code and Terminal), those matching what's typed, and `Use "…"` when nothing matches it.
+fn font_menu<H: SettingsHost>(s: &H, slot: Slot) -> Menu {
+    let typed = slot.typed(s.settings_pages()).trim().to_owned();
+    let want = squash(&typed);
+    let contains = typed.to_lowercase();
+    let matching = |name: &str, squashed: &str| typed.is_empty() || squashed == want || name.to_lowercase().contains(&contains);
+    let current = slot.current(s.settings());
+    // Lined up with the field's end, as the theme select's list is: its right edge stays a row's
+    // padding off the panel's side, so the card it floats over reads around it.
+    let mut menu = Menu::select_list(slot.label(), current.clone()).width(240.0).gap(6.0).rows_before_scroll(10.0);
+    let mut listed = false;
+    let bundled = slot.bundled();
+    let rows: Vec<&str> = bundled.iter().copied().filter(|name| matching(name, &squash(name))).collect();
+    if !rows.is_empty() {
+        listed = true;
+        menu = menu.group(t!("rune.settings.fonts.bundled"));
+        for name in rows {
+            let id = format!("b:{name}");
+            let checked = current == id;
+            menu = menu.item(Item::new(id, name).checked(checked));
+        }
+    }
+    // A family the bundles already name is the bundled row's: one row per family.
+    let mut seen: HashSet<String> = bundled.iter().map(|name| squash(name)).collect();
+    let mut families = Vec::new();
+    for family in rune::text::installed_families() {
+        if slot.mono_only() && !family.monospace() {
+            continue;
+        }
+        let name = family.name();
+        let squashed = squash(name);
+        if !matching(name, &squashed) || !seen.insert(squashed) {
+            continue;
+        }
+        families.push(name);
+    }
+    if !families.is_empty() {
+        listed = true;
+        menu = menu.group(t!("rune.settings.fonts.system"));
+        for name in families {
+            let id = format!("s:{name}");
+            let checked = current == id;
+            menu = menu.item(Item::new(id, name).checked(checked));
+        }
+    }
+    if !listed && !typed.is_empty() {
+        menu = menu.item(Item::new(USE_TYPED, t!("rune.settings.fonts.useTyped", name = typed)));
+    }
+    menu
+}
+
+fn ui_menu<H: SettingsHost>(s: &H) -> Menu {
+    font_menu(s, Slot::Ui)
+}
+
+fn code_menu<H: SettingsHost>(s: &H) -> Menu {
+    font_menu(s, Slot::Code)
+}
+
+fn terminal_menu<H: SettingsHost>(s: &H) -> Menu {
+    font_menu(s, Slot::Terminal)
+}
+
+/// Reads the installed families once, when the page first shows, so the first list opens without
+/// the system font collection's cost. It runs on the UI thread: the Windows backend builds its
+/// DirectWrite factory on the calling thread, which the app's main thread has made COM-ready.
+pub fn warm_installed() {
+    static WARM: std::sync::Once = std::sync::Once::new();
+    WARM.call_once(|| {
+        rune::text::installed_families();
+    });
 }
 
 fn pick_scheme(s: &mut dyn SettingsHost, id: &str, _tx: &mut Tx) {
@@ -212,7 +344,7 @@ pub fn view<H: SettingsHost + PopupHost + 'static>(s: &H, p: &Pal) -> El {
                 "settings-ui-font",
                 t!("settings.general.row.uiFont.title"),
                 t!("settings.general.row.uiFont.description"),
-                text_field::<H>(p, "settings-ui-font-input", t!("settings.general.row.uiFont.title"), UI_DEFAULT, &f.ui, face(Family::Sans), |st| &mut st.fonts.ui, ui_changed),
+                font_field::<H>(s, p, "settings-ui-font-input", t!("settings.general.row.uiFont.title"), UI_DEFAULT, &f.ui, face(Family::Sans), |st| &mut st.fonts.ui, ui_changed, ui_menu::<H>),
             ),
         ),
         (
@@ -222,7 +354,7 @@ pub fn view<H: SettingsHost + PopupHost + 'static>(s: &H, p: &Pal) -> El {
                 "settings-code-font",
                 t!("settings.general.row.font.title"),
                 t!("settings.general.row.font.description"),
-                text_field::<H>(p, "settings-code-font-input", t!("settings.general.row.font.title"), CODE_DEFAULT, &f.code, face(Family::Mono), |st| &mut st.fonts.code, code_changed),
+                font_field::<H>(s, p, "settings-code-font-input", t!("settings.general.row.font.title"), CODE_DEFAULT, &f.code, face(Family::Mono), |st| &mut st.fonts.code, code_changed, code_menu::<H>),
             ),
         ),
         (
@@ -232,7 +364,8 @@ pub fn view<H: SettingsHost + PopupHost + 'static>(s: &H, p: &Pal) -> El {
                 "settings-terminal-font",
                 t!("settings.general.row.terminalFont.title"),
                 t!("settings.general.row.terminalFont.description"),
-                text_field::<H>(
+                font_field::<H>(
+                    s,
                     p,
                     "settings-terminal-font-input",
                     t!("settings.general.row.terminalFont.title"),
@@ -241,6 +374,7 @@ pub fn view<H: SettingsHost + PopupHost + 'static>(s: &H, p: &Pal) -> El {
                     face(terminal_preview_family(st)),
                     |st| &mut st.fonts.terminal,
                     terminal_changed,
+                    terminal_menu::<H>,
                 ),
             ),
         ),

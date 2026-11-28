@@ -4,8 +4,9 @@
 //!
 //! Pure menu data ([`Menu`], [`Item`]) is non-generic so feature crates can construct menus without
 //! depending on host app state. Runtime state ([`Popup<S>`]), dispatch ([`open`], [`open_drawn`],
-//! [`open_searchable`], [`dismiss`], [`poll`], [`key`]), trigger wiring ([`MenuButton`]), and
-//! rendering ([`view`], [`surface`]) are parameterized over any host implementing [`PopupHost`].
+//! [`open_searchable`], [`open_attached`], [`dismiss`], [`poll`], [`key`]), trigger wiring
+//! ([`MenuButton`]), and rendering ([`view`], [`surface`]) are parameterized over any host
+//! implementing [`PopupHost`].
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -30,7 +31,7 @@ mod view;
 pub use keys::key;
 pub use menu::{Indicator, Item, Menu};
 pub use rune::{Align, PopupAnchor, PopupItem, PopupMenu, Side};
-pub use state::{dismiss, open, open_drawn, open_searchable, open_with_field, poll, set_highlight};
+pub use state::{dismiss, edited, open, open_attached, open_attached_next, open_drawn, open_searchable, open_with_field, poll, set_highlight};
 pub use trigger::{MenuButton, menu_button};
 pub use view::{surface, view};
 
@@ -130,17 +131,56 @@ pub trait PopupHost: Sized {
 pub(super) type Pick<S> = Box<dyn FnOnce(&mut S, Option<&str>, &mut Tx)>;
 pub(super) type SearchRows<S> = Rc<dyn Fn(&S, &str) -> Menu>;
 
-/// A search field over a drawn menu's rows, which `rows` rebuilds from what's typed.
-pub(super) struct Search<S> {
-    pub(super) placeholder: String,
-    pub(super) rows: SearchRows<S>,
-    /// A field that edits a value instead of filtering ([`open_with_field`]).
-    pub(super) field: Option<Field<S>>,
+/// An attached list asked for in the next frame ([`open_attached_next`]).
+pub(super) struct Deferred<S> {
+    pub(super) rows: Rc<dyn Fn(&S) -> Menu>,
+    pub(super) anchor: PopupAnchor,
+    pub(super) pick: Pick<S>,
+}
+
+/// What drives a drawn menu's rows live.
+pub(super) enum Search<S> {
+    /// A search field drawn inside the menu filters its rows ([`open_searchable`]).
+    Filter { placeholder: String, rows: SearchRows<S> },
+    /// An editing field drawn inside the menu edits a value instead of filtering; `rows`
+    /// rebuilds them from the host after each edit ([`open_with_field`]).
+    Edit { label: String, field: Field<S>, rows: Rc<dyn Fn(&S) -> Menu> },
+    /// The host's own field under the menu filters its rows as it's typed in ([`open_attached`]).
+    Attached { rows: Rc<dyn Fn(&S) -> Menu> },
 }
 
 impl<S> Clone for Search<S> {
     fn clone(&self) -> Self {
-        Self { placeholder: self.placeholder.clone(), rows: Rc::clone(&self.rows), field: self.field.clone() }
+        match self {
+            Self::Filter { placeholder, rows } => Self::Filter { placeholder: placeholder.clone(), rows: Rc::clone(rows) },
+            Self::Edit { label, field, rows } => Self::Edit { label: label.clone(), field: field.clone(), rows: Rc::clone(rows) },
+            Self::Attached { rows } => Self::Attached { rows: Rc::clone(rows) },
+        }
+    }
+}
+
+impl<S> Search<S> {
+    /// The text its field shows when it draws one; nothing for one attached to the host's field.
+    pub(super) fn placeholder(&self) -> Option<&str> {
+        match self {
+            Self::Filter { placeholder, .. } => Some(placeholder),
+            Self::Edit { label, .. } => Some(label),
+            Self::Attached { .. } => None,
+        }
+    }
+
+    /// Whether the menu rebuilds its rows from the host every frame. An attached menu's field
+    /// calls [`edited`](state::edited) as it changes, so its rows are already current.
+    pub(super) fn live(&self) -> bool {
+        !matches!(self, Self::Attached { .. })
+    }
+
+    /// The menu for what's typed now.
+    pub(super) fn build(&self, s: &S, query: &str) -> Menu {
+        match self {
+            Self::Filter { rows, .. } => rows(s, query),
+            Self::Edit { rows, .. } | Self::Attached { rows } => rows(s),
+        }
     }
 }
 
@@ -180,7 +220,13 @@ impl<S> Shown<S> {
     /// Whether the open menu takes focus, as Kobalte's do: not one whose search field keeps it.
     /// A menu under an editing field takes it as any menu does; the field takes it when pressed.
     pub(super) fn holds_focus(&self) -> bool {
-        self.search.as_ref().is_none_or(|x| x.field.is_some())
+        self.search.as_ref().is_none_or(|x| matches!(x, Search::Edit { .. }))
+    }
+
+    /// Whether the open menu is attached to the host's own field ([`open_attached`]), which
+    /// keeps the keyboard while it shows.
+    pub(super) fn keeps_field_focus(&self) -> bool {
+        self.search.as_ref().is_some_and(|x| matches!(x, Search::Attached { .. }))
     }
 
     /// The menu at `level`: the root (0), or the submenu open that deep.
@@ -219,6 +265,8 @@ pub(super) struct SubOpen {
 /// when it's dismissed.
 pub struct Popup<S> {
     pub(super) shown: Option<Shown<S>>,
+    /// An attached list to open on the next frame's [`poll`].
+    pub(super) deferred: Option<Deferred<S>>,
     /// A searchable menu's field.
     pub(super) query: TextEdit,
     /// The element focused as a [`Menu::remembers_focus`] menu opened.
@@ -252,6 +300,7 @@ impl<S> Popup<S> {
     pub fn new() -> Self {
         Self {
             shown: None,
+            deferred: None,
             query: TextEdit::default(),
             remembered: None,
             press: trigger::Press::Idle,
@@ -274,7 +323,12 @@ impl<S> Popup<S> {
 
     /// The menu showing now is one under an editing field ([`open_with_field`]).
     pub(super) fn edits(&self) -> bool {
-        self.shown.as_ref().is_some_and(|m| m.search.as_ref().is_some_and(|x| x.field.is_some()))
+        self.shown.as_ref().is_some_and(|m| m.search.as_ref().is_some_and(|x| matches!(x, Search::Edit { .. })))
+    }
+
+    /// The menu showing now is attached to the host's own field ([`open_attached`]).
+    pub fn attached(&self) -> bool {
+        self.shown.as_ref().is_some_and(Shown::keeps_field_focus)
     }
 
     /// The element focused as the last [`Menu::remembers_focus`] menu opened: its Edit items

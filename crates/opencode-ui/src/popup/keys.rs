@@ -4,18 +4,18 @@ use rune::{Key, KeyEvent, Tx};
 
 use super::menu::{Menu, row_key};
 use super::state::{choose_at, close, focus_lit, notify_highlight, open_sub_at, refresh};
-use super::{PopupHost, focus};
+use super::{PopupHost, Search, focus};
 
 /// The drawn menu's keys: Up/Down/Home/End light a row, a letter lights the next one it starts,
 /// Right or Enter opens a submenu and Left closes it, Enter or Space picks, Esc and Tab dismiss.
 /// It takes every key while it's open.
 pub fn key<S: PopupHost + 'static>(s: &mut S, ev: &KeyEvent, tx: &mut Tx) -> bool {
     // A search field takes the keys while the menu is open; an editing field only while it has focus.
-    if s.popup().shown.as_ref().is_some_and(|m| m.search.as_ref().is_some_and(|x| x.field.is_none() || s.popup().query.focused)) {
+    if s.popup().shown.as_ref().is_some_and(|m| m.search.as_ref().is_some_and(|x| matches!(x, Search::Filter { .. } | Search::Attached { .. }) || s.popup().query.focused)) {
         refresh(s);
         // Typing and moving in the search field are the field's; the rest move in the menu.
         // An editing field keeps Return, which a search field gives to the lit row.
-        let editing = s.popup().shown.as_ref().is_some_and(|m| m.search.as_ref().is_some_and(|x| x.field.is_some()));
+        let editing = s.popup().shown.as_ref().is_some_and(|m| m.search.as_ref().is_some_and(|x| matches!(x, Search::Edit { .. })));
         let field = !matches!(ev.key, Key::Escape | Key::Tab | Key::Up | Key::Down | Key::PageUp | Key::PageDown | Key::Enter) || (editing && ev.key == Key::Enter);
         if field {
             return false;
