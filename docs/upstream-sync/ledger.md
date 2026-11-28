@@ -2,7 +2,7 @@
 
 - **Updated:** 2026-11-28
 - **Upstream `origin/dev` audited:** `f6e0c2d083` -> `970213080c` (**848** post-14 Nov commits: **329** in ledger + **519** skipped) plus **15** pre-14 Nov carry-over rows (`3751be8138..f6e0c2d083`) and 6 owner-split sub-rows of `UP-095`.
-- **`opencode-rune` `origin/dev` checked:** `c34c4625eb`.
+- **`opencode-rune` `origin/dev` checked:** `7d317b5238`.
 - **Total ledger rows:** **350** - **264** have it, **84** not applicable, **1** differs on purpose, **1** partly, **0** missing.
 - **Machine-readable twin:** `docs/upstream-sync/ledger.json` (generated together; identical rows).
 - **Status vs. Reviewed:** a row is **have it** only when its code is merged on `dev`; security-review tracking for browser rows lives in the separate **Reviewed** column.
