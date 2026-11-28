@@ -206,7 +206,7 @@ pub fn fault_text(fault: &Fault) -> String {
         Fault::Prevented(error) => t!("rune.browser.engine.fault.prevented", error = error),
         Fault::Damaged(code) => t!("rune.browser.engine.fault.damaged", code = format!("{code:#x}")),
         Fault::Exited(Some(code)) => t!("rune.browser.engine.fault.exited", code = format!("{code:#x}")),
-        Fault::Exited(None) | Fault::Stopped => t!("rune.browser.engine.fault.stopped").to_owned(),
+        Fault::Exited(None) | Fault::Stopped { .. } => t!("rune.browser.engine.fault.stopped").to_owned(),
         Fault::Hung => t!("rune.browser.engine.fault.hung").to_owned(),
         Fault::OutOfMemory => t!("rune.browser.engine.fault.outOfMemory").to_owned(),
     }

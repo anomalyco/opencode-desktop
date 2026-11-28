@@ -5,7 +5,10 @@
 
 #[cfg(feature = "engine")]
 use std::path::{Path, PathBuf};
+
 use rune::time::Instant;
+
+pub use crate::ended::Ended;
 
 #[cfg(feature = "engine")]
 use sha2::{Digest, Sha256};
@@ -102,8 +105,9 @@ pub enum Fault {
     Damaged(u32),
     /// The engine ended before it was ready, with this exit code.
     Exited(Option<u32>),
-    /// The engine stopped after it ran (it crashed or was ended).
-    Stopped,
+    /// The engine stopped after it ran (it crashed or was ended): how it ended, once the OS has
+    /// said, and the last lines it wrote to stderr.
+    Stopped { ended: Option<Ended>, stderr: Option<String> },
     /// The engine ended because the computer had no memory left to give it.
     OutOfMemory,
     /// The engine runs but doesn't answer (Retry ends it and starts a new one).
@@ -174,7 +178,10 @@ impl std::fmt::Display for Fault {
             Self::Damaged(code) => write!(f, "the installed engine is damaged (exit code {code:#010x})"),
             Self::Exited(Some(code)) => write!(f, "the engine ended while starting (exit code {code:#010x})"),
             Self::Exited(None) => write!(f, "the engine ended while starting"),
-            Self::Stopped => write!(f, "the engine stopped unexpectedly"),
+            Self::Stopped { ended, stderr } => {
+                let ended = ended.map(|e| format!(" ({e})")).unwrap_or_default();
+                write!(f, "the engine stopped unexpectedly{ended}{}", stderr.as_ref().map(|s| format!(": {s}")).unwrap_or_default())
+            }
             Self::OutOfMemory => write!(f, "the engine ran out of memory"),
             Self::Hung => write!(f, "the engine isn't responding"),
         }

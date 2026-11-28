@@ -25,6 +25,9 @@ const STDERR_LOG: &str = "engine-stderr.log";
 const STDERR_LOG_PREV: &str = "engine-stderr.prev.log";
 const MAX_LOG_BYTES: u64 = 256 * 1024;
 const STDERR_TAIL_BYTES: usize = 1024;
+/// How much of the tail a fault's message carries: its last lines, cut to this many characters.
+const BRIEF_LINES: usize = 4;
+const BRIEF_CHARS: usize = 500;
 
 static LOG_LOCK: Mutex<()> = Mutex::new(());
 
@@ -63,6 +66,19 @@ impl StderrTail {
             .collect::<Vec<_>>()
             .join(" | ");
         (!compact.is_empty()).then_some(compact)
+    }
+
+    /// The last `BRIEF_LINES` lines of the tail, at most `BRIEF_CHARS` characters, for the
+    /// message a fault shows the user and the agent.
+    pub(crate) fn brief(&self) -> Option<String> {
+        let text = self.snapshot()?;
+        let mut lines: Vec<&str> = text.rsplit(" | ").take(BRIEF_LINES).collect();
+        lines.reverse();
+        let text = lines.join(" | ");
+        match text.char_indices().rev().nth(BRIEF_CHARS - 1) {
+            Some((start, _)) if start > 0 => Some(format!("…{}", &text[start..])),
+            _ => Some(text),
+        }
     }
 }
 
