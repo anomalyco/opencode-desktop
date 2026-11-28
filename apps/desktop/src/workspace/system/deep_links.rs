@@ -12,10 +12,16 @@
 //!   session opens, the app coming forward, also when the click started it.
 //! - `console/authorized?window=<id>` is the OpenCode Console's return link after a sign-in:
 //!   the window that started it comes forward (Desktop's `consoleReturnWindow`).
-//! - `new-window`, `new-session` and `session?id=<id>` are the jump list's (`jump_list`): a new
-//!   window, a new session in the window in front, a session on the app's own server.
+//! - `session/<id>[?server=<url>]` opens an existing session (root or subagent), bringing the
+//!   app forward; when `server` is given it matches only an already-configured server (ignoring
+//!   unknown URLs), and when omitted it falls back to the active server.
+//! - `new-window`, `new-session` and `session?id=<id>[&server=<url>]` are the jump list's
+//!   (`jump_list`): a new window, a new session in the window in front, or a session (on the app's
+//!   own server when `server` is omitted).
 
 use opencode_i18n::t;
+#[cfg(not(target_arch = "wasm32"))]
+use opencode_kit::servers::ServerKey;
 use opencode_ui::palette::{Elevate as _, Pal, kit};
 use opencode_ui::widgets::{BODY, DialogSize, Fit, button, dialog_window, sized};
 use rune::machine::Effects;
@@ -303,6 +309,28 @@ pub fn open(s: &mut App, url: &str, tx: &mut Tx) {
         }
         return;
     }
+    if let Some(link) = session_link(url, crate::launch::product().scheme()) {
+        match resolve_session_server(s, link.server.as_deref(), link.from_path) {
+            Some(server) => {
+                crate::notifications::clicked(
+                    s,
+                    &rune_notify::Click {
+                        id: String::new(),
+                        info: vec![
+                            ("session".into(), link.id),
+                            ("server".into(), server.as_str().to_owned()),
+                        ],
+                    },
+                );
+                tx.wake_after(std::time::Duration::ZERO);
+            }
+            None => {
+                let server = link.server.as_deref().unwrap_or("");
+                eprintln!("opencode-rune: ignored session link for unknown server: {server}");
+            }
+        }
+        return;
+    }
     match jump(url, crate::launch::product().scheme()) {
         Some(Jump::NewWindow) => {
             crate::windows::new_window(s);
@@ -312,10 +340,6 @@ pub fn open(s: &mut App, url: &str, tx: &mut Tx) {
             rune_notify::bring_to_front();
             s.close_settings();
             s.new_session(tx);
-            return;
-        }
-        Some(Jump::Session(id)) => {
-            crate::notifications::clicked(s, &rune_notify::Click { id: String::new(), info: vec![("session".into(), id), ("server".into(), String::new())] });
             return;
         }
         None => {}
@@ -467,14 +491,137 @@ fn project(url: &str, own: &str) -> Option<(String, Option<String>)> {
     is_local_directory(&dir).then_some((dir, prompt))
 }
 
-/// The jump list's entries (`jump_list`), besides `open?project=`.
+/// A parsed `<own>://session/<id>[?server=<url>]` or `<own>://session?id=<id>[&server=<url>]` link.
+#[cfg(not(target_arch = "wasm32"))]
+#[derive(Debug, PartialEq, Eq)]
+struct SessionLink {
+    id: String,
+    server: Option<String>,
+    /// True for `session/<id>` (falls back to the active server when `server` is omitted);
+    /// false for the jump-list `session?id=<id>` form (falls back to the built-in sidecar server).
+    from_path: bool,
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn session_link(url: &str, own: &str) -> Option<SessionLink> {
+    let (scheme, rest) = url.trim().split_once("://")?;
+    if !scheme.eq_ignore_ascii_case(own) {
+        return None;
+    }
+    let rest = rest.split_once('#').map_or(rest, |(before, _)| before);
+    let (path, query) = rest.split_once('?').unwrap_or((rest, ""));
+    let query_param = |name: &str| {
+        query
+            .split('&')
+            .find_map(|pair| pair.strip_prefix(name).and_then(|v| v.strip_prefix('=')))
+            .map(unpercent)
+    };
+    let server = query_param("server").filter(|v| !v.trim().is_empty());
+    if let Some(seg) = path.strip_prefix("session/") {
+        let seg = seg.trim_end_matches('/');
+        if seg.is_empty() || seg.contains('/') {
+            return None;
+        }
+        let id = unpercent_path(seg);
+        return is_valid_session_id(&id).then_some(SessionLink { id, server, from_path: true });
+    }
+    if path.trim_end_matches('/') == "session" {
+        let id = query_param("id")?;
+        return is_valid_session_id(&id).then_some(SessionLink { id, server, from_path: false });
+    }
+    None
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn is_valid_session_id(id: &str) -> bool {
+    !id.is_empty()
+        && id.len() <= 256
+        && id != "."
+        && id != ".."
+        && !id.chars().any(|c| c.is_control() || c.is_whitespace() || matches!(c, '/' | '\\'))
+}
+
+/// Resolves the target server for a session deep link.
+///
+/// When `server` is given, matches only against already-configured/known servers (never connecting
+/// to arbitrary unknown URLs from a link), normalizing scheme/host case and trailing slashes.
+/// When `server` is omitted, falls back to the active server for `session/<id>` links and the
+/// built-in sidecar server for jump-list `session?id=<id>` links.
+#[cfg(not(target_arch = "wasm32"))]
+fn resolve_session_server(s: &App, server: Option<&str>, from_path: bool) -> Option<ServerKey> {
+    let Some(raw) = server else {
+        return Some(if from_path {
+            crate::servers::runtime::active(s).clone()
+        } else {
+            ServerKey::sidecar()
+        });
+    };
+    let trimmed = raw.trim();
+    if trimmed.is_empty() || trimmed.chars().any(char::is_control) {
+        return None;
+    }
+    let want_key = trimmed.trim_end_matches('/');
+    let want_url = normalize_server_url(trimmed);
+    for entry in crate::servers::registry::list(s) {
+        let key = entry.key();
+        if key.as_str().trim_end_matches('/').eq_ignore_ascii_case(want_key) {
+            return Some(key);
+        }
+        if let (Some(want), Some(http)) = (want_url.as_deref(), entry.conn.http())
+            && normalize_server_url(&http.url).as_deref() == Some(want)
+        {
+            return Some(key);
+        }
+    }
+    // During cold launch before the sidecar is up, `registry::list` omits saved HTTP servers;
+    // check the persisted server list directly too.
+    if let Some(want) = want_url.as_deref() {
+        for saved in crate::servers::list() {
+            if normalize_server_url(&saved.url).as_deref() == Some(want) {
+                return Some(ServerKey::new(&saved.url));
+            }
+        }
+    }
+    None
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn normalize_server_url(input: &str) -> Option<String> {
+    let trimmed = input.trim();
+    if trimmed.is_empty() || trimmed.chars().any(char::is_control) {
+        return None;
+    }
+    let normalized = if let Some((scheme, rest)) = trimmed.split_once("://") {
+        let scheme = scheme.to_ascii_lowercase();
+        if scheme != "http" && scheme != "https" {
+            return None;
+        }
+        format!("{scheme}://{rest}")
+    } else {
+        format!("http://{trimmed}")
+    };
+    let (scheme, rest) = normalized.split_once("://")?;
+    let rest = rest.trim_end_matches('/');
+    let (authority, path) = match rest.split_once('/') {
+        Some((a, p)) => (a, Some(p)),
+        None => (rest, None),
+    };
+    if authority.is_empty() {
+        return None;
+    }
+    let authority = authority.to_ascii_lowercase();
+    Some(match path {
+        Some(p) if !p.is_empty() => format!("{scheme}://{authority}/{p}"),
+        _ => format!("{scheme}://{authority}"),
+    })
+}
+
+/// The jump list's entries (`jump_list`), besides `open?project=` and `session`.
 #[cfg(not(target_arch = "wasm32"))]
 #[derive(Debug, PartialEq, Eq)]
 enum Jump {
     NewWindow,
     NewSession,
-    /// `session?id=<id>`: a session on the app's own server.
-    Session(String),
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -487,10 +634,6 @@ fn jump(url: &str, own: &str) -> Option<Jump> {
     match path.trim_end_matches('/') {
         "new-window" => Some(Jump::NewWindow),
         "new-session" if !query.split('&').any(|pair| pair.starts_with("directory=")) => Some(Jump::NewSession),
-        "session" => {
-            let id = query.split('&').find_map(|pair| pair.strip_prefix("id=")).map(unpercent)?;
-            (!id.is_empty() && id.len() <= 256 && !id.chars().any(char::is_control)).then_some(Jump::Session(id))
-        }
         _ => None,
     }
 }
@@ -508,6 +651,30 @@ fn console_return(url: &str, own: &str) -> Option<String> {
     }
     let id = query.split('&').find_map(|pair| pair.strip_prefix("window=")).map(unpercent)?;
     (!id.is_empty() && id.len() <= 256 && !id.chars().any(char::is_control)).then_some(id)
+}
+
+/// A path segment: `%XX` escapes only (preserving literal `+`).
+#[cfg(not(target_arch = "wasm32"))]
+fn unpercent_path(s: &str) -> String {
+    let b = s.as_bytes();
+    let mut out = Vec::with_capacity(b.len());
+    let mut i = 0;
+    while i < b.len() {
+        let hex = (b[i] == b'%' && i + 2 < b.len())
+            .then(|| std::str::from_utf8(&b[i + 1..i + 3]).ok().and_then(|h| u8::from_str_radix(h, 16).ok()))
+            .flatten();
+        match hex {
+            Some(v) => {
+                out.push(v);
+                i += 3;
+            }
+            None => {
+                out.push(b[i]);
+                i += 1;
+            }
+        }
+    }
+    String::from_utf8_lossy(&out).into_owned()
 }
 
 /// A query value: `%XX` escapes and `+` for a space, as `URLSearchParams` reads it.
