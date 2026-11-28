@@ -237,8 +237,13 @@ impl App {
     /// `prepareSession`). The draft's id, or None when no draft is open.
     pub(crate) fn promote_draft(&mut self, id: &str, directory: &str) -> Option<String> {
         let Route::Draft(draft) = (*self.route).clone() else { return None };
-        let tab = self.tabs.iter_mut().find(|t| t.id == draft)?;
-        *tab = Tab::session(id, "", directory);
+        let idx = self.tabs.iter().position(|t| t.id == draft)?;
+        if self.tab_layout() == crate::layout_state::TabLayout::Inbox {
+            // Inbox keeps no session tabs; drop the draft slot once its session starts (`opencode#66496`).
+            self.tabs.remove(idx);
+        } else {
+            self.tabs[idx] = Tab::session(id, "", directory);
+        }
         self.forget_draft_history(&draft);
         self.save_tabs();
         Some(draft)
@@ -333,6 +338,9 @@ impl App {
         // `use-session-commands.tsx:129-136`), wherever focus is.
         let side = self.panel_session_id().and_then(|sid| self.kernel.slots.get(&crate::panels::SIDE).sessions.get(sid)).and_then(|s| s.closed.first()).map(|c| c.closed_ms);
         if side.is_some_and(|side| self.gestures.tab_closed_ms.is_none_or(|tab| side >= tab)) && self.reopen_closed_side_tab(None, tx) {
+            return;
+        }
+        if self.tab_layout() == crate::layout_state::TabLayout::Inbox {
             return;
         }
         self.reopen_closed(None, false, tx);

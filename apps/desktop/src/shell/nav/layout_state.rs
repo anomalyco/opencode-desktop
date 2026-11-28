@@ -268,9 +268,13 @@ impl App {
     /// Reconciles the shell layout and Consolidated Tabs/List snapshot with current settings.
     pub fn sync_tab_layout(&mut self, tx: &mut Tx) {
         crate::tabs::navigation_switch::sync(self, tx);
+        let prev = self.layout.motion.target();
         let layout = self.settings.effective_tab_layout();
         if !self.layout.motion.switch(layout, *self.clock) {
             return;
+        }
+        if prev == TabLayout::Inbox && layout != TabLayout::Inbox {
+            self.ensure_routed_session_tab();
         }
         self.gestures.tab_drag.cancel();
         self.finish_rename(true);

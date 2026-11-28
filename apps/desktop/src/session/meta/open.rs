@@ -35,12 +35,36 @@ impl App {
     /// `home/sessions/controller.tsx:567-586`): the page stays, its messages aren't read yet and
     /// its project isn't touched.
     pub fn open_in_background(&mut self, id: &str) {
+        if self.tab_layout() == crate::layout_state::TabLayout::Inbox {
+            return;
+        }
         let root = self.root_of(id).to_owned();
-        if self.tabs.iter().any(|t| t.id == root) {
+        let here = crate::servers::runtime::active(self);
+        if self.tabs.iter().any(|t| t.is(here, &root) && !t.is_draft()) {
             return;
         }
         let (title, directory) = self.session(&root).map(|s| (s.title.clone(), s.directory.clone())).unwrap_or_default();
         self.tabs.push(Tab::session(root, title, directory));
+        self.save_tabs();
+    }
+
+    /// Leaving the Inbox layout opens a tab for the currently routed session's root
+    /// (`packages/app/src/shell/titlebar/route-machine.ts:136`, `opencode#66496`).
+    pub(crate) fn ensure_routed_session_tab(&mut self) {
+        let Route::Session { id, server } = (*self.route).clone() else { return };
+        let root = crate::servers::runtime::with_server(self, &server, |s| s.root_of(&id).to_owned())
+            .unwrap_or_else(|| id.clone());
+        if self.tabs.iter().any(|t| t.is(&server, &root) && !t.is_draft()) {
+            return;
+        }
+        let (title, directory) = crate::servers::runtime::with_server(self, &server, |s| {
+            s.session(&root)
+                .or_else(|| s.inbox_archived().iter().find(|a| a.id == root))
+                .map(|i| (i.title.clone(), i.directory.clone()))
+        })
+        .flatten()
+        .unwrap_or_default();
+        self.tabs.push(Tab::session(root, title, directory).on(server));
         self.save_tabs();
     }
 
@@ -87,7 +111,10 @@ impl App {
         // Reading it, and reporting it read, waits for a focused window (`session_viewed::poll`).
         crate::notifications::seen(self, &root);
         crate::windows::peer::touch(self);
-        if !self.tabs.iter().any(|t| t.id == root) {
+        // The Inbox layout lists sessions in place of tabs, so routing to a session opens no tab
+        // (`packages/app/src/shell/titlebar/route-sync.ts:186`, `opencode#66496`).
+        let here = crate::servers::runtime::active(self);
+        if self.tab_layout() != crate::layout_state::TabLayout::Inbox && !self.tabs.iter().any(|t| t.is(here, &root) && !t.is_draft()) {
             let (title, directory) = self.session(&root).map(|s| (s.title.clone(), s.directory.clone())).unwrap_or_default();
             self.tabs.push(Tab::session(root.clone(), title, directory));
             self.save_tabs();
