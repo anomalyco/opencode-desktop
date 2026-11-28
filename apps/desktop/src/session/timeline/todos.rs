@@ -160,6 +160,26 @@ impl Feature<App> for TimelineExtrasFeature {
             )
             .after("escape.activity"),
         );
+        // Intentional UX improvement over official Desktop's `SessionPermissionDock` (which leaves
+        // Escape unbound while OpenCode TUI binds Escape to reject): Escape denies the waiting
+        // permission request cleanly once higher overlays and page popovers are closed, instead of
+        // falling through to session interrupt or leaving the prompt stuck.
+        builder.register_escape_layer(
+            EscapeLayer::<App>::new(
+                "escape.permission",
+                crate::overlays::escape_band::PAGE_POPOVER,
+                |s| s.permission_asked().is_some(),
+                |s, ev, tx| {
+                    if ev.mods.ctrl || ev.mods.cmd || ev.mods.alt || ev.mods.shift {
+                        return;
+                    }
+                    if let Some(p) = s.permission_asked() {
+                        session_view::dock::permission::decide(s, p.id(), "reject", tx);
+                    }
+                },
+            )
+            .after("escape.find"),
+        );
         builder.schedule(crate::tick::stage::DERIVE_TIMELINE, "timeline_extras.todos", sync);
         builder.schedule(
             crate::tick::stage::DERIVE_TIMELINE,

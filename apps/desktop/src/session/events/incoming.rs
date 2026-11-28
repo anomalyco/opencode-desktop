@@ -397,13 +397,18 @@ fn apply_pending_kind(s: &mut App, session: &str, epoch: u64, is_form: bool, ite
         .map(|(_, id)| id.clone())
         .collect();
     let mut changed = false;
-    let drop_pending = s.pending.iter().any(|p| {
-        p.session() == session
-            && matches_kind(p)
-            && !items.iter().any(|i| i.id() == p.id())
-            && !s.request_reads.arrived_after(p.id(), epoch)
-    });
-    if drop_pending {
+    let mut dropped: Vec<String> = s
+        .pending
+        .iter()
+        .filter(|p| {
+            p.session() == session
+                && matches_kind(p)
+                && !items.iter().any(|i| i.id() == p.id())
+                && !s.request_reads.arrived_after(p.id(), epoch)
+        })
+        .map(|p| p.id().to_owned())
+        .collect();
+    if !dropped.is_empty() {
         let reads = &s.request_reads;
         s.pending.retain(|p| {
             p.session() != session
@@ -415,10 +420,18 @@ fn apply_pending_kind(s: &mut App, session: &str, epoch: u64, is_form: bool, ite
     }
     if !to_drop.is_empty() {
         s.requests.retain(|(sid, id)| sid != session || !to_drop.iter().any(|d| d == id));
-        for id in &to_drop {
-            s.request_reads.forget_sse(id);
+        for id in to_drop {
+            if !dropped.iter().any(|d| d == &id) {
+                dropped.push(id);
+            }
         }
         changed = true;
+    }
+    for id in &dropped {
+        s.request_reads.forget_sse(id);
+        s.kernel.slots.get_mut(&crate::question::QUESTION).forget(id);
+        s.kernel.slots.get_mut(&crate::permission::PERMISSION_SENT).0.remove(id);
+        crate::notifications::answered(s, id);
     }
     for p in items {
         changed |= s.add_pending(p);
