@@ -41,6 +41,7 @@ pub use console::{console_open, follow as shell_follow};
 pub use details::overlay as details_overlay;
 pub use files::{draws_card as file_draws_card, group as file_group, is_file_tool, shut_group};
 pub use execute::script_output_text;
+pub(crate) use execute::has_calls as execute_has_calls;
 pub use lists::{read_group, skill_group, skill_name};
 pub use plain::strip_ansi;
 
@@ -295,8 +296,9 @@ fn cached_with<S: TimelineHost>(s: &S, p: &Pal, cx: Ctx, calls: &[Call], after_c
     rune::memo(format!("tm-{}", first.id), h.finish(), || col().w_full().child(build()))
 }
 
-/// Fingerprints an `execute` call's `metadata` in O(shown) time instead of hashing thousands of
-/// hidden `toolCalls` entries that `execute::execute` skips.
+/// Fingerprints an `execute` call's `metadata`, deeply hashing only the last `shown` valid
+/// `toolCalls` entries (those with string `tool`) that `execute::execute` renders while
+/// tracking total valid count (and hidden error positions when non-flat or errored).
 fn fingerprint_execute_metadata(c: &Call, shown: usize, flat: bool, h: &mut impl Hasher) {
     let Some(o) = c.metadata.as_object() else {
         fingerprint(c.metadata, h);
@@ -309,9 +311,21 @@ fn fingerprint_execute_metadata(c: &Call, shown: usize, flat: bool, h: &mut impl
         if k == "toolCalls"
             && let Value::Array(a) = x
         {
-            (4u8, a.len()).hash(h);
-            let start = a.len().saturating_sub(shown);
-            for item in &a[start..] {
+            // Walk backward to locate the exact start of the last `shown` string-`tool` calls.
+            let mut valid_tail = 0usize;
+            let mut start = a.len();
+            for (idx, item) in a.iter().enumerate().rev() {
+                if item["tool"].is_string() {
+                    valid_tail += 1;
+                    start = idx;
+                    if valid_tail == shown {
+                        break;
+                    }
+                }
+            }
+            let valid_before = a[..start].iter().filter(|v| v["tool"].is_string()).count();
+            (4u8, a.len(), valid_before + valid_tail).hash(h);
+            for item in a[start..].iter().filter(|v| v["tool"].is_string()) {
                 fingerprint(item, h);
             }
             if need_error_scan && start > 0 {

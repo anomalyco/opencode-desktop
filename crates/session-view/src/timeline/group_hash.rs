@@ -158,7 +158,7 @@ fn hash_uncached(messages: &[Message], edits: bool, script_diffs: bool) -> u64 {
 fn message_hash(m: &Message, edits: bool, script_diffs: bool) -> u64 {
     let mut h = DefaultHasher::new();
     if let Message::Notice(n) = m {
-        (3u8, &n.id).hash(&mut h);
+        (3u8, &n.id, format!("{:?}", n.kind)).hash(&mut h);
     }
     let step = match m {
         Message::Assistant(a) => Some(a),
@@ -169,12 +169,28 @@ fn message_hash(m: &Message, edits: bool, script_diffs: bool) -> u64 {
         (&a.id, a.completed, a.parts.len(), &a.text_phases).hash(&mut h);
         for p in &a.parts {
             match p {
-                Part::Tool { id, name, status, input, files, metadata, .. } => {
+                Part::Tool { id, name, title, status, input, files, metadata } => {
+                    let call = crate::tools::Call { id, name, status, input, metadata };
                     let empty_input = input.as_object().is_none_or(|o| o.is_empty());
                     let out = opencode_kit::model::tool_output(status, metadata).unwrap_or("");
                     let ob = out.as_bytes();
-                    (0u8, id, name, std::mem::discriminant(status), empty_input, crate::tools::path(input), files.len()).hash(&mut h);
                     (
+                        0u8,
+                        id,
+                        name,
+                        title,
+                        std::mem::discriminant(status),
+                        empty_input,
+                        crate::tools::path(input),
+                        files.len(),
+                        crate::tools::file_draws_card(&call),
+                        crate::tools::skill_name(&call),
+                    )
+                        .hash(&mut h);
+                    (
+                        input["command"].as_str(),
+                        input["background"].as_bool(),
+                        metadata["shellID"].as_str(),
                         metadata["error"].as_bool(),
                         opencode_kit::model::tool_error(metadata).map(str::len),
                         ob.len(),
@@ -190,19 +206,23 @@ fn message_hash(m: &Message, edits: bool, script_diffs: bool) -> u64 {
                     // none keeps the row.
                     if edits {
                         crate::activity::rules::script_changes(name, status, metadata)
-                            .for_each(|(i, f)| (i, f["file"].as_str()).hash(&mut h));
+                            .for_each(|(i, f)| (i, f["file"].as_str(), crate::tools::script::is_card(f)).hash(&mut h));
                     }
-                    if script_diffs && name == "execute" {
-                        metadata["toolCalls"].as_array().into_iter().flatten().for_each(|c| {
-                            (
-                                c["tool"].as_str(),
-                                c["status"].as_str(),
-                                c["input"]["method"].as_str(),
-                                c["input"]["filePath"].as_str(),
-                                c["input"]["path"].as_str(),
-                            )
-                                .hash(&mut h);
-                        });
+                    if name == "execute" {
+                        if script_diffs {
+                            metadata["toolCalls"].as_array().into_iter().flatten().for_each(|c| {
+                                (
+                                    c["tool"].as_str(),
+                                    c["status"].as_str(),
+                                    c["input"]["method"].as_str(),
+                                    c["input"]["filePath"].as_str(),
+                                    c["input"]["path"].as_str(),
+                                )
+                                    .hash(&mut h);
+                            });
+                        } else {
+                            crate::tools::execute_has_calls(metadata).hash(&mut h);
+                        }
                     }
                 }
                 Part::Reasoning { text, completed, .. } => (1u8, text.len(), completed).hash(&mut h),

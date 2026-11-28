@@ -256,6 +256,7 @@ impl RowSpec {
                     let ver = (
                         &t.session,
                         group_hash::of(s, t, *start..*end, &detail, script_diffs),
+                        (open || shutting).then_some((*start, *end)),
                         *block,
                         *live,
                         [pt.to_bits(), self.room_under(s).to_bits(), fade.to_bits()],
