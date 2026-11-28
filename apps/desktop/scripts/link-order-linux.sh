@@ -95,7 +95,7 @@ trap 'rm -f "$order" "$order.ranked"' EXIT
   BEGIN {
     while ((getline line < list) > 0) if (line != "" && line !~ /^#/ && !(line in rank)) rank[line] = ++count
   }
-  $0 != "" && $0 !~ /[:[:space:]]/ { key = plain($0); if (key in rank && !($0 in seen)) { seen[$0] = 1; print rank[key] "\t" $0 } }
+  $0 != "" && $0 !~ /[: \t]/ { key = plain($0); if (key in rank && !($0 in seen)) { seen[$0] = 1; print rank[key] "\t" $0 } }
 ' | sort -n -s -k1,1 > "$order.ranked"
 cut -f2 "$order.ranked" > "$order"
 found=$(cut -f1 "$order.ranked" | uniq | wc -l | tr -d ' ')

@@ -354,7 +354,9 @@ pub(crate) fn bound_glibc_arenas() {
     if std::env::var_os("MALLOC_ARENA_MAX").is_some() {
         return;
     }
-    if std::env::var("GLIBC_TUNABLES").is_ok_and(|v| v.contains("glibc.malloc.arena_max")) {
+    if std::env::var_os("GLIBC_TUNABLES")
+        .is_some_and(|v| v.to_string_lossy().contains("glibc.malloc.arena_max"))
+    {
         return;
     }
     // SAFETY: `mallopt(M_ARENA_MAX, 4)` is a standard glibc tuning call invoked once at startup
