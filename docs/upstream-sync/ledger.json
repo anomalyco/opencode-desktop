@@ -5,7 +5,7 @@
   "upstream_head": "5410c21e3ea8a2e910157ba876ca1c41d3d798d9",
   "upstream_pre_window_base": "3751be8138ebcf33343eb3f3d011b32fc814103c",
   "rune_desktop_repo": "anomalyco/opencode-rune",
-  "rune_desktop_head": "4b446fe3be",
+  "rune_desktop_head": "2ba252006d",
   "post_1114_commit_count": 835,
   "post_1114_in_ledger": 287,
   "post_1114_skipped": 548,
@@ -20,10 +20,10 @@
   "pre_1114_carryover_rows": 15,
   "total_ledger_rows": 308,
   "status_counts": {
-    "have it": 261,
+    "have it": 263,
     "not applicable": 43,
     "differs on purpose": 1,
-    "partly": 3,
+    "partly": 1,
     "missing": 0
   },
   "rows": [
@@ -7725,7 +7725,7 @@
       ],
       "summary": "TUI bug fixes plus a shared Solid client fix to refresh catalogs when provider/model/agent/command/skill.updated SSE events arrive without a location.",
       "size": "XS",
-      "status": "partly",
+      "status": "have it",
       "rune_files": [
         "apps/desktop/src/session/events/mod.rs",
         "features/composer-input/src/slash.rs",
@@ -7734,11 +7734,10 @@
         "features/settings/src/jobs.rs",
         "features/settings/src/pages/extensions.rs"
       ],
-      "status_evidence": "Partial: provider/model/agent/config.updated locationless refresh already holds in apps/desktop/src/session/events/mod.rs:553-572, while command.updated and skill.updated invalidation (Slash::invalidate, Mentions CatalogEvent::Invalidated, and Settings Extensions skill reload) is ported in open PR #1474 (84d6a6951e).",
+      "status_evidence": "Merged in #1474 (dev 2ba252006d, head 84d6a6951e, CI run 46084604472 green across guardrails + macOS/Win x64/Win arm64/Linux x64; Linux arm64 skipped): wires command.updated, skill.updated, and agent.updated (directory-scoped and locationless) in apps/desktop/src/session/events/mod.rs to invalidate Slash, step CatalogEvent::Invalidated in Mentions (with live poll re-fetch when open), and reload Settings Extensions skills.",
       "depends_on": "none",
       "risks": "none",
-      "workstream": "UPSTREAM",
-      "open_pr": "#1474"
+      "workstream": "UPSTREAM"
     },
     {
       "id": "UP-284",
@@ -7844,7 +7843,7 @@
       ],
       "summary": "Adds structured SkillLoadError ({ skill, message }, HTTP 502) to session prompt and skill endpoints so failed skill loads report the skill name and reason cleanly instead of crashing.",
       "size": "XS",
-      "status": "partly",
+      "status": "have it",
       "rune_files": [
         "crates/opencode-kit/src/wire_error.rs",
         "crates/opencode-kit/src/client.rs",
@@ -7852,11 +7851,10 @@
         "features/inbox/src/send_failed/mod.rs",
         "apps/desktop/src/workspace/system/errors.rs"
       ],
-      "status_evidence": "Partial: WireKind::Status already decoded generic message strings; structured SkillLoadError decoding (skill identifier, non-transient/failed_for_sure 502 handling, UserError wording, and outbox Verdict::Rejected) is ported in open PR #1474 (84d6a6951e).",
+      "status_evidence": "Merged in #1474 (dev 2ba252006d, head 84d6a6951e, CI run 46084604472 green across guardrails + macOS/Win x64/Win arm64/Linux x64; Linux arm64 skipped): decodes structured SkillLoadError ({ skill, message }, HTTP 502) in crates/opencode-kit/src/wire_error.rs, marks it non-transient and failed_for_sure, cleans up orphan sessions in Server::start_as, and surfaces skill-specific errors in UserError, send_reason, and journaled outbox (Verdict::Rejected).",
       "depends_on": "none",
       "risks": "none",
-      "workstream": "UPSTREAM",
-      "open_pr": "#1474"
+      "workstream": "UPSTREAM"
     }
   ],
   "browser_security_review": {
