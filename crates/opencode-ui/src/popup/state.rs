@@ -277,6 +277,23 @@ pub(super) fn choose<S: PopupHost + 'static>(s: &mut S, n: usize, tx: &mut Tx) {
     close(s, Some(&item.id), focus::Reason::Picked, tx);
 }
 
+/// Picks a swatch circle: keeps an editing-field menu open via its `radio` callback, otherwise
+/// closes the menu and answers the swatch's id.
+pub(super) fn choose_swatch<S: PopupHost + 'static>(s: &mut S, id: &str, tx: &mut Tx) {
+    refresh(s);
+    let radio = s.popup().shown.as_ref().and_then(|m| m.search.as_ref()?.field.as_ref()).map(|f| Rc::clone(&f.radio));
+    if let Some(radio) = radio {
+        let lit = s.popup().shown.as_ref().and_then(|m| m.active);
+        radio(s, id, tx);
+        refresh(s);
+        if let Some(shown) = s.popup_mut().shown.as_mut() {
+            shown.active = lit;
+        }
+        return;
+    }
+    close(s, Some(id), focus::Reason::Picked, tx);
+}
+
 /// Picks row `m` of the first open submenu, if it's offered.
 pub(super) fn choose_sub<S: PopupHost + 'static>(s: &mut S, m: usize, tx: &mut Tx) {
     choose_at(s, 1, m, tx);

@@ -28,7 +28,7 @@ pub mod trigger;
 mod view;
 
 pub use keys::key;
-pub use menu::{Indicator, Item, Menu};
+pub use menu::{Indicator, Item, Menu, Swatch};
 pub use rune::{Align, PopupAnchor, PopupItem, PopupMenu, Side};
 pub use state::{dismiss, open, open_drawn, open_searchable, open_with_field, poll, set_highlight};
 pub use trigger::{MenuButton, menu_button};

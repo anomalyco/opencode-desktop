@@ -47,6 +47,7 @@ pub(super) fn root<S: PopupHost + 'static>(p: &Pal, menu: &Menu, active: Option<
                 .child(icon(&CHEVRON, 16.0).key("chevron").color(p.standard.icon).mirror_in_rtl()),
             Entry::Separator => rule(p, n, hair),
             Entry::Group(title) => heading(p, n, title),
+            Entry::Swatches { .. } => el(),
         }
     });
     // It holds focus and takes the keys from there, as Kobalte's menus do (`menu-v2-content`).
@@ -68,6 +69,7 @@ pub(super) fn sub<S: PopupHost + 'static>(p: &Pal, menu: &Menu, active: Option<u
             .on_press_tx(move |s: &mut S, tx: &mut Tx| choose_sub(s, m, tx)),
         Entry::Separator => rule(p, m, hair),
         Entry::Group(title) => heading(p, m, title),
+        Entry::Swatches { .. } => el(),
         // One level deep, as Desktop's app menu is.
         Entry::Sub(_) => el(),
     });
@@ -84,7 +86,7 @@ fn row_w(entry: &Entry) -> f32 {
             Entry::Item(i) => w(&i.title, LABEL) + i.shortcut.as_deref().map_or(0.0, |k| GAP + w(k, SHORTCUT)),
             Entry::Group(title) => w(title, LABEL),
             Entry::Sub(sub) => w(&sub.title, LABEL) + GAP + 16.0,
-            Entry::Separator => 0.0,
+            Entry::Swatches { .. } | Entry::Separator => 0.0,
         }
 }
 
