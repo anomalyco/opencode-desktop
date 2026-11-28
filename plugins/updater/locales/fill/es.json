@@ -1,0 +1,10 @@
+{
+  "action.unavailable": "Actualizaciones no disponibles",
+  "check.isolated": "Las actualizaciones están desactivadas en esta ejecución aislada (RUNE_DIRS_ROOT).",
+  "check.unavailable": "Esta compilación se actualiza fuera de OpenCode, por ejemplo mediante tu gestor de paquetes.",
+  "dialog.available.message": "OpenCode {{version}} está disponible para descargar.",
+  "dialog.available.title": "Actualización disponible",
+  "installOnQuit.description": "Instalar automáticamente las actualizaciones descargadas al salir de OpenCode",
+  "installOnQuit.pendingMac": "La actualización descargada se instalará al salir esta vez; las futuras actualizaciones no.",
+  "installOnQuit.title": "Instalar actualizaciones al salir"
+}
