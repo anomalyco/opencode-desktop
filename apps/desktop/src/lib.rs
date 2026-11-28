@@ -41,7 +41,8 @@ pub(crate) fn collect_thread_heap() {
 }
 
 /// `App::rest`: mimalloc collects this thread's heap and purges every free page now; on Windows
-/// the process heap compacts too.
+/// the process heap compacts too. (On Linux/glibc, Rune's own rest trim reclaims C-library arenas
+/// off the UI thread via `App::trim_c_heap_at_rest(true)`.)
 #[cfg(not(target_arch = "wasm32"))]
 #[allow(unsafe_code)]
 pub(crate) fn purge_free_pages() {
@@ -244,6 +245,9 @@ pub(crate) fn rune_app(spec: AppSpec<App>) -> rune::App<App> {
             // the window rests (opt-in since rune#2006, per effect since rune#2011), so the button's
             // first showing in a scroll does not wait for the GPU driver (about 80 to 100 ms on a
             // cold shader cache). Nothing else is named: no layer blur, no blend is compiled ahead.
+            // On Linux/glibc, C libraries (Mesa/Vulkan, GLib/GIO, fontconfig) still allocate via
+            // glibc while Rust uses mimalloc; opt in to Rune's rest-only off-UI-thread malloc_trim.
+            .trim_c_heap_at_rest(true)
             .prewarm_effects(rune::PrewarmEffects::BACKDROP_BLUR)
             .titlebar(rune::Titlebar::new(view::TITLEBAR_H))
             .chrome(rune::Chrome {
@@ -317,6 +321,8 @@ pub fn run_native() {
     #[cfg(windows)]
     launch::warm_gpu_if_asked();
     commit_pages_on_demand();
+    #[cfg(all(target_os = "linux", target_env = "gnu"))]
+    shell::memory_reclaim::bound_glibc_arenas();
     #[cfg(feature = "alloc-sites")]
     plugin_host::memory::register_reports();
     // A debug build COM starts for a proof's scratch toast activator (`LocalServer32`, whose

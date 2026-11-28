@@ -342,3 +342,26 @@ fn retain_global_user_messages(s: &App) {
         .collect();
     opencode_kit::model::retain_user_messages(&|id| messages.contains(id));
 }
+
+/// Bounds glibc's per-thread C-library arenas at startup on Linux/glibc before worker threads
+/// spawn, unless the caller explicitly configured `MALLOC_ARENA_MAX` or `GLIBC_TUNABLES`.
+/// Four arenas accommodate concurrent Mesa/Vulkan shader-compile, GLib/GIO, and fontconfig
+/// threads without letting 30+ app threads allocate unbounded 64 MiB glibc arenas.
+#[cfg(all(target_os = "linux", target_env = "gnu"))]
+#[allow(unsafe_code)]
+pub(crate) fn bound_glibc_arenas() {
+    const MAX_ARENAS: libc::c_int = 4;
+    if std::env::var_os("MALLOC_ARENA_MAX").is_some() {
+        return;
+    }
+    if std::env::var_os("GLIBC_TUNABLES")
+        .is_some_and(|v| v.to_string_lossy().contains("glibc.malloc.arena_max"))
+    {
+        return;
+    }
+    // SAFETY: `mallopt(M_ARENA_MAX, 4)` is a standard glibc tuning call invoked once at startup
+    // before worker threads spawn; failure is harmless and ignored.
+    unsafe {
+        let _ = libc::mallopt(libc::M_ARENA_MAX, MAX_ARENAS);
+    }
+}
