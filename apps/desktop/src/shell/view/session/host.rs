@@ -140,6 +140,10 @@ impl session_view::TimelineHost for App {
         }
         None
     }
+    fn subagents_awaited(&self, session: &str) -> usize {
+        // The capsule's count (`subagents::capsule`), once the session's own run is over.
+        if self.session_busy(session) { 0 } else { self.running_subagents(session).len() }
+    }
     fn session_revert(&self, session: &str) -> Option<&str> {
         self.session(session).and_then(|i| i.revert.as_deref())
     }
