@@ -46,6 +46,20 @@ if [ "${OPENCODE_RUNE_KEEP_SYMBOLS:-0}" != "1" ]; then
     echo "package-linux: strip not found; shipping unstripped opencode-rune" >&2
   fi
 fi
+office_rpm_files=""
+office_lib="$(dirname "$bin")/libopencode_office.so"
+if [ -f "$office_lib" ]; then
+  install -Dm755 "$office_lib" "$root/usr/lib/opencode-rune/libopencode_office.so"
+  if [ "${OPENCODE_RUNE_KEEP_SYMBOLS:-0}" != "1" ]; then
+    if command -v strip >/dev/null 2>&1; then
+      strip --strip-unneeded "$root/usr/lib/opencode-rune/libopencode_office.so"
+    else
+      echo "package-linux: strip not found; shipping unstripped libopencode_office.so" >&2
+    fi
+  fi
+  "$root/usr/bin/opencode-rune" --office-check | grep -q 'in their library, loaded'
+  office_rpm_files='/usr/lib/opencode-rune/libopencode_office.so'
+fi
 cli_rpm_files=""
 if [ "${OPENCODE_RUNE_BUNDLE_CLI:-1}" != "0" ]; then
   bash "$repo_root/scripts/guardrails/run-js.sh" "$repo_root/scripts/fetch-cli.mjs" \
@@ -97,6 +111,9 @@ mksquashfs "$work/AppDir" "$work/app.squashfs" -root-owned -noappend -comp gzip 
 cat "$work/runtime" "$work/app.squashfs" > "$stem.AppImage"
 chmod +x "$stem.AppImage"
 [[ $(cd "$work" && "$stem.AppImage" --appimage-extract-and-run --version) == "$expected" ]]
+if [ -n "$office_rpm_files" ]; then
+  (cd "$work" && "$stem.AppImage" --appimage-extract-and-run --office-check) | grep -q 'in their library, loaded'
+fi
 
 # Tilde sorts prereleases before stable; the run number stays numeric for upgrades.
 # deb and rpm versions can't carry '-': 0.0.0-dev-484 is 0.0.0~dev.484, 0.0.0-pr-12-3 is 0.0.0~pr.12.3.
@@ -125,6 +142,7 @@ cp -a "$root/usr" "%{buildroot}/"
 /usr/$doc/LICENSE
 /usr/$doc/THIRD_PARTY_NOTICES.md
 /usr/$apparmor_src
+$office_rpm_files
 $cli_rpm_files
 
 %post
@@ -152,6 +170,9 @@ EOF
 rpmbuild -bb --define "_topdir $work/rpm" --define 'debug_package %{nil}' --define '__strip /bin/true' "$work/app.spec"
 cp "$work/rpm/RPMS/$machine/"*.rpm "$stem.rpm"
 rpm -qp --list "$stem.rpm" | grep -Fx /usr/bin/opencode-rune
+if [ -n "$office_rpm_files" ]; then
+  rpm -qp --list "$stem.rpm" | grep -Fx /usr/lib/opencode-rune/libopencode_office.so
+fi
 
 mkdir "$root/DEBIAN"
 cat > "$root/DEBIAN/control" <<EOF
@@ -198,6 +219,9 @@ chmod 0755 "$root/DEBIAN/postinst" "$root/DEBIAN/postrm"
 dpkg-deb --root-owner-group --build "$root" "$stem.deb"
 dpkg-deb --extract "$stem.deb" "$work/installed"
 [[ $("$work/installed/usr/bin/opencode-rune" --version) == "$expected" ]]
+if [ -n "$office_rpm_files" ]; then
+  "$work/installed/usr/bin/opencode-rune" --office-check | grep -q 'in their library, loaded'
+fi
 # The installed desktop file takes a link and claims the app's scheme.
 grep -Fxq "Exec=opencode-rune %u" "$work/installed/usr/$desktop"
 grep -Fxq "MimeType=x-scheme-handler/$scheme;" "$work/installed/usr/$desktop"

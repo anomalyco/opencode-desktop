@@ -94,14 +94,14 @@ link puts them first in the exe and together (`apps/desktop/scripts/link-order.s
 pages and few others. Without it the same functions lie spread over the whole of the code: on
 `dev-478` 9.5 MiB of launch code touched 2,569 pages of 16 KB (40 MiB).
 
-- **Linux x86_64 reads the same list.** `.cargo/config.toml` names `apps/desktop/scripts/link-order-linux.sh`
-  as the linker of the x86_64 Linux target, so a plain `cargo build` orders the exe (that link goes
-  through lld, which takes `--symbol-ordering-file`; a link that fails with the order is made
-  without it and says so). The aarch64 Linux link goes through the system linker, which takes no
-  such order: that target is linked as cargo links it, without the script. The list is trained
-  on macOS: the Linux build has about two thirds of its functions (8,011 of 11,765 on `dev-483`),
-  which without the order lie on 4,600 pages spread over all 87 MiB of the code. A re-key of the
-  list at a pin bump covers the three platforms.- **Names carry no crate hashes.** A hash changes with every Rune pin and every dependency bump;
+- **Linux x86_64 reads `apps/desktop/pgo/startup-order-linux.txt`** (falling back to `startup-order.txt`
+  if absent). `.cargo/config.toml` names `apps/desktop/scripts/link-order-linux.sh` as the linker of
+  the x86_64 Linux target, so a plain `cargo build` orders the exe through lld's `--symbol-ordering-file`
+  (a link that fails with the order is made without it and says so). Unlike the macOS-trained list,
+  `startup-order-linux.txt` includes Linux-only startup code (Wayland, X11, Vulkan/wgpu, Naga, zbus,
+  accesskit_unix) so Linux startup functions pack contiguously at the front of `.text` instead of
+  faulting scattered 64 KiB read-ahead windows across the tail of the binary. The aarch64 Linux link
+  goes through the system linker, which takes no such order.- **Names carry no crate hashes.** A hash changes with every Rune pin and every dependency bump;
   the list stores `Cs<hash>_` as `C` and back references as `B_`, and `link-order.sh` takes the same
   out of the names in the objects it links before it looks them up. So a pin bump does not empty
   the list. The link says how much of it this build has (`link order: N of M listed functions are

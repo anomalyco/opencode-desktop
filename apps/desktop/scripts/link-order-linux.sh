@@ -43,7 +43,14 @@ note() {
   echo "link order: $1" >> "$out.link-order.txt" 2>/dev/null || true
 }
 rm -f "$out.link-order.txt"
-list=${OPENCODE_RUNE_ORDER_LIST:-$(cd "$(dirname "$0")" && pwd)/../pgo/startup-order.txt}
+pgo_dir=$(cd "$(dirname "$0")" && pwd)/../pgo
+if [ -n "${OPENCODE_RUNE_ORDER_LIST:-}" ]; then
+  list=$OPENCODE_RUNE_ORDER_LIST
+elif [ -s "$pgo_dir/startup-order-linux.txt" ]; then
+  list=$pgo_dir/startup-order-linux.txt
+else
+  list=$pgo_dir/startup-order.txt
+fi
 
 args=()
 for arg in "$@"; do
