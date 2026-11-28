@@ -134,7 +134,7 @@ jobs:
           OPENCODE_BROWSER_ENGINE_TRUST: ${{ steps.engine.outputs.trust }}
         run: |
           apps/desktop/scripts/set-crate-version.sh "$PWD" "$OPENCODE_RUNE_VERSION"
-          cargo build --locked -p opencode-desktop --profile release-quick
+          cargo build --locked -p opencode-desktop -p office-library --features opencode-desktop/office-library --profile release-quick
           bash apps/desktop/scripts/package-linux.sh target/release-quick/opencode-desktop "$RUNNER_TEMP/linux"
           echo "Built $(git rev-parse --short=9 HEAD) as $OPENCODE_RUNE_VERSION ($OPENCODE_RUNE_BUILD_CHANNEL): artifact \`$ARTIFACT\`." >> "$GITHUB_STEP_SUMMARY"
       - if: env.WANTED == 'true'

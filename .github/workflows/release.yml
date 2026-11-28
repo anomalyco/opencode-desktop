@@ -273,7 +273,7 @@ jobs:
         run: |
           export OPENCODE_BROWSER_ENGINE_TRUST="sha256:$LINUX_ENGINE_SHA256"
           apps/desktop/scripts/set-crate-version.sh "$PWD" "$OPENCODE_RUNE_VERSION"
-          cargo build --locked -p opencode-desktop --profile release-quick
+          cargo build --locked -p opencode-desktop -p office-library --features opencode-desktop/office-library --profile release-quick
           bash apps/desktop/scripts/package-linux.sh target/release-quick/opencode-desktop "$RUNNER_TEMP/linux"
       - id: upload
         uses: ./.github/release/upload
