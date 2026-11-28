@@ -558,9 +558,7 @@ wrap_load_handler! {
                 self.prompts.set_pending_top_url(None);
             }
             let mut s = self.snap.lock().unwrap();
-            let waiting_deferred = !loading
-                && s.url.eq_ignore_ascii_case("about:blank")
-                && self.deferred_initial.load(Ordering::Acquire);
+            let waiting_deferred = !loading && self.deferred_initial.load(Ordering::Acquire);
             let effective_loading = loading || waiting_deferred;
             s.loading = effective_loading;
             s.can_go_back = can_go_back != 0;
