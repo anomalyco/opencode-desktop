@@ -1,8 +1,8 @@
 # Upstream Sync Ledger: `anomalyco/opencode` -> `anomalyco/opencode-rune`
 
 - **Updated:** 2026-11-29
-- **Upstream `origin/dev` audited:** `f6e0c2d083` -> `ff756e0316` (**866** post-14 Nov commits: **334** in ledger + **532** skipped) plus **15** pre-14 Nov carry-over rows (`3751be8138..f6e0c2d083`) and 6 owner-split sub-rows of `UP-095`.
-- **`opencode-rune` `origin/dev` checked:** `de617697c1`.
+- **Upstream `origin/dev` audited:** `f6e0c2d083` -> `44d32f6ce0` (**867** post-14 Nov commits: **334** in ledger + **533** skipped) plus **15** pre-14 Nov carry-over rows (`3751be8138..f6e0c2d083`) and 6 owner-split sub-rows of `UP-095`.
+- **`opencode-rune` `origin/dev` checked:** `536293a869`.
 - **Total ledger rows:** **355** - **266** have it, **87** not applicable, **1** differs on purpose, **1** partly, **0** missing.
 - **Machine-readable twin:** `docs/upstream-sync/ledger.json` (generated together; identical rows).
 - **Status vs. Reviewed:** a row is **have it** only when its code is merged on `dev`; security-review tracking for browser rows lives in the separate **Reviewed** column.
