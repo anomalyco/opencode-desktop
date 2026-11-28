@@ -1,0 +1,13 @@
+{
+  "command.description": "Obtén una respuesta puntual sin añadirla a la conversación",
+  "command.title": "Hacer una pregunta aparte",
+  "copy": "Copiar respuesta",
+  "error": "No se pudo responder esa pregunta",
+  "error.empty": "El modelo respondió sin texto.",
+  "error.timeout": "El modelo tardó demasiado en responder.",
+  "modelVariant": "{{model}} ({{variant}})",
+  "question.required": "Añade una pregunta después de /btw",
+  "retry": "Reintentar",
+  "tab.title": "/btw",
+  "tab.unread": "Nueva respuesta"
+}
