@@ -43,7 +43,7 @@ pub(crate) fn inbox(s: &App, p: &Pal, inset: (f32, f32)) -> El {
     // groups' gaps did: 2 between cards, 8 under a header, 10 under a group and 2 between groups.
     let n = items.len();
     // The last group's own 10 of padding under it, then the list's 4.
-    let pb = if matches!(items.last(), Some(Line::Card { .. } | Line::More | Line::Toggle(_))) { 14.0 } else { 4.0 };
+    let pb = if matches!(items.last(), Some(Line::Card { .. } | Line::Draft { .. } | Line::More | Line::Toggle(_))) { 14.0 } else { 4.0 };
     let version = (order.generation, ui, drafts.as_slice().to_vec());
     let (keys, built, pal) = (items.clone(), items.clone(), *p);
     let (key_order, built_order) = (order.clone(), order.clone());
@@ -620,7 +620,7 @@ fn draft_ids(s: &App) -> Vec<String> {
     s.tabs
         .iter()
         .rev()
-        .filter(|t| t.is_draft() && (matches!(&*s.route, Route::Draft(id) if *id == t.id) || s.draft_text(&t.id).is_some()))
+        .filter(|t| t.is_draft() && (matches!(&*s.route, Route::Draft(id) if *id == t.id) || s.draft_has_content(&t.id)))
         .map(|t| t.id.clone())
         .collect()
 }
