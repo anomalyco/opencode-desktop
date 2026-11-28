@@ -30,7 +30,7 @@ esac
 # Names without what changes from build to build: the crate hashes (Cs<hash>_), the back
 # references that count bytes across them (B<n>_) and thin LTO's suffix. link-order.sh takes the
 # same three out of a build's names before it looks them up here.
-out=$ROOT/apps/desktop/pgo/startup-order.txt
+out=${OPENCODE_RUNE_ORDER_OUT:-$ROOT/apps/desktop/pgo/startup-order.txt}
 {
   echo "# The functions a launch runs, in the order it first runs them: made by apps/desktop/scripts/startup-order.sh,"
   echo "# read by apps/desktop/scripts/link-order.sh. Names are Rust v0 symbols without crate hashes."

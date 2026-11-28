@@ -36,8 +36,9 @@ if [[ -z $scheme ]]; then
 fi
 scheme=${scheme,,}
 install -Dm755 "$bin" "$root/usr/bin/opencode-rune"
-# Strip only opencode-rune (removes ~45 MB of .symtab/.strtab while keeping .eh_frame for panic
-# unwinding). RPM disables __strip globally so bundled opencode-cli's EOF Bun payload stays intact.
+# Strip opencode-rune (and libopencode_office.so below when built with office-library), removing
+# ~45 MB of .symtab/.strtab while keeping .eh_frame for panic unwinding. RPM disables __strip
+# globally so bundled opencode-cli's EOF Bun payload stays intact.
 if [ "${OPENCODE_RUNE_KEEP_SYMBOLS:-0}" != "1" ]; then
   if command -v strip >/dev/null 2>&1; then
     strip --strip-unneeded "$root/usr/bin/opencode-rune"
@@ -46,9 +47,29 @@ if [ "${OPENCODE_RUNE_KEEP_SYMBOLS:-0}" != "1" ]; then
     echo "package-linux: strip not found; shipping unstripped opencode-rune" >&2
   fi
 fi
+# Probe the staged binary itself to determine whether it expects the external office library:
+# a non-office-library build succeeds with "in the exe" (ignoring any stale .so in target/);
+# an office-library build fails before the .so is installed and requires it beside $bin.
+office=0
 office_rpm_files=""
 office_lib="$(dirname "$bin")/libopencode_office.so"
-if [ -f "$office_lib" ]; then
+if office_out=$("$root/usr/bin/opencode-rune" --office-check 2>&1); then
+  case "$office_out" in
+    *"in the exe"*)
+      if [ -f "$office_lib" ]; then
+        echo "package-linux: ignoring stale $office_lib (binary has office engines linked in)" >&2
+      fi
+      ;;
+    *)
+      echo "package-linux: unexpected --office-check output before library install: $office_out" >&2
+      exit 1
+      ;;
+  esac
+else
+  if [ ! -f "$office_lib" ]; then
+    echo "package-linux: binary requires office library (--office-check: $office_out), but $office_lib is missing" >&2
+    exit 1
+  fi
   install -Dm755 "$office_lib" "$root/usr/lib/opencode-rune/libopencode_office.so"
   if [ "${OPENCODE_RUNE_KEEP_SYMBOLS:-0}" != "1" ]; then
     if command -v strip >/dev/null 2>&1; then
@@ -57,8 +78,16 @@ if [ -f "$office_lib" ]; then
       echo "package-linux: strip not found; shipping unstripped libopencode_office.so" >&2
     fi
   fi
-  "$root/usr/bin/opencode-rune" --office-check | grep -q 'in their library, loaded'
-  office_rpm_files='/usr/lib/opencode-rune/libopencode_office.so'
+  office_out=$("$root/usr/bin/opencode-rune" --office-check 2>&1) || {
+    echo "package-linux: staged --office-check failed: $office_out" >&2
+    exit 1
+  }
+  [[ "$office_out" == *"in their library, loaded"* ]] || {
+    echo "package-linux: expected office library to load, got: $office_out" >&2
+    exit 1
+  }
+  office=1
+  office_rpm_files=$'%dir /usr/lib/opencode-rune\n/usr/lib/opencode-rune/libopencode_office.so'
 fi
 cli_rpm_files=""
 if [ "${OPENCODE_RUNE_BUNDLE_CLI:-1}" != "0" ]; then
@@ -111,8 +140,15 @@ mksquashfs "$work/AppDir" "$work/app.squashfs" -root-owned -noappend -comp gzip 
 cat "$work/runtime" "$work/app.squashfs" > "$stem.AppImage"
 chmod +x "$stem.AppImage"
 [[ $(cd "$work" && "$stem.AppImage" --appimage-extract-and-run --version) == "$expected" ]]
-if [ -n "$office_rpm_files" ]; then
-  (cd "$work" && "$stem.AppImage" --appimage-extract-and-run --office-check) | grep -q 'in their library, loaded'
+if [ "$office" = "1" ]; then
+  office_out=$(cd "$work" && "$stem.AppImage" --appimage-extract-and-run --office-check 2>&1) || {
+    echo "package-linux: AppImage --office-check failed: $office_out" >&2
+    exit 1
+  }
+  [[ "$office_out" == *"in their library, loaded"* ]] || {
+    echo "package-linux: AppImage expected office library to load, got: $office_out" >&2
+    exit 1
+  }
 fi
 
 # Tilde sorts prereleases before stable; the run number stays numeric for upgrades.
@@ -121,6 +157,7 @@ pkg_version=${version/-/\~}
 pkg_version=${pkg_version//-/.}
 mkdir -p "$work/rpm"
 cat > "$work/app.spec" <<EOF
+%global __provides_exclude_from ^/usr/lib/opencode-rune/.*$
 Name: opencode-rune
 Version: $pkg_version
 Release: 1
@@ -170,7 +207,7 @@ EOF
 rpmbuild -bb --define "_topdir $work/rpm" --define 'debug_package %{nil}' --define '__strip /bin/true' "$work/app.spec"
 cp "$work/rpm/RPMS/$machine/"*.rpm "$stem.rpm"
 rpm -qp --list "$stem.rpm" | grep -Fx /usr/bin/opencode-rune
-if [ -n "$office_rpm_files" ]; then
+if [ "$office" = "1" ]; then
   rpm -qp --list "$stem.rpm" | grep -Fx /usr/lib/opencode-rune/libopencode_office.so
 fi
 
@@ -219,8 +256,15 @@ chmod 0755 "$root/DEBIAN/postinst" "$root/DEBIAN/postrm"
 dpkg-deb --root-owner-group --build "$root" "$stem.deb"
 dpkg-deb --extract "$stem.deb" "$work/installed"
 [[ $("$work/installed/usr/bin/opencode-rune" --version) == "$expected" ]]
-if [ -n "$office_rpm_files" ]; then
-  "$work/installed/usr/bin/opencode-rune" --office-check | grep -q 'in their library, loaded'
+if [ "$office" = "1" ]; then
+  office_out=$("$work/installed/usr/bin/opencode-rune" --office-check 2>&1) || {
+    echo "package-linux: DEB --office-check failed: $office_out" >&2
+    exit 1
+  }
+  [[ "$office_out" == *"in their library, loaded"* ]] || {
+    echo "package-linux: DEB expected office library to load, got: $office_out" >&2
+    exit 1
+  }
 fi
 # The installed desktop file takes a link and claims the app's scheme.
 grep -Fxq "Exec=opencode-rune %u" "$work/installed/usr/$desktop"
