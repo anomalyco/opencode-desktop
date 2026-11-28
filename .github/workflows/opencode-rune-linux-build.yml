@@ -68,6 +68,7 @@ jobs:
     env:
       OPENCODE_RUNE_VERSION: ${{ inputs.version || format('0.0.0-branch-{0}', github.run_number) }}
       OPENCODE_RUNE_BUILD_CHANNEL: ${{ inputs.channel || 'branch' }}
+      OPENCODE_RUNE_PROFILE: release-thin
       ARTIFACT: ${{ inputs.artifact || 'build-opencode-rune-branch-linux' }}-${{ matrix.arch }}
       WANTED: ${{ matrix.wanted }}
     outputs:
@@ -93,7 +94,7 @@ jobs:
       - if: env.WANTED == 'true'
         uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
-          key: linux-${{ matrix.arch }}-release-thin
+          shared-key: linux-${{ matrix.arch }}-${{ env.OPENCODE_RUNE_PROFILE }}
           save-if: false
       - if: env.WANTED == 'true'
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -134,8 +135,8 @@ jobs:
           OPENCODE_BROWSER_ENGINE_TRUST: ${{ steps.engine.outputs.trust }}
         run: |
           apps/desktop/scripts/set-crate-version.sh "$PWD" "$OPENCODE_RUNE_VERSION"
-          cargo build --locked -p opencode-desktop --profile release-thin
-          bash apps/desktop/scripts/package-linux.sh target/release-thin/opencode-desktop "$RUNNER_TEMP/linux"
+          cargo build --locked -p opencode-desktop --profile "$OPENCODE_RUNE_PROFILE"
+          bash apps/desktop/scripts/package-linux.sh "target/$OPENCODE_RUNE_PROFILE/opencode-desktop" "$RUNNER_TEMP/linux"
           echo "Built $(git rev-parse --short=9 HEAD) as $OPENCODE_RUNE_VERSION ($OPENCODE_RUNE_BUILD_CHANNEL): artifact \`$ARTIFACT\`." >> "$GITHUB_STEP_SUMMARY"
       - if: env.WANTED == 'true'
         id: upload

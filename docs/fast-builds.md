@@ -47,8 +47,8 @@ All profiles defined in the root `Cargo.toml`:
 | --- | --- | --- | --- | --- |
 | `dev` | `opt-level=0` workspace, `debug=2`, `opt-level=1` / `debug=false` deps (`opt-level=3` on hot crates) | ~2–4 GB | ~1–3 min | Debugger (`lldb`/WinDbg), full stack traces, `apps/desktop/scripts/dev.sh` |
 | `dev-fast` | `inherits = "dev"`, `debug=0`, `codegen-units=64` | ~1.5–3 GB | ~1–2 min (fast relink) | Default local Rust iteration (`scripts/dev-fast.sh`, `scripts/dev-fast.ps1`) |
-| `release-quick` | `inherits = "release"`, `lto=false`, `codegen-units=16` (`opt-level=3`, `incremental=false`) | ~3–5 GB | ~2–5 min | Fast optimized iteration, quick perf checks, Linux release packaging (`.github/workflows/release.yml` + `apps/desktop/scripts/package-linux.sh`) |
-| `release-thin` | `inherits = "release"`, `lto="thin"`, `codegen-units=16` (`opt-level=3`, `incremental=false`) | ~4–6 GB | ~4–10 min | Near-release speed for perf checks and daily dogfooding |
+| `release-quick` | `inherits = "release"`, `lto=false`, `codegen-units=16` (`opt-level=3`, `incremental=false`) | ~3–5 GB | ~2–5 min | Fast optimized iteration and quick perf checks |
+| `release-thin` | `inherits = "release"`, `lto="thin"`, `codegen-units=16` (`opt-level=3`, `incremental=false`) | ~4–6 GB | ~4–10 min | Near-release speed, macOS & Linux release packaging (`.github/workflows/release.yml` + `apps/desktop/scripts/package-linux.sh`) |
 | `perf` | `inherits = "release-quick"`, `incremental=false`, `debug=1` | ~3–5 GB | ~2–5 min | Native profiler symbols without fat-LTO cost |
 | `release` | `opt-level=3`, `lto="fat"`, `codegen-units=1`, `incremental=false` | ~10 GB | ~25–60 min | Shipped binaries & PGO builds (`apps/desktop/scripts/release.ps1` on Windows x64, `apps/desktop/scripts/build-app.sh` on macOS, `apps/desktop/scripts/dev.sh --release`) |
 
