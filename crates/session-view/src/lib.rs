@@ -109,6 +109,12 @@ macro_rules! delegate_view_state {
 pub trait TimelineHost: Sized + 'static {
     fn knobs(&self) -> &Knobs;
     fn clock(&self) -> f64;
+    /// Current display refresh rate in Hz when the host knows it (e.g. from Rune's
+    /// `FrameEncoded::refresh_hz`), used to pace streaming text bursts at the display's cadence
+    /// rather than Desktop's fixed 24 ms timer. `None` keeps the 24 ms fallback.
+    fn display_hz(&self) -> Option<f64> {
+        None
+    }
     fn now_ms(&self) -> i64 {
         0
     }

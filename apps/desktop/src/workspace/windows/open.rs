@@ -250,7 +250,10 @@ fn window(mut w: Window, frame: Option<Frame>, diagnostics: &crate::diagnostics:
             crate::files::trace::frame(f);
         })
         .on_frame_drawn(move |rt| {
-            if let Some(hz) = display_hz.get() { rt.state.workspace_panes.browser.host.set_display_hz(hz); }
+            if let Some(hz) = display_hz.get() {
+                rt.state.set_display_hz(hz);
+                rt.state.workspace_panes.browser.host.set_display_hz(hz);
+            }
             drawn.drawn(rt);
             if let Some((sid, msgs)) = rt.state.painted_session()
                 && msgs > 0
