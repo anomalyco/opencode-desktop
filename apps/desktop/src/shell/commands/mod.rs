@@ -331,7 +331,8 @@ pub fn register_shell_commands(b: &mut KernelBuilder<App>) {
             }
         })
         .bind_id(Bind::TabClose.id())
-        .when(|s| s.current_tab().is_some())
+        // The Inbox layout lists sessions in place of tabs, so tab close/reopen shortcuts do nothing there (`titlebar.tsx:597-642`, `opencode#66496`).
+        .when(|s| s.tab_layout() != crate::layout_state::TabLayout::Inbox && s.current_tab().is_some())
         // `titlebar.tsx:453-458`.
         .hidden(),
     );
@@ -348,13 +349,14 @@ pub fn register_shell_commands(b: &mut KernelBuilder<App>) {
             },
         )
         .bind_id(Bind::TabCloseSession.id())
-        .when(|s| s.current_tab().is_some()),
+        .when(|s| s.tab_layout() != crate::layout_state::TabLayout::Inbox && s.current_tab().is_some()),
     );
     b.add_command(
         CommandEntry::<App>::from_key("reopen-tab", opencode_i18n::key!("command.tab.reopenClosed"), order::REOPEN_TAB, |s, tx| {
             s.reopen_tab(tx);
         })
-        .bind_id(Bind::TabReopen.id()),
+        .bind_id(Bind::TabReopen.id())
+        .when(|s| s.tab_layout() != crate::layout_state::TabLayout::Inbox),
     );
     // Beyond Desktop, which forgets a closed window: the newest one kept opens again.
     #[cfg(not(target_arch = "wasm32"))]

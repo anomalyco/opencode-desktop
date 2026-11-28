@@ -49,6 +49,10 @@ impl App {
 
     /// ⌘W and File › Close Tab.
     pub(crate) fn close_tab_key(&mut self, tx: &mut Tx) {
+        // The Inbox layout lists sessions in place of tabs, so ⌘W / ⌥⌘W do nothing there (`titlebar.tsx:597-600`, `opencode#66496`).
+        if self.tab_layout() == crate::layout_state::TabLayout::Inbox {
+            return;
+        }
         match close_key(self.current_tab(), !self.tabs.is_empty(), self.other_windows()) {
             CloseKey::Tab(id) => self.close_tab(&id, tx),
             CloseKey::Window => self.close_window(tx),
