@@ -219,12 +219,22 @@ pub fn ensure_file_loaded(host: &mut dyn FilesHost, session_id: &str, path: &str
         .is_some_and(video::FileVideo::failed)
         || host.files().video_auth_failed(session_id, path);
     if video::is_video(path) && !failed {
+        // `session_physical_directory` resolves aliased workspaces via `pinned_local_root`, which
+        // enforces the browser HTML preview scope (`is_safe_workspace_root`, official
+        // `packages/gui-plugins/src/browser/disk/preview-scope.ts`) and returns `None` for broad
+        // physical folders such as `$HOME` or `$HOME/Downloads`. Official streams videos in any
+        // workspace directory (`packages/app/src/workspaces/files/model.tsx`), so fall back to
+        // `directory` (matching `boot.rs`'s markdown image fetch); `video::source` still enforces
+        // strict `browser_policy::verify_within_root` (`O_NOFOLLOW`/non-reparse, local fixed
+        // drive, existing regular file strictly inside `video_dir`), so refused symlink/junction,
+        // UNC/autofs, and missing paths remain rejected.
         let video_dir = if server.is_local() {
             host.session_physical_directory(session_id)
+                .unwrap_or_else(|| directory.clone())
         } else {
-            Some(directory.clone())
+            directory.clone()
         };
-        if let Some(source) = video_dir.as_deref().and_then(|d| video::source(Some(&server), d, path)) {
+        if let Some(source) = video::source(Some(&server), &video_dir, path) {
             let pane = host.files_mut();
             pane.reads.clear(session_id, path);
             let wrap = pane.wrap;
@@ -256,14 +266,12 @@ pub fn ensure_file_loaded(host: &mut dyn FilesHost, session_id: &str, path: &str
         // Password-protected remote server: never put `auth_token` in a URL; download via
         // `Authorization` header off the UI thread on native (on wasm32 fall through to `read_file`).
         #[cfg(not(target_arch = "wasm32"))]
-        if server.has_auth()
-            && let Some(dir) = video_dir
-        {
+        if server.has_auth() {
             let pane = host.files_mut();
             pane.reads.clear(session_id, path);
             let wrap = pane.wrap;
             let waker = pane.waker.clone();
-            if pane.auth_videos.start(&server, &dir, session_id, path, waker) {
+            if pane.auth_videos.start(&server, &video_dir, session_id, path, waker) {
                 let ws = pane.sessions.entry(session_id.to_owned()).or_default();
                 ws.docs.entry(path.to_owned()).or_insert_with(|| wrap.doc(path, ""));
                 return;
