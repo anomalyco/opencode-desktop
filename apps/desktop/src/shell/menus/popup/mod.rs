@@ -13,7 +13,7 @@ pub type Popup = opencode_ui::popup::Popup<App>;
 
 #[allow(unused_imports)]
 pub use opencode_ui::popup::{
-    Align, Item, Menu, MenuButton, NATIVE, PRESS_ON_DOWN, PopupAnchor, PopupItem, PopupMenu, Side,
+    Align, Item, Menu, MenuButton, NATIVE, PRESS_ON_DOWN, PopupAnchor, PopupItem, PopupMenu, Side, Swatch,
     dismiss, key, menu_button, open, open_drawn, open_searchable, open_with_field, poll, view,
 };
 

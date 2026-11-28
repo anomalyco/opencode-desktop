@@ -6,7 +6,7 @@
 use rune_kit::shell::{TabItemStatus, TabOrientation};
 
 use super::*;
-use crate::popup::{self, Item, Menu, MenuButton as _};
+use crate::popup::{self, Item, Menu, MenuButton as _, Swatch};
 use crate::tabs::groups::{self as tg, Color as Hue, Group, Kind, Mode, RenameEvent, drag};
 use opencode_i18n::t;
 
@@ -18,6 +18,7 @@ struct Tint {
     bg: Color,
     fg: Color,
     border: Color,
+    swatch: Color,
     rail: Color,
 }
 
@@ -35,6 +36,7 @@ fn tint(c: Hue, dark: bool) -> Tint {
                 bg: oklch(0.248, 0.006, 260.0),
                 fg: oklch(0.855, 0.008, 260.0),
                 border: oklcha(0.35, 0.008, 260.0, 0.5),
+                swatch: oklch(0.65, 0.01, 260.0),
                 rail: oklcha(0.64, 0.01, 260.0, 0.78),
             };
         }
@@ -43,6 +45,7 @@ fn tint(c: Hue, dark: bool) -> Tint {
                 bg: oklch(0.942, 0.004, 260.0),
                 fg: oklch(0.39, 0.008, 260.0),
                 border: oklcha(0.865, 0.006, 260.0, 0.72),
+                swatch: oklch(0.56, 0.01, 260.0),
                 rail: oklcha(0.54, 0.01, 260.0, 0.78),
             };
         }
@@ -52,6 +55,7 @@ fn tint(c: Hue, dark: bool) -> Tint {
             bg: oklch(0.252, bd, h),
             fg: oklch(0.875, fd, h),
             border: oklcha(0.36, bd * 1.3, h, 0.5),
+            swatch: oklch(0.67, fd * 1.55, h),
             rail: oklcha(0.65, fd * 1.45, h, 0.78),
         }
     } else {
@@ -59,6 +63,7 @@ fn tint(c: Hue, dark: bool) -> Tint {
             bg: oklch(0.942, bl, h),
             fg: oklch(0.39, fl, h),
             border: oklcha(0.865, bl * 1.55, h, 0.72),
+            swatch: oklch(0.57, fl * 1.12, h),
             rail: oklcha(0.55, fl, h, 0.78),
         }
     }
@@ -492,13 +497,17 @@ fn tab_row(s: &App, p: &Pal, g: &Group, t: &crate::tabs::Tab, tab_index: usize, 
 fn open_group_menu(s: &mut App, key: &str, at: rune::PopupAnchor, tx: &mut Tx) {
     let items = tg::metas(s);
     let Some(g) = tg::groups(s, &items).into_iter().flatten().find(|g| g.key == key) else { return };
-    let colors = tg::model::AUTO_COLORS.into_iter().fold(Menu::new(t!("tabs.groups.color")), |m, c| {
-        m.item(Item::new(format!("color:{}", c.name()), color_label(c)).checked(c == g.color))
+    let swatches = tg::model::AUTO_COLORS.into_iter().map(|c| Swatch {
+        id: format!("color:{}", c.name()),
+        label: color_label(c).to_owned(),
+        light: tint(c, false).swatch,
+        dark: tint(c, true).swatch,
+        selected: c == g.color,
     });
     let mut menu = Menu::new(g.name.clone())
         .min_width(192.0)
         .item(Item::new("rename", t!("common.rename")))
-        .submenu("color", t!("tabs.groups.color"), colors);
+        .swatches(t!("tabs.groups.color"), swatches);
     if g.manual_id().is_some() || !g.all.is_empty() {
         menu = menu.separator();
     }
@@ -510,7 +519,7 @@ fn open_group_menu(s: &mut App, key: &str, at: rune::PopupAnchor, tx: &mut Tx) {
     }
     tx.instant();
     let (key, name, manual) = (g.key.clone(), g.name.clone(), g.manual_id().map(str::to_owned));
-    popup::open(s, menu, at, tx, move |s: &mut App, picked, tx| {
+    popup::open_drawn(s, menu, at, tx, move |s: &mut App, picked, tx| {
         tx.instant();
         match picked {
             Some("rename") => tg::rename_step(s, RenameEvent::Start { group: &key, name: &name }, tx),

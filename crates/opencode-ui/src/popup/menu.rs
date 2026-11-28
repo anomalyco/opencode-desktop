@@ -234,12 +234,27 @@ impl Item {
     }
 }
 
+/// One colour circle in a horizontal swatch row ([`Menu::swatches`]).
+#[derive(Clone, Debug, PartialEq)]
+pub struct Swatch {
+    pub id: String,
+    pub label: String,
+    pub light: rune::Color,
+    pub dark: rune::Color,
+    pub selected: bool,
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub(super) enum Entry {
     Item(Item),
     Separator,
     /// A group's title (`Menu.GroupLabel`).
     Group(String),
+    /// A horizontal row of colour circles (`role="radiogroup"`).
+    Swatches {
+        label: String,
+        items: Vec<Swatch>,
+    },
     /// A row that opens another menu beside it.
     Sub(Box<Sub>),
 }
@@ -367,6 +382,12 @@ impl Menu {
         self
     }
 
+    /// A horizontal row of colour circles (`role="radiogroup"`), as a group's colour picker.
+    pub fn swatches(mut self, label: impl Into<String>, items: impl IntoIterator<Item = Swatch>) -> Menu {
+        self.entries.push(Entry::Swatches { label: label.into(), items: items.into_iter().collect() });
+        self
+    }
+
     /// Draws the menu this wide, whatever its rows.
     pub fn width(mut self, w: f32) -> Menu {
         self.width = Some(w);
@@ -480,6 +501,12 @@ impl Menu {
             Entry::Item(i) => m.item(PopupItem::new(i.id.clone(), i.title.clone()).enabled(i.enabled).checked(i.checked)),
             Entry::Separator => m.separator(),
             Entry::Group(title) => m.item(PopupItem::new(format!("group-{title}"), title.clone()).enabled(false)),
+            Entry::Swatches { label, items } => {
+                let sub = items.iter().fold(PopupMenu::new(), |sm, sw| {
+                    sm.item(PopupItem::new(sw.id.clone(), sw.label.clone()).checked(sw.selected))
+                });
+                m.submenu(label.clone(), sub)
+            }
             Entry::Sub(sub) if sub.enabled => m.submenu(sub.title.clone(), sub.menu.native()),
             Entry::Sub(sub) => m.item(PopupItem::new(sub.id.clone(), sub.title.clone()).enabled(false)),
         });
@@ -548,6 +575,7 @@ pub(super) fn hug_width(menu: &Menu) -> f32 {
                 + check
         }
         Entry::Group(t) => w(t, GROUP),
+        Entry::Swatches { items, .. } => items.len() as f32 * 24.0 + 4.0,
         Entry::Sub(sub) => sub.glyph.map_or(0.0, |_| 16.0 + MENU.gap) + w(&sub.title, label) + MENU.gap + 16.0,
         Entry::Separator => 0.0,
     });

@@ -5,7 +5,7 @@
 use rune_kit::shell::{TabItemStatus, TabOrientation};
 
 use super::*;
-use crate::popup::{self, Item, Menu, MenuButton as _};
+use crate::popup::{self, Item, Menu, MenuButton as _, Swatch};
 use crate::session_menu::{Spot, Target, preferences};
 use crate::tabs::pins::{self, HiddenMark, PinColor, PinGroup, PinItem, PinRef};
 use opencode_i18n::t;
@@ -488,8 +488,8 @@ fn open_pin_menu(s: &mut App, r: &PinRef, press: rune::PointerPress, tx: &mut Tx
 
 fn open_group_menu(s: &mut App, group_id: &str, at: rune::PopupAnchor, align: rune::Align, tx: &mut Tx) {
     let Some(g) = pins::state(s).doc.groups().find(|g| g.id == group_id).cloned() else { return };
-    // `GroupEditor` (`pinned-area.tsx:449-489`): the group's name in a bare field, its square
-    // before it, then its colours as a radio list, then Ungroup and Unpin, 192 wide (`w-48`).
+    // `GroupEditor` (`pinned-area.tsx`): the group's name in a bare field, its square
+    // before it, then its colours as a horizontal swatch row, then Ungroup and Unpin, 192 wide (`w-48`).
     let (lead_id, edit_id, rows_id, color_id, id) = (g.id.clone(), g.id.clone(), g.id.clone(), g.id.clone(), g.id.clone());
     let lead = move |s: &App, p: &Pal| {
         let color = pins::state(s).doc.groups().find(|g| g.id == lead_id).map(|g| g.color);
@@ -504,13 +504,18 @@ fn open_group_menu(s: &mut App, group_id: &str, at: rune::PopupAnchor, align: ru
     };
     let rows = move |s: &App| {
         let current = pins::state(s).doc.groups().find(|g| g.id == rows_id).map(|g| g.color);
-        let menu = Menu::new(t!("tabs.groups.color")).width(192.0).align(align).separator();
-        pins::AUTO_COLORS
-            .into_iter()
-            .fold(menu, |m, c| {
-                let ((lf, le, _), (df, de, _)) = (group_colors(c, false), group_colors(c, true));
-                m.item(Item::new(format!("color:{}", c.name()), c.label()).swatch([lf, le], [df, de]).radio(Some(c) == current))
-            })
+        let swatches = pins::AUTO_COLORS.into_iter().map(|c| Swatch {
+            id: format!("color:{}", c.name()),
+            label: c.label().to_owned(),
+            light: group_colors(c, false).0,
+            dark: group_colors(c, true).0,
+            selected: Some(c) == current,
+        });
+        Menu::new(t!("tabs.groups.color"))
+            .width(192.0)
+            .align(align)
+            .separator()
+            .swatches(t!("tabs.groups.color"), swatches)
             .separator()
             .item(Item::new("ungroup", t!("tabs.groups.ungroup")))
             .item(Item::new("unpin-group", t!("navigation.group.unpin")))

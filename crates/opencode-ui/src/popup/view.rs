@@ -9,7 +9,7 @@ use super::keys::key;
 use super::menu::{Entry, Glyph, Look, Menu, hug_width, key_at, row_key};
 use super::rows::{self, CHEVRON, detail_row, diff_note};
 use super::search::{SEARCH_H, search_field};
-use super::state::{choose, choose_at, close, hover_focus, left, moved, open_sub_at};
+use super::state::{choose, choose_at, choose_swatch, close, hover_focus, left, moved, open_sub_at};
 use super::{CARD, CONTEXT_MIN_W, GAP, GROUP, GROUP_H, PRESS_ON_DOWN, PopupHost, SELECT, SURFACE, focus, standard};
 
 /// The drawn menu and the scrim under it that dismisses it, for the window's top layer.
@@ -39,11 +39,20 @@ pub fn view<S: PopupHost + 'static>(s: &S, p: &Pal) -> Vec<El> {
         for level in 0..=shown.subs.len() {
             let Some(menu) = shown.menu_at(level) else { continue };
             for e in &menu.entries {
-                if let Entry::Item(i) = e
-                    && i.enabled
-                    && let Some(r) = rune::memo::layout(&row_key(&i.id))
-                {
-                    rows.push((i.id.clone(), r));
+                match e {
+                    Entry::Item(i) if i.enabled => {
+                        if let Some(r) = rune::memo::layout(&row_key(&i.id)) {
+                            rows.push((i.id.clone(), r));
+                        }
+                    }
+                    Entry::Swatches { items, .. } => {
+                        for sw in items {
+                            if let Some(r) = rune::memo::layout(&row_key(&sw.id)) {
+                                rows.push((sw.id.clone(), r));
+                            }
+                        }
+                    }
+                    _ => {}
                 }
             }
         }
@@ -261,6 +270,42 @@ fn build<S: PopupHost + 'static>(
                     .center_y()
                     .child(text(title.clone()).font(GROUP).color(p.faint).shrink().truncate_fade());
                 list.other(label, GROUP_H);
+            }
+            Entry::Swatches { label, items } => {
+                const SWATCH_ROW_H: f32 = 32.0;
+                let mut strip = row()
+                    .key(format!("popup-swatches-{n}"))
+                    .role("radiogroup")
+                    .label(label.clone())
+                    .w_full()
+                    .h(SWATCH_ROW_H)
+                    .px(8.0)
+                    .center_y()
+                    .justify_between();
+                for sw in items {
+                    let fill = if p.dark { sw.dark } else { sw.light };
+                    let id = sw.id.clone();
+                    let dot = el().size(14.0, 14.0).radius(999.0).fill(fill).a11y_hidden();
+                    let mut btn = row()
+                        .key(row_key(&sw.id))
+                        .role("radio")
+                        .label(sw.label.clone())
+                        .checked(sw.selected)
+                        .size(20.0, 20.0)
+                        .radius(999.0)
+                        .center()
+                        .hover_fill(p.hover)
+                        .press(p.pressed)
+                        .child(dot);
+                    if sw.selected {
+                        btn = btn.border(1.5, p.text);
+                    }
+                    if s.is_some() {
+                        btn = btn.on_press_tx(move |s: &mut S, tx: &mut Tx| choose_swatch(s, &id, tx));
+                    }
+                    strip = strip.child(btn);
+                }
+                list.other(strip, SWATCH_ROW_H);
             }
             // A row that opens its menu beside it (`Menu.SubTrigger`), lit while that menu shows,
             // its chevron in the muted ink, at any depth.
