@@ -241,7 +241,7 @@ pub fn init_install(s: &mut App) {
         4 => EngineStatus::Verifying,
         5 => EngineStatus::Paused(browser_pane::PauseReason::OnBattery),
         // The engine went away with a page open.
-        _ => EngineStatus::Failed(browser_pane::Fault::Stopped.into()),
+        _ => EngineStatus::Failed(browser_pane::Fault::Stopped { ended: None, stderr: None }.into()),
     };
     let id = s
         .workspace_panes

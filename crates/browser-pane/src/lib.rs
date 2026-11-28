@@ -22,6 +22,7 @@ pub mod cookies;
 pub mod device;
 #[cfg(feature = "engine")]
 mod download;
+mod ended;
 #[cfg(all(feature = "engine", target_os = "linux"))]
 mod dmabuf;
 #[cfg(feature = "engine")]
@@ -72,7 +73,7 @@ pub use extensions::{
 };
 pub use find::{FindEvent, FindState, PageDiagnostic};
 pub use frame::TabSurface;
-pub use installer::{Distrust, ENGINE_DOWNLOAD_MB, ENGINE_REVISION, EngineStatus, Failure, Fault, Net, PauseReason, Version};
+pub use installer::{Distrust, Ended, ENGINE_DOWNLOAD_MB, ENGINE_REVISION, EngineStatus, Failure, Fault, Net, PauseReason, Version};
 pub use policy::{
     Refusal, allowed_destination, check_cdp, destination_origin, file_url_within, frame_guard,
     local_file_path, normalize_url, refusal, subresource_allowed, with_scheme,

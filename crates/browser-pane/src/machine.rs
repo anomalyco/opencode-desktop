@@ -520,7 +520,7 @@ impl SharedEngine {
                     // (`EMPTY_GRACE`, `Unprepare`, or `shutdown_sidecar`) and closed before
                     // sending `Ready`. Spawn one fresh engine instead of flashing `Fault::Stopped`.
                     EnginePhase::Connected { stage: LiveStage::Connecting, origin: ConnectOrigin::Reused, .. }
-                        if fault == crate::installer::Fault::Stopped =>
+                        if matches!(fault, crate::installer::Fault::Stopped { .. }) =>
                     {
                         self.generation = self.generation.wrapping_add(1);
                         self.idle_ready = false;
@@ -533,7 +533,7 @@ impl SharedEngine {
                     // stale crash banner.
                     EnginePhase::Connected { stage: LiveStage::Ready, .. }
                         if !self.has_tabs
-                            || (self.idle_ready && fault == crate::installer::Fault::Stopped) =>
+                            || (self.idle_ready && matches!(fault, crate::installer::Fault::Stopped { .. })) =>
                     {
                         self.generation = self.generation.wrapping_add(1);
                         self.idle_ready = false;
@@ -545,8 +545,14 @@ impl SharedEngine {
                         self.phase = EnginePhase::Disconnected(EngineStatus::Failed(fault.into()));
                         EngineEffect::LostFirst
                     }
+                    // The process's end arrives after the socket's: it names the cause (a lack of
+                    // memory) or how the engine ended.
                     EnginePhase::Disconnected(EngineStatus::Failed(f))
-                        if f.fault == crate::installer::Fault::Stopped && fault == crate::installer::Fault::OutOfMemory =>
+                        if matches!(f.fault, crate::installer::Fault::Stopped { ended: None, .. })
+                            && matches!(
+                                fault,
+                                crate::installer::Fault::OutOfMemory | crate::installer::Fault::Stopped { ended: Some(_), .. }
+                            ) =>
                     {
                         self.phase = EnginePhase::Disconnected(EngineStatus::Failed(fault.into()));
                         EngineEffect::Wake
@@ -565,7 +571,7 @@ impl SharedEngine {
                         EnginePhase::Disconnected(EngineStatus::Failed(f))
                             if matches!(
                                 f.fault,
-                                crate::installer::Fault::Stopped
+                                crate::installer::Fault::Stopped { .. }
                                     | crate::installer::Fault::OutOfMemory
                                     | crate::installer::Fault::Hung
                                     | crate::installer::Fault::Exited(_)
@@ -592,7 +598,7 @@ impl SharedEngine {
                     EnginePhase::Disconnected(EngineStatus::Failed(f))
                         if matches!(
                             f.fault,
-                            crate::installer::Fault::Stopped
+                            crate::installer::Fault::Stopped { .. }
                                 | crate::installer::Fault::OutOfMemory
                                 | crate::installer::Fault::Hung
                                 | crate::installer::Fault::Exited(_)

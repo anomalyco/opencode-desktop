@@ -16,7 +16,7 @@ use rune::Waker;
 
 use crate::engine_log;
 use crate::frame::{self, TabSurface};
-use crate::installer::{self, EngineStatus, Fault, Installed};
+use crate::installer::{self, Ended, EngineStatus, Fault, Installed};
 use crate::machine::{ConnectOrigin, EarlyOpensMap, EngineEffect, EngineEvent, SharedEngine};
 use crate::profile;
 use crate::protocol::{EngineMsg, HostMsg};
@@ -345,7 +345,8 @@ pub(crate) fn spawn_and_attach(engine: &Installed, sock: &Path, profile: &Path, 
                 child.kill().ok();
                 std::fs::remove_file(&spawn_sock).ok();
             }
-            return link.set(EngineStatus::Failed(Fault::Stopped.into()));
+            let stderr = link.stderr.as_ref().and_then(engine_log::StderrTail::brief);
+            return link.set(EngineStatus::Failed(Fault::Stopped { ended: None, stderr }.into()));
         }
     }
     let pid = child.id();
@@ -356,12 +357,12 @@ pub(crate) fn spawn_and_attach(engine: &Installed, sock: &Path, profile: &Path, 
     std::thread::Builder::new()
         .name("opencode-browser-watch".into())
         .spawn(move || {
-            let code = wait_for_end(&mut child);
+            let ended = wait_for_end(&mut child);
             link.shared.lock().unwrap_or_else(PoisonError::into_inner).step(EngineEvent::ProcessExited {
                 generation: link.generation,
                 pid,
             });
-            lost(&link, code);
+            lost(&link, ended);
             drop(child);
         })
         .ok();
@@ -430,12 +431,17 @@ fn discard(engine: &Installed) {
 /// with one of its threads still held in the kernel), and the engine's work all runs on its main
 /// thread, whose end is the process's. Like the process, the thread is a handle to wait on: no
 /// timer, no wake until it ends.
-fn wait_for_end(child: &mut Child) -> Option<u32> {
+fn wait_for_end(child: &mut Child) -> Option<Ended> {
     #[cfg(windows)]
     if let Some(thread) = proc::main_thread(child.id()) {
-        return proc::wait(thread);
+        return proc::wait(thread).map(Ended::Code);
     }
-    child.wait().ok()?.code().map(|c| c as u32)
+    let status = child.wait().ok()?;
+    #[cfg(unix)]
+    if let Some(signal) = std::os::unix::process::ExitStatusExt::signal(&status) {
+        return Some(Ended::Signal(signal));
+    }
+    status.code().map(|c| Ended::Code(c as u32))
 }
 
 /// Ends the engine process with `pid` at once (Retry, when it stopped answering). The watcher
@@ -547,20 +553,25 @@ mod proc {
 /// The engine went away on its own (the app's `shutdown_sidecar` transitions out of `Connected`
 /// first): the pane says so, and Retry starts it again. The socket's end usually comes first,
 /// without the process's exit code; the process's end then names the cause when it was a lack of
-/// memory. Returns whether the transition applied for `link`'s generation.
-fn lost(link: &Link, code: Option<u32>) -> bool {
+/// memory, and otherwise its exit code or signal. Returns whether the transition applied for
+/// `link`'s generation.
+fn lost(link: &Link, ended: Option<Ended>) -> bool {
     if !link.current() {
         return false;
     }
-    let fault = if code.is_some_and(out_of_memory) { Fault::OutOfMemory } else { Fault::Stopped };
+    let fault = if matches!(ended, Some(Ended::Code(code)) if out_of_memory(code)) {
+        Fault::OutOfMemory
+    } else {
+        Fault::Stopped { ended, stderr: link.stderr.as_ref().and_then(engine_log::StderrTail::brief) }
+    };
     let effect = link.shared.lock().unwrap_or_else(PoisonError::into_inner).step(EngineEvent::Lost {
         generation: link.generation,
         fault: fault.clone(),
     });
     if !matches!(effect, EngineEffect::IdleLost | EngineEffect::RetryFresh)
-        && let Some(code) = code
+        && let Some(ended) = ended
     {
-        eprintln!("browser engine: ended with exit code {code:#010x}");
+        eprintln!("browser engine: ended with {ended}");
     }
     match effect {
         EngineEffect::RetryFresh => {
@@ -583,9 +594,9 @@ fn lost(link: &Link, code: Option<u32>) -> bool {
             engine_log::log(
                 link.profile.as_deref(),
                 &format!(
-                    "gen={} lost fault={fault} code={}{}",
+                    "gen={} lost fault={fault} ended={}{}",
                     link.generation,
-                    code.map_or_else(|| "none".to_owned(), |c| format!("{c:#010x}")),
+                    ended.map_or_else(|| "none".to_owned(), |e| e.to_string()),
                     if tail.is_empty() { String::new() } else { format!(" stderr={tail}") },
                 ),
             );
@@ -598,9 +609,9 @@ fn lost(link: &Link, code: Option<u32>) -> bool {
             engine_log::log(
                 link.profile.as_deref(),
                 &format!(
-                    "gen={} lost-update fault={fault} code={}",
+                    "gen={} lost-update fault={fault} ended={}",
                     link.generation,
-                    code.map_or_else(|| "none".to_owned(), |c| format!("{c:#010x}")),
+                    ended.map_or_else(|| "none".to_owned(), |e| e.to_string()),
                 ),
             );
             link.wake();
