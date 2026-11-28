@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # opencode-rune-sign-macos.sh <unsigned app zip> <out dir> <arch>: signs "OpenCode (Rune).app"
 # inside-out (each Contents/Frameworks/*.dylib, then the app) with Anomaly's Developer ID identity
-# (hardened runtime, secure timestamp, microphone entitlement on the app), notarizes and staples
+# (hardened runtime, secure timestamp, app entitlements), notarizes and staples
 # it, then writes:
 #   OpenCode-Rune-<version>-macos-<arch>.zip  (root "OpenCode (Rune).app", for the auto-updater)
 #   OpenCode-Rune-<version>-macos-<arch>.dmg  (signed, notarized, stapled, with /Applications link)
