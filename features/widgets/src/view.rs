@@ -62,8 +62,43 @@ pub fn view<H: WidgetsHost + TimelineHost>(s: &H, p: &Pal, session: &str, messag
     let failure = recorded::<H>(s, e, session, &key);
     // A program of another protocol can't run: nothing to try again or restart.
     let refused = matches!(s.widgets().widget_templates.get(&e.widget_template), Some(WidgetTemplate::Ready(c)) if c.refused());
-    let buttons = Buttons { retry: (!refused).then_some(retry), expand, failure };
-    Some(session_view::widget::frame(s, p, session, &key, &e.label, e.machine.face(), &e.local, Some(&hooks::<H>(&key)), Place::Inline(buttons), &chips(s, e)))
+    let buttons = Buttons { retry: (!refused).then_some(retry), expand, failure, corner: s.widget_corner(session, &key) };
+    let frame = session_view::widget::frame(s, p, session, &key, &e.label, e.machine.face(), &e.local, Some(&hooks::<H>(&key)), Place::Inline(buttons), &chips(s, e));
+    // Its size, for a window of its own to open at.
+    let id = key.clone();
+    let frame = frame.on_layout(move |s: &mut H, [_, _, w, h]| {
+        if s.widgets().laid(&id) != Some([w, h]) {
+            s.widgets_mut().laid.insert(id.clone(), [w, h]);
+        }
+    });
+    Some(draggable(s, p, session, &key, frame))
+}
+
+/// Widget `key` as the host lets the user drag it out of the window (onto the desktop): its
+/// frame under a grab strip, shown on hover, that the drag starts from. The strip is outside the
+/// frame, so a press there is the wrapper's (the frame takes its own presses, for keyboard focus)
+/// and the drag shows the whole widget.
+fn draggable<H: WidgetsHost + 'static>(s: &H, p: &Pal, session: &str, key: &str, frame: El) -> El {
+    if !s.widget_drags_out() {
+        return frame;
+    }
+    let (session, id) = (session.to_owned(), key.to_owned());
+    let words = opencode_i18n::t!("rune.widget.dragOut").to_owned();
+    let grip = rune::row()
+        .key("grip")
+        .w_full()
+        .h(12.0)
+        .center()
+        .label(words.clone())
+        .help(words)
+        .child(rune::el().w(36.0).h(4.0).radius(2.0).fill(p.faint).group_opacity(0.0, 1.0));
+    rune::col()
+        .key(format!("widget-drag-{key}"))
+        .w_full()
+        .hover_group()
+        .drag_out(move |s: &H| s.widget_drag_out(&session, &id))
+        .child(grip)
+        .child(frame)
 }
 
 /// The widget instance key `key` (`sessionID:messageID:callID`, [`crate::instances`]) names
@@ -74,6 +109,22 @@ pub fn instance_view<H: WidgetsHost + TimelineHost>(s: &H, p: &Pal, key: &str, w
     let i = s.widgets().instances.resolve(key)?;
     let st = &i.state;
     Some(tile(s, p, &st.session, &st.key(), st.label(), Some(&st.status), width))
+}
+
+/// The widget instance key `key` (`sessionID:messageID:callID`) names now, filling a window of
+/// its own `size` points big (a standalone widget): live and interactive as in the timeline, its
+/// events going to its own session, following updates as a dashboard tile does
+/// ([`crate::instances`]). A placeholder while it isn't listed or open yet.
+pub fn window_view<H: WidgetsHost + TimelineHost>(s: &H, p: &Pal, key: &str, size: [f32; 2]) -> El {
+    let place = Place::Window { size };
+    let Some(i) = s.widgets().instances.resolve(key) else {
+        return session_view::widget::frame(s, p, "", key, "", Face::Loading, &Local::default(), None, place, &[]);
+    };
+    let (session, id) = (i.state.session.clone(), i.state.key());
+    match s.widgets().entries.get(&id) {
+        Some(e) => session_view::widget::frame(s, p, &session, &id, &e.label, e.machine.face(), &e.local, Some(&hooks::<H>(&id)), place, &chips(s, e)),
+        None => session_view::widget::frame(s, p, &session, &id, i.state.label(), Face::Loading, &Local::default(), None, place, &[]),
+    }
 }
 
 /// Widget `key` (`message/call`) of session `session` outside the timeline (a Mini apps tile),
@@ -101,7 +152,7 @@ pub fn tile<H: WidgetsHost + TimelineHost>(s: &H, p: &Pal, session: &str, key: &
         }) as opencode_widget_view::Action<H>
     });
     let refused = matches!(s.widgets().widget_templates.get(&e.widget_template), Some(WidgetTemplate::Ready(c)) if c.refused());
-    let buttons = Buttons { retry: (!refused).then_some(retry), expand, failure: recorded::<H>(s, e, session, key) };
+    let buttons = Buttons { retry: (!refused).then_some(retry), expand, failure: recorded::<H>(s, e, session, key), corner: Vec::new() };
     session_view::widget::frame(s, p, session, key, &e.label, e.machine.face(), &e.local, Some(&hooks::<H>(key)), Place::Tile { buttons, width }, &chips(s, e))
 }
 

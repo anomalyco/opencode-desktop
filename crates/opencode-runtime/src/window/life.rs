@@ -12,6 +12,9 @@ pub enum Life {
     /// A torn-out tab's window following the pointer: it goes if the tab comes back to its
     /// strip or lands on another, and stays if the tab is let go elsewhere.
     Torn,
+    /// A standalone widget's window (`session::standalone`): never in the list, its files go
+    /// at its close.
+    Standalone,
     /// Its close runs; it leaves the list.
     Closing,
     /// Gone from the list.
@@ -50,7 +53,7 @@ impl Life {
     pub fn step(self, event: LifeEvent) -> (Life, LifeEffect) {
         match (self, event) {
             (Life::Torn, LifeEvent::Kept) => (Life::Open, LifeEffect::SaveIds),
-            (Life::Torn, LifeEvent::Closing { .. }) | (Life::Open, LifeEvent::Closing { keep: false }) => (Life::Closing, LifeEffect::Forget),
+            (Life::Torn | Life::Standalone, LifeEvent::Closing { .. }) | (Life::Open, LifeEvent::Closing { keep: false }) => (Life::Closing, LifeEffect::Forget),
             (Life::Open, LifeEvent::Closing { keep: true }) => (Life::Kept, LifeEffect::Keep),
             (Life::Closing, LifeEvent::Closed) => (Life::Closed, LifeEffect::None),
             (state, _) => (state, LifeEffect::None),

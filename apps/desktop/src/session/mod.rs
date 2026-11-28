@@ -6,6 +6,7 @@ pub mod meta;
 pub mod pages;
 pub mod timeline;
 pub mod pointer_lock;
+pub mod standalone;
 pub mod widgets;
 pub mod widget_gpu;
 pub mod widget_storage;

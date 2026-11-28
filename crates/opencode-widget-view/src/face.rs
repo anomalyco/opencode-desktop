@@ -9,7 +9,7 @@ use rune::{El, Tx, col, el, icon, row, text};
 use rune_kit::{Button, ButtonVariant, Kit, Loader};
 use serde_json::Value;
 
-use crate::{Action, Buttons, Hooks, Local, Look, Recorded, view};
+use crate::{Action, Buttons, Corner, Hooks, Local, Look, Recorded, view};
 
 /// The keyboard glyph of the focus hint.
 static KEYBOARD: rune::Icon = rune::Icon {
@@ -120,7 +120,7 @@ fn status(k: &Kit, glyph: &'static rune::Icon, tint: rune::Color, words: &str, d
 /// The widget in its frame. `title` names it (the message's title, or its widget template's name);
 /// `buttons` are what Try again (or Restart) and the expand button do.
 pub fn frame<S: 'static>(look: &Look, local: &Local, hooks: Option<&Hooks<S>>, face: Face<'_>, title: &str, buttons: Buttons<S>) -> El {
-    let Buttons { retry, expand, failure } = buttons;
+    let Buttons { retry, expand, failure, corner } = buttons;
     let k = look.kit;
     let c = &k.c;
     let body: Vec<El> = match face {
@@ -208,27 +208,35 @@ pub fn frame<S: 'static>(look: &Look, local: &Local, hooks: Option<&Hooks<S>>, f
     if let (Some(h), Face::Live { live: true, .. }) = (hooks, face) {
         frame = keyboard(look, local, h, frame);
     }
-    // Full screen, top right, on hover and keyboard focus, as a video player's.
-    if let Some(expand) = expand {
-        let words = look.words.fullscreen.clone();
-        let button = el()
-            .key("fullscreen")
-            .size(25.0, 25.0)
-            .radius(5.0)
-            .center()
-            .cursor(rune::Cursor::Pointer)
-            .fill(c.bg_base)
-            .border(0.5, c.border_weak)
-            .hover(c.surface_weak)
-            .group_opacity(0.0, 1.0)
-            .role("button")
-            .label(words.clone())
-            .help(words)
-            .on_press_tx(move |s: &mut S, tx: &mut Tx| expand(s, tx))
-            .child(icon(&EXPAND, 13.0).color(c.icon_muted));
-        frame = frame.hover_group().hover_group_focus().child(button.pin(None, Some(10.0), Some(10.0), None));
+    // Full screen, top right, on hover and keyboard focus, as a video player's; the host's own
+    // buttons before it.
+    let expand = expand.map(|press| Corner { icon: &EXPAND, label: look.words.fullscreen.clone(), press });
+    let buttons: Vec<El> = corner.into_iter().chain(expand).enumerate().map(|(i, b)| corner_button(look, i, b)).collect();
+    if !buttons.is_empty() {
+        let bar = row().key("corner").gap(4.0).children(buttons);
+        frame = frame.hover_group().hover_group_focus().child(bar.pin(None, Some(10.0), Some(10.0), None));
     }
     frame
+}
+
+/// One of the frame's top-right buttons, shown on hover and keyboard focus.
+fn corner_button<S: 'static>(look: &Look, i: usize, b: Corner<S>) -> El {
+    let c = &look.kit.c;
+    let Corner { icon: glyph, label, press } = b;
+    el().key(if std::ptr::eq(glyph, &EXPAND) { "fullscreen".to_owned() } else { format!("corner-{i}") })
+        .size(25.0, 25.0)
+        .radius(5.0)
+        .center()
+        .cursor(rune::Cursor::Pointer)
+        .fill(c.bg_base)
+        .border(0.5, c.border_weak)
+        .hover(c.surface_weak)
+        .group_opacity(0.0, 1.0)
+        .role("button")
+        .label(label.clone())
+        .help(label)
+        .on_press_tx(move |s: &mut S, tx: &mut Tx| press(s, tx))
+        .child(icon(glyph, 13.0).color(c.icon_muted))
 }
 
 /// A recorded program error's rows: its words (unless the widget shows its own error), then "The
@@ -319,7 +327,8 @@ pub fn placeholder(look: &Look, title: &str) -> El {
 /// (scrolling when taller), the close button floating over its top-right corner ([`close_area`]). Esc, back and
 /// the mouse's back button close it as the button does (the host takes the keys).
 #[allow(clippy::too_many_arguments)]
-pub fn screen<S: 'static>(look: &Look, local: &Local, hooks: Option<&Hooks<S>>, face: Face<'_>, title: &str, height: f32, close: Action<S>) -> El {
+/// Without `close` (a window of its own, which closes as any window does) there's no button.
+pub fn screen<S: 'static>(look: &Look, local: &Local, hooks: Option<&Hooks<S>>, face: Face<'_>, title: &str, height: f32, close: Option<Action<S>>) -> El {
     let k = look.kit;
     let c = &k.c;
     let live = matches!(face, Face::Live { live: true, .. });
@@ -337,7 +346,7 @@ pub fn screen<S: 'static>(look: &Look, local: &Local, hooks: Option<&Hooks<S>>, 
     let words = look.words.exit_fullscreen.clone();
     // No title bar: only the close button floating over the top-right corner.
     let back = close.clone();
-    let close = el()
+    let close = close.map(|close| el()
         .key("close")
         .size(CLOSE, CLOSE)
         .radius(CLOSE / 2.0)
@@ -350,19 +359,33 @@ pub fn screen<S: 'static>(look: &Look, local: &Local, hooks: Option<&Hooks<S>>, 
         .label(words.clone())
         .help(words)
         .on_press_tx(move |s: &mut S, tx: &mut Tx| close(s, tx))
-        .child(icon(k.glyph.close, 14.0).color(c.icon_base));
+        .child(icon(k.glyph.close, 14.0).color(c.icon_base)));
     let root = el().key("widget-screen");
     let root = match hooks {
         Some(h) if live => keyboard(look, local, h, root),
         _ => root,
     };
-    root.pin(Some(0.0), Some(0.0), Some(0.0), Some(0.0))
-        .pointer_buttons([rune::PointerButton::Back])
-        .on_press_tx(move |s: &mut S, tx: &mut Tx| {
+    // Whether it shows: a live widget runs only while it does (full screen, its host says so).
+    let root = match (hooks, &back) {
+        (Some(h), None) => {
+            let lens = h.local.clone();
+            root.on_visible(move |s: &mut S, on, tx: &mut Tx| {
+                if (lens)(s).set_shown(on) {
+                    tx.wake_at(tx.clock());
+                }
+            })
+        }
+        _ => root,
+    };
+    let root = match back {
+        Some(back) => root.pointer_buttons([rune::PointerButton::Back]).on_press_tx(move |s: &mut S, tx: &mut Tx| {
             if tx.button() == rune::PointerButton::Back {
                 back(s, tx);
             }
-        })
+        }),
+        None => root,
+    };
+    root.pin(Some(0.0), Some(0.0), Some(0.0), Some(0.0))
         .fill(c.bg_base)
         .role("dialog")
         .label(title.to_owned())
@@ -375,5 +398,5 @@ pub fn screen<S: 'static>(look: &Look, local: &Local, hooks: Option<&Hooks<S>>, 
                 .scroll(rune::ScrollSpec { stick_bottom: false })
                 .child(col().key("body").w_full().min_h(height.max(0.0)).padding(PAD).gap(12.0).children(content)),
         )
-        .child(close.pin(None, Some(CLOSE_INSET), Some(CLOSE_INSET), None))
+        .children(close.map(|close| close.pin(None, Some(CLOSE_INSET), Some(CLOSE_INSET), None)))
 }

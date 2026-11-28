@@ -121,6 +121,15 @@ pub fn add_to_dashboard(s: &mut App, key: &str) {
     instances::want(s);
 }
 
+/// Another window changed the layout kept for this server ("Move to dashboard"): read it again
+/// at the next frame, unless it's being edited here.
+pub fn reload(s: &mut App) {
+    let m = s.kernel.slots.get_mut(&MINI_APPS);
+    if !m.board.mode.editing() {
+        m.layout = Layout::Unread;
+    }
+}
+
 /// Takes the widget instance `key` off this server's dashboard.
 pub fn remove_from_dashboard(s: &mut App, key: &str) {
     load(s);

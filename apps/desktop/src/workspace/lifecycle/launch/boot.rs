@@ -237,7 +237,16 @@ pub fn initial_server() -> Server {
     // This connection is also cloned by restore, prefetch and reconnect. Negotiating media
     // references can initialize a server location and count it as a project visit. A shared
     // reader must therefore take ordinary message payloads, including for the initial page.
-    let server = Server::new(&explicit.clone().unwrap_or_else(opencode_kit::client::default_server));
+    let mut server = Server::new(&explicit.clone().unwrap_or_else(opencode_kit::client::default_server));
+    // A `--server` with no password of its own (`OPENCODE_SERVER_PASSWORD`, the local service)
+    // signs in with the one saved for its address (a widget's app on the desktop starts the app
+    // this way, carrying no credentials).
+    if let Some(url) = explicit.as_deref().and_then(crate::servers::pairing::normalize)
+        && server.auth_header().is_none()
+        && let Some(password) = crate::servers::list().into_iter().find(|s| s.url == url).and_then(|s| s.password)
+    {
+        server = server.with_password(&password);
+    }
     if explicit.is_none() && !deferred() {
         opencode_kit::local_service::discover_local_server(&server)
     } else {

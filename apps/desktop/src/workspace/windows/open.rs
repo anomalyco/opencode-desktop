@@ -152,7 +152,7 @@ pub fn open_rest(s: &App) -> Option<std::time::Duration> {
         rest.remove(0)
     };
     rune::marks::mark("window.rest.open");
-    let _ = rune::open_window(window(Window::new(next.0, false), next.1, &s.diag.diagnostics));
+    let _ = rune::open_window(saved(window(Window::new(next.0, false), next.1, &s.diag.diagnostics)));
     (!REST.lock().unwrap_or_else(|e| e.into_inner()).is_empty()).then_some(std::time::Duration::ZERO)
 }
 
@@ -170,14 +170,39 @@ pub fn launch(diagnostics: crate::diagnostics::Diagnostics) {
         // Nothing saved (a new profile): where Desktop's first window opens.
         let frame = |id: &str| store::load_frame(id).and_then(|f| super::placement::fit(f, displays)).or_else(|| super::placement::first(displays));
         *REST.lock().unwrap_or_else(|e| e.into_inner()) = ids.iter().skip(1).map(|id| (id.clone(), frame(id))).collect();
-        vec![window(Window::new(ids[0].clone(), fresh), frame(&ids[0]), &diagnostics).boxed()]
+        vec![saved(window(Window::new(ids[0].clone(), fresh), frame(&ids[0]), &diagnostics)).boxed()]
     });
+}
+
+/// A saved window as the launch opens it: hidden when the launch is a standalone widget's (its
+/// app on the desktop, `session::standalone`), so only the widget's window shows. The first one
+/// still connects and opens the widget, and they all stay in the list for the next launch; the
+/// Dock icon brings them back.
+#[cfg(not(target_arch = "wasm32"))]
+fn saved(mut spec: WindowSpec<App>) -> WindowSpec<App> {
+    if crate::session::standalone::launched() {
+        spec.options.visible = false;
+    }
+    spec
 }
 
 /// New Window: another window of this app, on the same server, showing Home (Desktop's
 /// `window.new`, a fresh window id with nothing saved).
 pub fn new_window(s: &App) -> Option<WindowHandle> {
     open(s, Window::new(store::new_id(), false), None, false)
+}
+
+/// A standalone widget's window (`session::standalone`): a small one beside the open ones, never
+/// saved for the next launch. Its id and handle.
+pub fn open_standalone(s: &App, standalone: crate::session::standalone::Standalone) -> Option<(String, WindowHandle)> {
+    let mut w = Window::new(store::new_id(), false);
+    w.life = super::life::Life::Standalone;
+    let [width, height] = standalone.window_size();
+    w.standalone = Some(standalone);
+    let scale = display_scale(None).unwrap_or(2.0);
+    let frame = Frame { x: None, y: None, width: (width * scale) as u32, height: (height * scale) as u32, maximized: false, full_screen: false, display: None };
+    let id = w.id.clone();
+    open(s, w, Some(frame), false).map(|h| (id, h))
 }
 
 /// Opens `w` beside the open ones: at `frame` (else where the system puts a new window), and
@@ -201,6 +226,7 @@ fn window(mut w: Window, frame: Option<Frame>, diagnostics: &crate::diagnostics:
     w.placement = super::placement::Placement::opening(frame.as_ref());
     w.scale = display_scale(frame.as_ref()).unwrap_or(0.0);
     let (id, life) = (w.id.clone(), w.life);
+    let standalone = w.standalone.is_some();
     // What this window's view read from layout when it last rested or closed: its first view
     // is given the same rects, and runs once when the layout agrees with them.
     let layout = life.saved().then(|| (store::load_layout(&id), id.clone()));
@@ -212,8 +238,10 @@ fn window(mut w: Window, frame: Option<Frame>, diagnostics: &crate::diagnostics:
         app
     });
     // The saved layout's titlebar before the window exists: the first frame is drawn once.
+    // A standalone widget's window is the widget alone: no storybook bar under it.
+    let app = if standalone { app.playground(rune::Playground::new().enabled(false)) } else { app };
     #[cfg(target_os = "macos")]
-    let app = app.titlebar(crate::view::saved_mac_titlebar());
+    let app = app.titlebar(if standalone { crate::session::standalone::titlebar() } else { crate::view::saved_mac_titlebar() });
     let handle = app.handle();
     let ready = handle.clone();
     let mut motion_log = crate::motion_log::Log::default();
@@ -240,6 +268,7 @@ fn window(mut w: Window, frame: Option<Frame>, diagnostics: &crate::diagnostics:
                 s.launch.inbox_wake = Some(wake);
                 #[cfg(not(target_arch = "wasm32"))]
                 s.workspace_panes.browser.host.set_message_waker(browser);
+                crate::session::standalone::ready(s, tx);
                 crate::launch::ready(s, tx)
             })
         })
