@@ -79,10 +79,10 @@ pub fn view<S: PopupHost + 'static>(s: &S, p: &Pal) -> Vec<El> {
         }
         return wrap_modal::<S>(over_modal, layer);
     }
-    // A searchable menu lists what matches the field as it is now.
-    let fresh = shown.search.as_ref().map(|search| {
-        let query = &s.popup().query.text;
-        let menu = (search.rows)(s, query);
+    // A searchable menu lists what matches the field as it is now; an attached one's rows are
+    // already current (its field calls `edited`).
+    let fresh = shown.search.as_ref().filter(|search| search.live()).map(|search| {
+        let menu = search.build(s, &s.popup().query.text);
         // Rows that changed since the menu last lit one light their first (`refresh`).
         let active = if menu.entries == shown.menu.entries { shown.active } else { menu.offered().first().copied() };
         (menu, active)
@@ -91,7 +91,7 @@ pub fn view<S: PopupHost + 'static>(s: &S, p: &Pal) -> Vec<El> {
         Some((menu, active)) => (menu, *active),
         None => (&shown.menu, shown.active),
     };
-    let search_placeholder = shown.search.as_ref().map(|x| x.placeholder.as_str());
+    let search_placeholder = shown.search.as_ref().and_then(|x| x.placeholder());
     // A right-click menu is at least Desktop's context-menu width; one from a control hugs its rows.
     let menu = drawn(s, p, listed, active, shown.subs.first().map(|o| o.at), search_placeholder);
     let menu = if at_point { menu.min_w(CONTEXT_MIN_W.max(shown.menu.min_w)) } else { menu };
@@ -155,6 +155,9 @@ fn build<S: PopupHost + 'static>(
     search_placeholder: Option<&str>,
 ) -> El {
     let nested = level > 0;
+    // A list attached to the host's own field keeps the keyboard there: its rows don't take
+    // focus, and a press on one doesn't move focus off the field.
+    let attached = !nested && s.is_some_and(|s| s.popup().attached());
     // The first submenu keeps its keys; deeper ones number theirs.
     let name = |root: &str, sub: &str| match level {
         0 => root.to_owned(),
@@ -235,7 +238,7 @@ fn build<S: PopupHost + 'static>(
                 } else {
                     popover::option_tx::<S>(p, look, o, move |s, tx| hover_focus(s, 0, n, tx), move |s, tx| choose(s, n, tx))
                 };
-                list.row(if i.enabled { takes_focus(row) } else { row });
+                list.row(if i.enabled && !attached { takes_focus(row) } else { row });
             }
             Entry::Separator => {
                 // A 1 pt rule across the whole surface, 2 above and below (`menu.css:163-169`):
@@ -292,11 +295,15 @@ fn build<S: PopupHost + 'static>(
         .on_pointer_move_local(|s: &mut S, e: rune::PointerEvent, tx: &mut Tx| moved(s, [e.window_x, e.window_y], tx));
     // An open menu holds focus (`menu-v2-content`, tabindex -1) and takes the keys from there.
     // A menu under an editing field holds it too ([`super::open_with_field`]); a search field keeps it.
-    let holds_focus = search_placeholder.is_none() || s.is_some_and(|s| s.popup().holds_focus());
+    let holds_focus = !attached && (search_placeholder.is_none() || s.is_some_and(|s| s.popup().holds_focus()));
     let surface = match s {
         Some(_) if holds_focus => surface.focusable(true).tab_index(-1).no_focus_ring().on_key(|s: &mut S, ev, tx: &mut Tx| key(s, ev, tx)),
         _ => surface,
     };
+    // A press on a row must not move focus off the field it filters from: rune focuses a
+    // pressable row's scroll region before the row's press runs, which would blur the field
+    // first. The composer's suggestions keep their field the same way.
+    let surface = if attached { surface.preserve_focus_on_press(true) } else { surface };
     // A menu under an editing field is a Kobalte menu: the row the pointer lit goes dark as it leaves.
     let surface = if !nested && s.is_some_and(|s| s.popup().edits()) { surface.on_hover_change(|s: &mut S, inside, tx: &mut Tx| if !inside { left(s, tx) }) } else { surface };
     // A submenu is as wide as its widest row (`w-max`), its rows laid out apart from it.

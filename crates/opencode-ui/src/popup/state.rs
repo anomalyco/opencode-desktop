@@ -8,7 +8,7 @@ use crate::palette::Pal;
 use crate::popover;
 
 use super::menu::{Entry, Look, Menu, key_at, row_key};
-use super::{NATIVE, PopupHost, SURFACE, Search, Shown, SubOpen, focus, native};
+use super::{NATIVE, Pick, PopupHost, SURFACE, Search, Shown, SubOpen, focus, native};
 
 /// Moves focus onto the lit row of the menu `level` deep, as Kobalte's items take focus; a
 /// searchable menu keeps it in its field.
@@ -23,8 +23,12 @@ pub(super) fn focus_lit<S: PopupHost + 'static>(s: &S, level: usize, ring: bool,
     }
 }
 
-/// Settles [`super::Popup`]'s native AppKit repost window once it elapses.
+/// Settles [`super::Popup`]'s native AppKit repost window once it elapses, and opens a list
+/// [`open_attached_next`] queued for this frame.
 pub fn poll<S: PopupHost + 'static>(s: &mut S, tx: &mut Tx) {
+    if let Some(deferred) = s.popup_mut().deferred.take() {
+        open_attached_rc(s, deferred.rows, deferred.anchor, tx, deferred.pick);
+    }
     // A submenu kept past the pointer crossing its menu closes, or the row it waited over lights.
     if s.popup().submenu != super::submenu::State::Steady {
         let now = s.clock();
@@ -96,8 +100,45 @@ pub fn open_searchable<S: PopupHost + 'static>(
     pick: impl FnOnce(&mut S, Option<&str>, &mut Tx) + 'static,
 ) {
     let initial = rows(s, "");
-    let search = Search { placeholder: placeholder.into(), rows: Rc::new(rows), field: None };
+    let search = Search::Filter { placeholder: placeholder.into(), rows: Rc::new(rows) };
     open_drawn_inner(s, initial, Some(search), anchor.into(), tx, pick);
+}
+
+/// A drawn menu attached under the host's own field, as a combobox's list sits under its input:
+/// `rows` rebuilds the menu from the host on open and whenever the field calls [`edited`]. The
+/// field keeps the keyboard while it shows: its own keys move the lit row through
+/// [`key`](super::key), a press on a row picks it without moving focus off the field, and closing
+/// hands focus nowhere (the field never lost it).
+pub fn open_attached<S: PopupHost + 'static>(
+    s: &mut S,
+    rows: impl Fn(&S) -> Menu + 'static,
+    anchor: impl Into<PopupAnchor>,
+    tx: &mut Tx,
+    pick: impl FnOnce(&mut S, Option<&str>, &mut Tx) + 'static,
+) {
+    open_attached_rc(s, Rc::new(rows), anchor.into(), tx, Box::new(pick));
+}
+
+/// [`open_attached`] on the next frame, for a change that lands at once: a press in the host's
+/// field places its caret instantly, and a list mounted in that frame would show in its final
+/// state without its entrance. The next frame's [`poll`] opens it like any other menu.
+pub fn open_attached_next<S: PopupHost + 'static>(
+    s: &mut S,
+    rows: impl Fn(&S) -> Menu + 'static,
+    anchor: impl Into<PopupAnchor>,
+    tx: &mut Tx,
+    pick: impl FnOnce(&mut S, Option<&str>, &mut Tx) + 'static,
+) {
+    s.popup_mut().deferred = Some(super::Deferred { rows: Rc::new(rows), anchor: anchor.into(), pick: Box::new(pick) });
+    // A hair ahead of now, so the shell parks on a timer wake rather than folding it into the
+    // change that asked; the display paces it to the next frame either way.
+    tx.wake_after(std::time::Duration::from_millis(1));
+}
+
+fn open_attached_rc<S: PopupHost + 'static>(s: &mut S, rows: Rc<dyn Fn(&S) -> Menu>, anchor: PopupAnchor, tx: &mut Tx, pick: Pick<S>) {
+    let initial = rows(s);
+    let search = Search::Attached { rows };
+    open_drawn_inner(s, initial, Some(search), anchor, tx, pick);
 }
 
 /// A drawn menu under a field that edits a value as it's typed rather than filtering its rows,
@@ -122,7 +163,7 @@ pub fn open_with_field<S: PopupHost + 'static>(
 ) {
     let initial = rows(s);
     let field = super::Field { lead: Rc::new(lead), changed: Rc::new(changed), radio: Rc::new(radio) };
-    let search = Search { placeholder: label.into(), rows: Rc::new(move |s: &S, _: &str| rows(s)), field: Some(field) };
+    let search = Search::Edit { label: label.into(), field, rows: Rc::new(rows) };
     open_drawn_inner(s, initial, Some(search), anchor.into(), tx, pick);
     s.popup_mut().query = TextEdit::new(value);
 }
@@ -136,9 +177,13 @@ fn open_drawn_inner<S: PopupHost + 'static>(
     pick: impl FnOnce(&mut S, Option<&str>, &mut Tx) + 'static,
 ) {
     close(s, None, focus::Reason::Outside, tx);
+    // An open asked for earlier this frame ([`open_attached_next`]) is this one's to replace.
+    s.popup_mut().deferred = None;
     let has_search = search.is_some();
-    // An editing field leaves focus to the menu, as Kobalte's menu takes it when it opens.
-    let field_takes_keys = search.as_ref().is_some_and(|x| x.field.is_none());
+    // An editing field leaves focus to the menu, as Kobalte's menu takes it when it opens. A
+    // list attached to the host's own field leaves focus there.
+    let field_takes_keys = search.as_ref().is_some_and(|x| matches!(x, Search::Filter { .. }));
+    let attached = search.as_ref().is_some_and(|x| matches!(x, Search::Attached { .. }));
     // A menu's max-content width comes from its rows, not the width left on its anchor's
     // end side. Measure once at open; placement can then shift the whole menu on screen.
     let menu = if menu.width.is_none() && menu.look == Look::Menu && !has_search { menu.hug() } else { menu };
@@ -152,12 +197,14 @@ fn open_drawn_inner<S: PopupHost + 'static>(
     let opened = focus::Opened { modality, origin };
     let selected = menu.selected.as_deref().and_then(|id| menu.entries.iter().position(|e| matches!(e, Entry::Item(i) if i.id == id)));
     let first = menu.offered().first().copied();
-    let active = selected.or(first.filter(|_| modality == focus::Modality::Keyboard));
+    // An attached list lights its current row (else its first) however it opened, so Return
+    // picks from the field at once.
+    let active = selected.or(first.filter(|_| modality == focus::Modality::Keyboard || attached));
     if let Some(id) = menu.selected.clone() {
         tx.scroll_into_view(row_key(&id));
     }
     // The search field takes the keys while it's open, as Desktop's does once it opens; any
-    // other menu takes focus itself.
+    // other menu takes focus itself, but one attached to the host's field leaves it there.
     {
         let popup = s.popup_mut();
         popup.query = TextEdit::new("");
@@ -167,10 +214,12 @@ fn open_drawn_inner<S: PopupHost + 'static>(
     if field_takes_keys {
         s.on_focus_taken();
     } else {
-        let lit = active.filter(|_| modality == focus::Modality::Keyboard).and_then(|n| key_at(&menu, n));
-        let (key, ring) = focus::opening(&opened, SURFACE, lit);
+        if !attached {
+            let lit = active.filter(|_| modality == focus::Modality::Keyboard).and_then(|n| key_at(&menu, n));
+            let (key, ring) = focus::opening(&opened, SURFACE, lit);
+            tx.focus(key, ring);
+        }
         s.on_focus_taken();
-        tx.focus(key, ring);
     }
     s.popup_mut().shown = Some(Shown { menu, anchor, active, subs: Vec::new(), opened, search, highlight: None, pick: Box::new(pick) });
     s.popup_mut().submenu = super::submenu::State::Steady;
@@ -199,19 +248,31 @@ pub fn dismiss<S: PopupHost + 'static>(s: &mut S, tx: &mut Tx) {
 }
 
 /// A searchable menu's rows for what's typed now; when they changed, the first one it lists
-/// lights (`list-machine.ts`: each result set opens on its first row).
-pub(super) fn refresh<S: PopupHost + 'static>(s: &mut S) {
-    let Some(search) = s.popup().shown.as_ref().and_then(|m| m.search.clone()) else { return };
-    let query = s.popup().query.text.clone();
-    let menu = (search.rows)(s, &query);
+/// lights (`list-machine.ts`: each result set opens on its first row). Whether they changed.
+pub(super) fn refresh<S: PopupHost + 'static>(s: &mut S) -> bool {
+    let Some(search) = s.popup().shown.as_ref().and_then(|m| m.search.clone()) else { return false };
+    let menu = search.build(s, &s.popup().query.text);
     if s.popup().shown.is_none() {
-        return;
+        return false;
     }
-    let Some(shown) = s.popup_mut().shown.as_mut() else { return };
+    let Some(shown) = s.popup_mut().shown.as_mut() else { return false };
     let changed = shown.menu.entries != menu.entries;
     shown.menu = menu;
     if changed {
         shown.active = shown.menu.offered().first().copied();
+    }
+    changed
+}
+
+/// The host's own field under an attached menu ([`open_attached`]) changed: its rows for what's
+/// typed now, the first lit when they changed, and that row scrolled into view.
+pub fn edited<S: PopupHost + 'static>(s: &mut S, tx: &mut Tx) {
+    if !refresh(s) {
+        return;
+    }
+    let lit = s.popup().shown.as_ref().and_then(|m| m.active.and_then(|n| m.menu.item_at(n))).map(|i| i.id.clone());
+    if let Some(id) = lit {
+        tx.scroll_into_view(row_key(&id));
     }
 }
 
@@ -237,10 +298,16 @@ pub(super) fn close<S: PopupHost + 'static>(s: &mut S, picked: Option<&str>, rea
     s.popup_mut().submenu = super::submenu::State::Steady;
     s.popup_mut().query.focused = false;
     // A menu that never took focus leaves it where it is, but the keys still hand it to the trigger.
+    // A list attached to the host's own field hands focus nowhere: the field kept it while the
+    // list showed, and a press outside leaves it where that press put it.
     let trigger = matches!(shown.opened.origin, focus::Origin::Trigger(_));
-    let effect = match (shown.holds_focus(), reason, trigger) {
-        (true, ..) | (false, focus::Reason::Keys, true) => focus::closing(shown.opened, reason, tx.by_keys()),
-        _ => None,
+    let effect = if shown.keeps_field_focus() {
+        None
+    } else {
+        match (shown.holds_focus(), reason, trigger) {
+            (true, ..) | (false, focus::Reason::Keys, true) => focus::closing(shown.opened, reason, tx.by_keys()),
+            _ => None,
+        }
     };
     popover::motion::closing(s.knobs(), tx);
     (shown.pick)(s, picked, tx);
@@ -263,7 +330,10 @@ pub(super) fn choose<S: PopupHost + 'static>(s: &mut S, n: usize, tx: &mut Tx) {
     refresh(s);
     let Some(item) = s.popup().shown.as_ref().and_then(|m| m.menu.item_at(n)).filter(|i| i.enabled).cloned() else { return };
     // A radio row under an editing field sets its value and leaves the menu open (`Menu.RadioItem`).
-    let radio = s.popup().shown.as_ref().and_then(|m| m.search.as_ref()?.field.as_ref()).filter(|_| item.radio).map(|f| Rc::clone(&f.radio));
+    let radio = s.popup().shown.as_ref().and_then(|m| m.search.as_ref()).and_then(|x| match x {
+        Search::Edit { field, .. } => Some(Rc::clone(&field.radio)),
+        _ => None,
+    }).filter(|_| item.radio);
     if let Some(radio) = radio {
         let lit = s.popup().shown.as_ref().and_then(|m| m.active);
         radio(s, &item.id, tx);

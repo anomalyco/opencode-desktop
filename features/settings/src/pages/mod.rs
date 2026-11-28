@@ -7,6 +7,7 @@ pub mod appearance;
 pub mod console_link;
 pub mod experimental;
 pub mod extensions;
+pub mod font_field;
 pub mod general;
 pub mod models;
 pub mod notifications;
@@ -23,7 +24,7 @@ pub mod worktrees;
 use opencode_i18n::t;
 use opencode_ui::popup::{self, Menu, MenuButton as _, PopupHost};
 use rune::{El, Icon, Key, KeyEvent, TextEdit, TextStyle, Tx, col, el, icon, row, rule, text};
-use rune_kit::{Select, TextInput};
+use rune_kit::Select;
 use rune_theme_opencode::icons as ic;
 use opencode_ui::focus::FocusExt;
 use opencode_ui::palette::{Pal, kit};
@@ -250,6 +251,7 @@ pub fn show_page(host: &mut dyn SettingsHost, page: Page) {
         Page::Appearance => {
             let fields = appearance::Fields::from(host.settings());
             host.settings_pages_mut().fonts = fields;
+            appearance::warm_installed();
         }
         Page::Servers => servers::load(host),
         Page::Worktrees => {
@@ -567,30 +569,6 @@ pub fn filter_field<H: SettingsHost + 'static>(
         box_el = box_el.box_shadow(rune::Shadow { spread: 1.0, color: p.v2.border_focus, inset: true, ..rune::Shadow::default() });
     }
     el().w_full().px(1.0).child(box_el)
-}
-
-/// `TextInput appearance="base"` at 220 pt, in its own font, as Appearance's font rows have it.
-#[allow(clippy::too_many_arguments)]
-pub fn text_field<H: SettingsHost + 'static>(
-    p: &Pal,
-    key: &str,
-    label: &str,
-    placeholder: &str,
-    edit: &TextEdit,
-    style: TextStyle,
-    field: fn(&mut State) -> &mut TextEdit,
-    change: fn(&mut dyn SettingsHost, &mut Tx),
-) -> El {
-    TextInput::new(edit)
-        .placeholder(placeholder.to_owned())
-        .label(label.to_owned())
-        .width(if crate::rows_wrap() { None } else { Some(220.0) })
-        .text_style(style)
-        .height(28.0)
-        .on_edit(move |s: &mut H| field(s.settings_pages_mut()))
-        .on_change(move |s: &mut H, tx: &mut Tx| change(s, tx))
-        .build(kit(p))
-        .key(key.to_owned())
 }
 
 /// `button-v2` ghost or ghost-muted with an optional leading icon.

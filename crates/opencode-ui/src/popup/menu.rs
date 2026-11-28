@@ -343,7 +343,13 @@ impl Menu {
             let on = id == selected;
             Item::new(id, title).checked(on).enabled(enabled)
         });
-        Menu { selected: Some(selected.to_owned()), min_w: SELECT_MIN_W, max_h: SELECT_MAX_H, select: true, align: Align::End, ..Menu::new(label) }.items(items)
+        Self::select_list(label, selected).items(items)
+    }
+
+    /// A select's list ([`Menu::picker_some`]) laid out row by row, for one whose rows carry
+    /// group headers between them.
+    pub fn select_list(label: impl Into<String>, selected: impl Into<String>) -> Menu {
+        Menu { selected: Some(selected.into()), min_w: SELECT_MIN_W, max_h: SELECT_MAX_H, select: true, align: Align::End, ..Menu::new(label) }
     }
 
     pub fn item(mut self, item: Item) -> Menu {

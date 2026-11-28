@@ -8,6 +8,7 @@ use crate::palette::{Pal, kit};
 use super::PopupHost;
 use super::keys::key;
 use super::state::{choose, query_changed, refresh};
+use super::Search;
 
 /// A searchable menu's field and the 4 pt around it (`recently-closed-search m-1`): Desktop's
 /// 28 pt `TextInput` with the magnifying glass, clear until hovered, focused or typed in, where it
@@ -15,8 +16,8 @@ use super::state::{choose, query_changed, refresh};
 pub(super) const SEARCH_H: f32 = 28.0 + 8.0;
 
 pub(super) fn search_field<S: PopupHost + 'static>(s: &S, p: &Pal, placeholder: &str) -> El {
-    if let Some(field) = s.popup().shown.as_ref().and_then(|m| m.search.as_ref()).and_then(|x| x.field.clone()) {
-        return edit_field(s, p, placeholder, field);
+    if let Some(Search::Edit { field, .. }) = s.popup().shown.as_ref().and_then(|m| m.search.as_ref()) {
+        return edit_field(s, p, placeholder, field.clone());
     }
     let k = kit(p);
     let edit = &s.popup().query;
