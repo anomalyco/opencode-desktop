@@ -6,7 +6,8 @@
 //! show, a failure included. What folds gathers across a turn's steps, up to the next row of its
 //! own: thoughts, tool calls, notices and, where commentary folds, the text a later tool call
 //! follows. Each subagent event, a launch, a follow-up or a report, is a row of its own in
-//! timeline order, never counted (anomalyco/opencode#64017). Background shells are events: where
+//! timeline order, never counted (anomalyco/opencode#64017); Rune then gathers the stretch of
+//! work around them into one row ([`agents`]). Background shells are events: where
 //! their setting groups them their launch joins the group, else launches one after another share
 //! one events row ("Started 2 shells"), as reports one after another do; a report right after the
 //! group that launched it finishes there. The thought the model is writing stands at
@@ -15,6 +16,7 @@
 //! Thoughts one after another with nothing between read as one thought (anomalyco/opencode#66349),
 //! and while the turn runs the thoughts it ends on read as Thinking until something else shows.
 
+pub mod agents;
 mod view;
 
 pub use view::{block_row, calls, events as events_row, file_run_head_is_card, group, subagent as subagent_row, thoughts};
@@ -37,7 +39,7 @@ pub enum Entry<'a> {
 }
 
 /// One step inside a group, or on its own row.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub enum Step<'a> {
     /// `took_ms`: how long it took once finished, which a row of several adds up before rounding.
     Thought { msg: &'a str, index: usize, body: &'a str, secs: Option<i64>, took_ms: Option<i64>, started: i64 },
@@ -118,13 +120,16 @@ impl Loc {
 #[derive(Debug)]
 pub enum Block<'a> {
     /// Folded thoughts, tool calls, notices and commentary; `at`: each step's [`Loc`].
-    Group { key: String, steps: Vec<Step<'a>>, at: Vec<Loc> },
+    /// `agents` (Rune-only, [`agents`]): the subagents the stretch called on, each once, which
+    /// make the group one line about them.
+    Group { key: String, steps: Vec<Step<'a>>, at: Vec<Loc>, agents: Vec<agents::Called<'a>> },
     Text { key: String, body: &'a str, msg: usize, part: usize, live: bool },
     /// Background shells started together, or reporting back one after another, as one events
     /// row (`groupContent`'s `events`, `groupNotices`): "Started 2 shells".
     Events { key: String, steps: Vec<Step<'a>> },
     /// One subagent event, a call or a report, on a row of its own (`groupContent`'s
-    /// `subagent`, anomalyco/opencode#64017).
+    /// `subagent`, anomalyco/opencode#64017), until Rune gathers it into the line about its
+    /// stretch's subagents ([`agents::merge`]).
     Subagent { key: String, step: Step<'a> },
     /// A question call, once answered, dismissed or failed (`question_row`).
     Question { id: &'a str, status: &'a ToolStatus, input: &'a serde_json::Value, metadata: &'a serde_json::Value },
@@ -215,7 +220,7 @@ pub fn fold_with_flags<'a>(entries: &[Entry<'a>], live: bool, detail: &Detail, s
     let flush = |out: &mut Vec<Block<'a>>, group: &mut Vec<Step<'a>>, at: &mut Vec<Loc>, key: &mut Option<String>| {
         if !group.is_empty() {
             let key = key.take().unwrap_or_else(|| String::from("c-"));
-            out.push(Block::Group { key, steps: std::mem::take(group), at: std::mem::take(at) });
+            out.push(Block::Group { key, steps: std::mem::take(group), at: std::mem::take(at), agents: Vec::new() });
         }
     };
     // An events block joins the one before it only while nothing came between.
@@ -403,7 +408,7 @@ pub fn fold_with_flags<'a>(entries: &[Entry<'a>], live: bool, detail: &Detail, s
     if !tail.is_empty() {
         out.push(Block::Thought { key: thought_row_key(&tail), steps: tail, live: true });
     }
-    out
+    agents::merge(out)
 }
 
 /// A script's changes, right after it, placed by the Edits setting even where the script itself
@@ -435,7 +440,7 @@ fn place_changes<'a>(
         }
         if !group.is_empty() {
             let key = key.take().unwrap_or_else(|| String::from("c-"));
-            out.push(Block::Group { key, steps: std::mem::take(group), at: std::mem::take(at) });
+            out.push(Block::Group { key, steps: std::mem::take(group), at: std::mem::take(at), agents: Vec::new() });
         }
         match out.last_mut() {
             Some(Block::Calls { kind: Calls::Files, steps, .. }) => steps.push(step),

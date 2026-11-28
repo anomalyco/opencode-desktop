@@ -262,6 +262,9 @@ impl RowSpec {
                         [pt.to_bits(), self.room_under(s).to_bits(), fade.to_bits()],
                         look,
                         (self.streaming, open, shutting),
+                        // A subagents line mid-move builds again once the move is over, at rest
+                        // (`activity::agents::motion`), so mounting the row later doesn't replay it.
+                        crate::activity::agents::motion::moving(&t.session, &self.key, s.clock()),
                         (fold, feather, crate::style::content_w().to_bits(), crate::scroller::device_scale().to_bits(), detail, script_diffs, s.shell_output_version(), crate::style::sticky_top().to_bits(), s.reduced_motion(), thoughts, tools_exp),
                     );
                     return rune::memo(self.key.clone(), ver, || {

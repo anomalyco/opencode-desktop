@@ -2,7 +2,8 @@
 //! another and work through their steps; the first finishes, the newest fails, and the rest
 //! finish later, each reporting back to the open session as the server does. Under Reports the
 //! open session sends the first a follow-up, then one finishes, one fails and one is stopped,
-//! and an agent with no task named starts.
+//! and an agent with no task named starts. Under One line six agents start a beat apart, so their
+//! names give way to counts, then finish, fail and stop one at a time.
 //! S starts another, F finishes the oldest, E fails the newest, X stops the oldest, U sends the
 //! oldest running a follow-up, R replays.
 
@@ -15,8 +16,8 @@ use crate::stories::{Trigger, emit, replay, sid};
 
 /// How many agents the story starts, three first. Under Working, one agent runs in a turn that
 /// is still working, so Working sits under its card.
-pub const VARIANTS: &[(&str, usize)] = &[("3 agents", 1), ("1 agent", 0), ("6 agents", 2), ("Under Working", 3), ("Reports", 4)];
-const COUNTS: [usize; 5] = [1, 3, 6, 1, 3];
+pub const VARIANTS: &[(&str, usize)] = &[("3 agents", 1), ("1 agent", 0), ("6 agents", 2), ("Under Working", 3), ("Reports", 4), ("One line", 5)];
+const COUNTS: [usize; 6] = [1, 3, 6, 1, 3, 6];
 
 pub const KEYS: &[Trigger] = &[
     replay(open),
@@ -64,7 +65,8 @@ fn started(s: &App) -> Vec<String> {
 /// fails, so one of each shows from 5.4 s until the rest finish at 9 s.
 fn open(s: &mut App, tx: &mut Play<App>) {
     s.finish_stream();
-    let n = COUNTS[s.fixture_run.variant.min(4)];
+    let n = COUNTS[s.fixture_run.variant.min(COUNTS.len() - 1)];
+    let one_line = s.fixture_run.variant == 5;
     let working = s.fixture_run.variant == 3;
     if working {
         let id = sid(s);
@@ -73,8 +75,9 @@ fn open(s: &mut App, tx: &mut Play<App>) {
         }
         s.running.insert(id);
     }
+    let gap = if one_line { 0.9 } else { 0.25 };
     for k in 0..n {
-        tx.after(0.3 + k as f64 * 0.25, |s, tx| spawn(s, tx));
+        tx.after(0.3 + k as f64 * gap, |s, tx| spawn(s, tx));
     }
     let mut t = 0.3 + STEP;
     while t < 20.0 {
@@ -82,6 +85,14 @@ fn open(s: &mut App, tx: &mut Play<App>) {
         t += STEP;
     }
     if working {
+        return;
+    }
+    if one_line {
+        tx.after(5.7, |s, tx| finish_oldest(s, tx));
+        tx.after(6.6, |s, tx| fail_newest(s, tx));
+        tx.after(7.5, |s, tx| stop_oldest(s, tx));
+        tx.after(8.4, |s, tx| finish_oldest(s, tx));
+        tx.after(9.3, |s, tx| finish_oldest(s, tx));
         return;
     }
     if s.fixture_run.variant == 4 {
