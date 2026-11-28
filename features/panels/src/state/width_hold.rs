@@ -66,8 +66,10 @@ impl StripWidthHold {
                     return;
                 }
                 let prev_hold = match self {
-                    Self::Holding { hold, pane_w, session_id, .. }
-                        if *session_id == m.session_id && (*pane_w - m.pane_w).abs() < 0.5 =>
+                    Self::Holding { hold, pane_w, count, session_id }
+                        if *session_id == m.session_id
+                            && (*pane_w - m.pane_w).abs() < 0.5
+                            && *count == m.remaining + 1 =>
                     {
                         *hold
                     }

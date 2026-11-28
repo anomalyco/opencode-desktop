@@ -391,6 +391,24 @@ impl TabClipboardGate {
         true
     }
 
+    /// Holds `url` until the root session's gate script is confirmed when `agent_driven` is
+    /// true and the root script has not replied yet (e.g. a remote tab whose sign-in cookie gate
+    /// released before the root CDP script reply landed).
+    pub fn hold_until_root_armed(&self, agent_driven: bool, url: &str) -> bool {
+        if !agent_driven
+            || self.root_armed.load(Ordering::Acquire)
+            || url.trim().eq_ignore_ascii_case("about:blank")
+        {
+            return false;
+        }
+        let mut held = self.first_load.lock().unwrap();
+        if self.root_armed.load(Ordering::Acquire) {
+            return false;
+        }
+        *held = Some(url.to_owned());
+        true
+    }
+
     /// The held first URL, once, after the root session's gate script is confirmed.
     pub fn take_first_load(&self) -> Option<String> {
         if !self.root_armed.load(Ordering::Acquire) {
