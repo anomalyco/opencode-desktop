@@ -170,19 +170,53 @@ fn vcs_store() -> &'static Mutex<HashMap<String, bool>> {
     STORE.get_or_init(Default::default)
 }
 
+/// Normalizes a directory path into the lookup key used by [`vcs_store`], matching
+/// [`crate::path::same`] semantics: trimmed of trailing separators, and for Windows drive/UNC
+/// paths with `/` separators and ASCII lowercase folding.
+fn vcs_key(path: &str) -> std::borrow::Cow<'_, str> {
+    let trimmed = crate::path::trim(path);
+    if crate::path::windows(trimmed) {
+        let mut s = String::with_capacity(trimmed.len());
+        for c in trimmed.chars() {
+            s.push(if c == '\\' { '/' } else { c.to_ascii_lowercase() });
+        }
+        std::borrow::Cow::Owned(s)
+    } else {
+        std::borrow::Cow::Borrowed(trimmed)
+    }
+}
+
 /// Whether the project the server lists at `directory`, or the nearest one holding it, is under
 /// version control (`vcs` set, any provider): how Desktop's Review decides "no-vcs"
 /// (`gui-plugins/src/review/model.ts:231`). `/api/vcs` can't tell: until the server's first read
 /// of the repository it answers `{ branch: {} }`, no provider and no branch. `None` when no listed
 /// project holds `directory`.
 pub fn directory_vcs(directory: &str) -> Option<bool> {
-    vcs_store()
-        .lock()
-        .unwrap_or_else(PoisonError::into_inner)
-        .iter()
-        .filter(|(root, _)| crate::path::contains(root, directory))
-        .max_by_key(|(root, _)| crate::path::trim(root).len())
-        .map(|(_, vcs)| *vcs)
+    let store = vcs_store().lock().unwrap_or_else(PoisonError::into_inner);
+    if store.is_empty() {
+        return None;
+    }
+    let mut cur = crate::path::trim(directory);
+    while !cur.is_empty() {
+        if let Some(&vcs) = store.get(vcs_key(cur).as_ref()) {
+            return Some(vcs);
+        }
+        // `path::contains("C:", "C:\\a")` is true, whereas `path::parent("C:\\a")` stops at
+        // `"C:\\"`. Check the bare drive root (`"c:"`) when at a Windows drive root (`"C:\\"`).
+        if cur.len() == 3
+            && crate::path::windows(cur)
+            && cur.as_bytes()[1] == b':'
+            && let Some(&vcs) = store.get(vcs_key(&cur[..2]).as_ref())
+        {
+            return Some(vcs);
+        }
+        let next = crate::path::parent(cur);
+        if next.is_empty() || next.len() >= cur.len() {
+            break;
+        }
+        cur = next;
+    }
+    None
 }
 
 /// Parses one `Project.Info` object from `/api/project` or a `project.updated` event.
@@ -191,10 +225,11 @@ pub fn parse_project(p: &Value) -> Option<Project> {
     if dir.is_empty() {
         return None;
     }
-    vcs_store()
-        .lock()
-        .unwrap_or_else(PoisonError::into_inner)
-        .insert(dir.clone(), p["vcs"].as_str().is_some_and(|v| !v.is_empty()));
+    let vcs = p["vcs"].as_str().is_some_and(|v| !v.is_empty());
+    let key = vcs_key(&dir).into_owned();
+    if !key.is_empty() {
+        vcs_store().lock().unwrap_or_else(PoisonError::into_inner).insert(key, vcs);
+    }
     let id = str_of(&p["id"]);
     let fallback = Some(crate::path::basename(&dir)).filter(|n| !n.is_empty()).unwrap_or(&dir);
     let name = p["name"].as_str().map(str::trim).filter(|n| !n.is_empty()).unwrap_or(fallback).to_owned();
