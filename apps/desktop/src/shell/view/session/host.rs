@@ -22,6 +22,9 @@ impl session_view::TimelineHost for App {
     fn clock(&self) -> f64 {
         *self.clock
     }
+    fn display_hz(&self) -> Option<f64> {
+        self.kernel.slots.untracked(&crate::app::DISPLAY_HZ).0.get()
+    }
     fn now_ms(&self) -> i64 {
         *self.now_ms
     }
@@ -139,6 +142,10 @@ impl session_view::TimelineHost for App {
             return Some(session_view::working::Waiting::Answer);
         }
         None
+    }
+    fn subagents_awaited(&self, session: &str) -> usize {
+        // The capsule's count (`subagents::capsule`), once the session's own run is over.
+        if self.session_busy(session) { 0 } else { self.running_subagents(session).len() }
     }
     fn session_revert(&self, session: &str) -> Option<&str> {
         self.session(session).and_then(|i| i.revert.as_deref())

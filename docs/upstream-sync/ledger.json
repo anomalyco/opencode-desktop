@@ -1,27 +1,27 @@
 {
-  "generated_at": "2026-11-28",
+  "generated_at": "2026-11-29",
   "upstream_repo": "anomalyco/opencode",
   "upstream_reference_base": "f6e0c2d0833ffe772035f221fed923e1cd5fb408",
-  "upstream_head": "59af60fbf44b6144e1c2e1051e7f8fd576c8d8d9",
+  "upstream_head": "22ab0613120d3078af7eac93359bffbf342b8afd",
   "upstream_pre_window_base": "3751be8138ebcf33343eb3f3d011b32fc814103c",
   "rune_desktop_repo": "anomalyco/opencode-rune",
-  "rune_desktop_head": "3ee3787d8e",
-  "post_1114_commit_count": 837,
-  "post_1114_in_ledger": 328,
-  "post_1114_skipped": 509,
+  "rune_desktop_head": "32277d402c",
+  "post_1114_commit_count": 864,
+  "post_1114_in_ledger": 333,
+  "post_1114_skipped": 531,
   "post_1114_skipped_breakdown": {
-    "test-only": 37,
+    "test-only": 38,
     "ci-bench-deps": 32,
-    "docs-site-data": 84,
+    "docs-site-data": 95,
     "tui-only": 36,
-    "cli-acp-only": 17,
-    "server-core-ai-codemode-internal": 303
+    "cli-acp-only": 19,
+    "server-core-ai-codemode-internal": 311
   },
   "pre_1114_carryover_rows": 15,
-  "total_ledger_rows": 349,
+  "total_ledger_rows": 354,
   "status_counts": {
-    "have it": 264,
-    "not applicable": 83,
+    "have it": 266,
+    "not applicable": 86,
     "differs on purpose": 1,
     "partly": 1,
     "missing": 0
@@ -2179,7 +2179,7 @@
       "summary": "Fix Home date headers disappearing while scrolling when SolidJS `<Index>` reuses header DOM nodes.",
       "size": "S",
       "status": "have it",
-      "status_evidence": "Merged in #1491 (dev 3ee3787d8e, head c42e14cf3b, CI run 46096068784 green across guardrails + macOS/Win x64/Win arm64/Linux x64; Linux arm64 skipped): apps/desktop/src/shell/view/home.rs passes .stuck_fade(16.0, 16.0) instead of .stuck_fade(list_top + 16.0, 16.0), matching packages/app/src/home/scroll.ts (HOME_SESSION_HEADER_TEXT_HEIGHT=16, HOME_SESSION_HEADER_FADE_DISTANCE=16, opencode#64665) so single-session Home date headers stay visible at scroll 0.",
+      "status_evidence": "Merged in #1491 (dev 3ee3787d8e, head c42e14cf3b, CI run 46096068784 green across guardrails + macOS/Win x64/Win arm64/Linux x64; Linux arm64 skipped): apps/desktop/src/shell/view/home.rs passes .stuck_fade(16.0, 16.0) instead of .stuck_fade(list_top + 16.0, 16.0), matching packages/app/src/home/scroll.ts (HOME_SESSION_HEADER_TEXT_HEIGHT=16, HOME_SESSION_HEADER_FADE_DISTANCE=16, opencode#64665) so single-session Home date headers stay visible at scroll 0. Verified headless on Windows x64 PR build (run 46096068784, 4/4 exit 0, peak <= 0.45 GiB): Wide and Medium single-session Today headers render at opacity: 1 (before: opacity: 0). Not run: real window, macOS, Linux.",
       "depends_on": "none",
       "risks": "none",
       "workstream": "none",
@@ -8770,6 +8770,124 @@
       "status": "not applicable",
       "status_evidence": "Not applicable to Rune desktop: server-side experimental spaces batch API and generated TS SDK only; no desktop UI consumer.",
       "depends_on": "none",
+      "risks": "none",
+      "workstream": "UPSTREAM"
+    },
+    {
+      "id": "UP-329",
+      "window": "post-1120",
+      "pr": 66926,
+      "sha": "f7ac3ac447",
+      "title": "fix(app): guard channel lookup in settings catalog",
+      "merged": "2026-11-27",
+      "packages": [
+        "app"
+      ],
+      "main_files": [
+        "packages/app/src/settings/search-catalog.ts"
+      ],
+      "summary": "Adds optional chaining on import.meta.env?.VITE_OPENCODE_CHANNEL in packages/app/src/settings/search-catalog.ts so non-Vite/test runtimes do not throw when import.meta.env is undefined.",
+      "size": "XS",
+      "status": "not applicable",
+      "status_evidence": "Not applicable to Rune desktop: 1-line Vite JS optional-chaining guard (import.meta.env?.VITE_OPENCODE_CHANNEL) in packages/app/src/settings/search-catalog.ts:157; Rune checks the build channel safely via features/settings/src/host.rs (DEFAULT_CONFIG.build_channel) and question_composer_available() without panicking. [verified-hunks]",
+      "depends_on": "UP-275",
+      "risks": "none",
+      "workstream": "UPSTREAM"
+    },
+    {
+      "id": "UP-330",
+      "window": "post-1120",
+      "pr": 66821,
+      "sha": "fdacacb2c5",
+      "title": "fix(session-ui): truncate tool group labels that name many tools",
+      "merged": "2026-11-28",
+      "packages": [
+        "session-ui"
+      ],
+      "main_files": [
+        "packages/session-ui/src/components/message-part.css"
+      ],
+      "summary": "Allows tool-group titles to shrink and truncate with ellipsis instead of overflowing when a group names many tools.",
+      "size": "XS",
+      "status": "have it",
+      "rune_files": [
+        "crates/session-view/src/turns/view.rs"
+      ],
+      "status_evidence": "Merged in #1582 (dev 720ad556cb, head 9bca115dc1, CI run 46161927138 green across guardrails + macOS/Win x64/Win arm64/Linux x64; Linux arm64 skipped): adds .w_full().min_w(0.0) on tool-group trigger and .shrink().min_w(0.0) on used_words title in crates/session-view/src/turns/view.rs. Verified headless on Windows x64 PR build (run 46161927138, peak <= 0.45 GiB): 10-tool group trigger stays bounded at [102,200,696,28] with chevron at [782,206,16,16] and clean fade truncation. Not run: real window, macOS, Linux.",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "UPSTREAM"
+    },
+    {
+      "id": "UP-331",
+      "window": "post-1120",
+      "pr": 66496,
+      "sha": "3456865d16",
+      "title": "fix(app): keep the inbox from opening tabs or taking tab shortcuts",
+      "merged": "2026-11-28",
+      "packages": [
+        "app"
+      ],
+      "main_files": [
+        "packages/app/src/shell/titlebar/inbox-model.ts",
+        "packages/app/src/shell/titlebar/route-machine.ts",
+        "packages/app/src/shell/titlebar/route-sync.ts",
+        "packages/app/src/shell/titlebar/titlebar.tsx"
+      ],
+      "summary": "Prevents the no-tabs session-list layout from opening session tabs when routing or sending, opens the active session's tab when leaving that layout, and disables tab close/reopen shortcuts in that layout.",
+      "size": "S",
+      "status": "have it",
+      "rune_files": [
+        "apps/desktop/src/session/meta/open.rs",
+        "apps/desktop/src/shell/nav/layout_state.rs",
+        "apps/desktop/src/shell/tabs/actions.rs",
+        "apps/desktop/src/shell/commands/mod.rs",
+        "apps/desktop/src/workspace/windows/close.rs"
+      ],
+      "status_evidence": "Merged in #1582 (dev 720ad556cb, head 9bca115dc1, CI run 46161927138 green across guardrails + macOS/Win x64/Win arm64/Linux x64; Linux arm64 skipped): skips pushing Tab::session while in TabLayout::Inbox (open_inbox_session, open_now, open_in_background, promote_draft), adds ensure_routed_session_tab() on leaving TabLayout::Inbox, routes to Home when archiving the last session without a tab, and disables Mod+W/Mod+Alt+W/Mod+Shift+T tab commands in TabLayout::Inbox. Verified headless on Windows x64 PR build (run 46161927138, peak <= 0.45 GiB): navigating untabbed sessions in TabLayout::Inbox creates 0 tabs (tabs=8 vs tabs=9 before), leaving TabLayout::Inbox opens the active session's root tab (tabs=9), and Ctrl+W stays a no-op in TabLayout::Inbox. Not run: real window, macOS, Linux.",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "UPSTREAM"
+    },
+    {
+      "id": "UP-332",
+      "window": "post-1120",
+      "pr": 66918,
+      "sha": "cc0677159e",
+      "title": "fix(session-ui): keep subagent cards apart in the current timeline",
+      "merged": "2026-11-28",
+      "packages": [
+        "session-ui"
+      ],
+      "main_files": [
+        "packages/session-ui/src/components/message-part.css"
+      ],
+      "summary": "Excludes legacy task-tool-card triggers from the current-timeline (:not([data-timeline=\"next\"])) 28px/negative-margin CSS rule so consecutive subagent cards keep vertical spacing.",
+      "size": "XS",
+      "status": "not applicable",
+      "status_evidence": "Not applicable to Rune desktop: official CSS fix targets only the legacy current timeline ([data-timeline-row=\"AssistantPart\"]:not([data-timeline=\"next\"]) task-tool-card in packages/session-ui/src/components/message-part.css:2182); Rune renders only the New timeline (event_row::subagent in crates/session-view/src/turns/view.rs:623) with explicit M=20pt rhythm spacing in crates/session-view/src/timeline/rhythm.rs:178. [verified-hunks]",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "UPSTREAM"
+    },
+    {
+      "id": "UP-333",
+      "window": "post-1120",
+      "pr": 67006,
+      "sha": "22ab061312",
+      "title": "fix(session-ui): fix current-timeline error card trigger height and tighten subagent tests",
+      "merged": "2026-11-28",
+      "packages": [
+        "session-ui"
+      ],
+      "main_files": [
+        "packages/session-ui/src/components/message-part.css"
+      ],
+      "summary": "Follow-up to #66918 inside the legacy current-timeline (:not([data-timeline=\"next\"])) CSS block wrapping :has(task-tool-card) in :where() and restoring 28px trigger height on legacy tool-error-card triggers.",
+      "size": "XS",
+      "status": "not applicable",
+      "status_evidence": "Not applicable to Rune desktop: official CSS change is strictly inside the legacy current-timeline block ([data-timeline-row=\"AssistantPart\"]:not([data-timeline=\"next\"]) in packages/session-ui/src/components/message-part.css:2182-2201); Rune renders only the New timeline in crates/session-view.",
+      "depends_on": "UP-332",
       "risks": "none",
       "workstream": "UPSTREAM"
     }

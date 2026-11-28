@@ -304,6 +304,8 @@
   "rune.session.offlineCopy": "Can't reach this server · showing what was loaded",
   "rune.session.reconnecting": "Reconnecting…",
   "rune.session.slowCopy": "This server is slow to answer · showing what was saved",
+  "rune.session.status.waitingSubagent": "Waiting for subagent",
+  "rune.session.status.waitingSubagents": "Waiting for subagents",
   "rune.session.untitled": "Untitled session",
   "rune.settings.developer.rewind.title": "Rewind",
   "rune.settings.developer.title": "Developer",

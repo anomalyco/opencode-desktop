@@ -112,12 +112,30 @@ pub(super) fn focus_in_dock(focused: Option<&str>) -> bool {
     }
 }
 
-/// Whether keyboard focus `focused` sits on a question option or nowhere specific (as opposed to a
-/// header/footer button like Dismiss, Back, Next/Submit, Minimize, or progress segments).
+/// Whether keyboard focus `focused` sits on a question option, the composer-mode options listbox,
+/// or nowhere specific (as opposed to a header/footer button like Dismiss, Back, Next/Submit,
+/// Minimize, or progress segments).
 pub(super) fn focus_in_options(focused: Option<&str>) -> bool {
     match focused {
         None | Some("q-custom" | "q-custom-mark" | "q-input") => true,
-        Some(k) => k.starts_with("q-opt-"),
+        Some(k) => k.starts_with("q-opt-") || k.starts_with("q-options-"),
+    }
+}
+
+/// The element key that takes keyboard focus when the question dock opens (`land()` in
+/// `session-question-dock-classic.tsx:299-305`): the custom answer field when there are no preset
+/// options (or a typed answer is active in composer mode), the options listbox in composer mode,
+/// or the first option in Classic mode.
+pub fn initial_focus<S: DockHost>(s: &S) -> String {
+    let Some(f) = asking(s) else { return "q-opt-0".to_owned() };
+    let (tab, _) = place(s, &f);
+    let n = rows(&f.fields[tab]).len();
+    if classic(s) {
+        if n > 0 { "q-opt-0".to_owned() } else { "q-input".to_owned() }
+    } else {
+        let k = f.key(tab);
+        let has_typed = s.dock().custom_on(&k) && s.dock().typed.get(&k).is_some_and(|t| !t.text.is_empty());
+        if n == 0 || has_typed { "q-input".to_owned() } else { format!("q-options-{tab}") }
     }
 }
 
@@ -321,6 +339,7 @@ fn select<S: DockHost>(s: &mut S, f: &Form, tab: usize, i: usize) {
     }
     let Some((value, ..)) = rows(&f.fields[tab]).into_iter().nth(i) else { return };
     let k = f.key(tab);
+    let clear_typed = !classic(s) && !f.multi(tab);
     let d = s.dock_mut();
     let picks = d.picks.entry(k.clone()).or_default();
     if f.multi(tab) {
@@ -333,6 +352,9 @@ fn select<S: DockHost>(s: &mut S, f: &Form, tab: usize, i: usize) {
     } else {
         *picks = vec![value];
         d.custom.remove(&k);
+        if clear_typed {
+            d.typed.remove(&k);
+        }
     }
     stop_typing(s, f, tab);
 }
@@ -377,6 +399,9 @@ fn jump<S: DockHost>(s: &mut S, f: &Form, tab: usize, tx: &mut Tx) {
     d.focus = focus;
     d.active_option = Some(focus);
     tx.motion_curve(knobs::morph(s.knobs()));
+    if !classic(s) {
+        composer::land(s, f, tab, tx);
+    }
 }
 
 /// Next question, or the reply on the last one.

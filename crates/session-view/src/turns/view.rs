@@ -72,11 +72,15 @@ pub fn group<S: TimelineHost>(
     let shutting = !open && crate::disclosure::is_shutting(s, key);
     let named = activity::activity_with_work(steps, &work, s.full_codemode(session));
     let words_text = named.as_ref().map_or_else(|| label(steps).text(), activity::Activity::text);
+    // Keep the trigger bounded by the timeline width so long multi-tool group labels truncate
+    // instead of overflowing (`packages/session-ui/src/components/message-part.css:1431-1434`, `opencode#66821`).
     let mut trigger = row()
         .key("trigger")
         .role("button")
         .label(words_text)
         .expanded(open)
+        .w_full()
+        .min_w(0.0)
         .h(28.0)
         .gap(4.0)
         .center_y()
@@ -247,7 +251,7 @@ fn used_words(p: &Pal, l: &Label) -> El {
         .children(words("used", &l.before))
         .children(l.count.map(|n| text(n.to_string()).key("count").font(UI.features("'tnum' 1")).color(p.text)))
         .children(words("between", &l.between))
-        .children((!l.title.is_empty()).then(|| text(l.title.clone()).key("title").font(UI).color(p.text).truncate_fade()))
+        .children((!l.title.is_empty()).then(|| text(l.title.clone()).key("title").font(UI).color(p.text).shrink().min_w(0.0).truncate_fade()))
         .children(words("after", &l.after))
 }
 

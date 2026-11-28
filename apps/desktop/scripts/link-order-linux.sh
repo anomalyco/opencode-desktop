@@ -3,9 +3,10 @@
 # so a launch whose exe is not in memory reads few pages of it. Cargo calls this as the linker for
 # the Linux targets (`.cargo/config.toml`); every link but the app's exe goes to cc untouched.
 #
-# It is link-order.sh's method (the macOS link) for lld: apps/desktop/pgo/startup-order.txt lists
-# those functions in the order a training launch ran them, with the crate hashes taken out of the
-# names (a hash changes with every Rune pin, the name without it does not). Here the list is
+# It is link-order.sh's method (the macOS link) for lld: apps/desktop/pgo/startup-order-linux.txt
+# (falling back to startup-order.txt) lists those functions in the order Linux training launches
+# ran them, with crate hashes taken out of the names (a hash changes with every Rune pin, the name
+# without it does not). Here the list is
 # matched against the names in the objects being linked, and the linker gets the real names
 # (--symbol-ordering-file). A function the list names and this build lacks is skipped.
 #
@@ -43,7 +44,14 @@ note() {
   echo "link order: $1" >> "$out.link-order.txt" 2>/dev/null || true
 }
 rm -f "$out.link-order.txt"
-list=${OPENCODE_RUNE_ORDER_LIST:-$(cd "$(dirname "$0")" && pwd)/../pgo/startup-order.txt}
+pgo_dir=$(CDPATH= cd -- "$(dirname "$0")" >/dev/null && pwd)/../pgo
+if [ -n "${OPENCODE_RUNE_ORDER_LIST:-}" ]; then
+  list=$OPENCODE_RUNE_ORDER_LIST
+elif [ -s "$pgo_dir/startup-order-linux.txt" ]; then
+  list=$pgo_dir/startup-order-linux.txt
+else
+  list=$pgo_dir/startup-order.txt
+fi
 
 args=()
 for arg in "$@"; do

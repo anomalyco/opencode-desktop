@@ -63,6 +63,7 @@ impl PermissionHost for App {
     fn on_permission_replied(&mut self, id: &str) {
         self.pending.retain(|p| p.id() != id);
         self.requests.retain(|(_, r)| r != id);
+        self.request_reads.forget_sse(id);
         crate::notifications::answered(self, id);
     }
 

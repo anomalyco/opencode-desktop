@@ -1,0 +1,7 @@
+{
+  "mcp.signIn.paste.label": "URL de redirección",
+  "mcp.signIn.paste.placeholder": "http://127.0.0.1:…/callback?code=…",
+  "mcp.signIn.paste.required": "Pega la URL de la barra de direcciones del navegador",
+  "readOnly": "Esta ventana es de solo lectura. Vuelve a abrir sin --read-only para actuar.",
+  "tryAgain": "Vuelve a intentarlo"
+}

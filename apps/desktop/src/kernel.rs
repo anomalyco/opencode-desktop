@@ -256,6 +256,7 @@ pub fn build() -> Kernel<App> {
     ));
     crate::commands::register_shell_commands(&mut b);
     b.register_slot(&crate::app::VIEW_RUNS)
+        .register_slot(&crate::app::DISPLAY_HZ)
         .register_slot(&crate::app::OUTPUT_ERRORS)
         .register_slot(&crate::app::CODE_WRAP)
         .register_slot(&crate::app::MATH)

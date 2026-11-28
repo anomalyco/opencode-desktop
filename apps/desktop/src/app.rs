@@ -48,6 +48,13 @@ pub(crate) struct ViewRuns(pub(crate) std::cell::Cell<u64>);
 
 pub(crate) static VIEW_RUNS: opencode_kernel::Slot<ViewRuns> = opencode_kernel::Slot::new();
 
+/// Last reported display refresh rate in Hz (`FrameEncoded::refresh_hz`), read by
+/// `TimelineHost::display_hz` to pace streaming text bursts with the display cadence.
+#[derive(Default)]
+pub(crate) struct DisplayHz(pub(crate) std::cell::Cell<Option<f64>>);
+
+pub(crate) static DISPLAY_HZ: opencode_kernel::Slot<DisplayHz> = opencode_kernel::Slot::new();
+
 /// Per-code-block soft-wrap overrides keyed by `"{row_key}:{block_index}"` (the timeline's Wrap button).
 pub(crate) static CODE_WRAP: opencode_kernel::Slot<std::collections::HashMap<String, bool>> = opencode_kernel::Slot::new();
 /// This window's display math: its wake when an equation finishes, and its say in when cached
@@ -621,6 +628,15 @@ impl App {
 
     pub(crate) fn route_busy(&self) -> bool {
         matches!(&*self.route, Route::Session { id, .. } if self.busy(id))
+    }
+
+    /// Records the window's latest reported display refresh rate (`FrameEncoded::refresh_hz`)
+    /// without invalidating tracked view regions.
+    #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
+    pub(crate) fn set_display_hz(&self, hz: f64) {
+        if hz.is_finite() && hz > 0.0 {
+            self.kernel.slots.untracked(&DISPLAY_HZ).0.set(Some(hz));
+        }
     }
 
     /// `+`, ⌘T and New session: a new "New session" draft tab, as Desktop's `openDraft`, where

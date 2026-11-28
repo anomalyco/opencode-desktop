@@ -1,8 +1,8 @@
-commit df94150d642b6a20aafe7c048fcdd89688d8f55a
-rune dacf5d89ba56939c5ff2565c7e6a2983f7f7e276
+commit 818eaba377a29effd86e6b457a5b146e3b31d3f5
+rune 911058d72b96ae49664bee8b5afd9222012acd4e
 rustc rustc 1.99.1 (58cf8f9c3 2026-10-13)
 processes 19
 parts 5 with a window (the first launch, two later launches, two with scrolling and typing; against a server), 14 headless (Home, session typing and scrolling, demo, queue, Settings, tab badges; English and German)
 instrumented build by PR CI: #1007 (that commit + the training script)
-Total functions: 13927
-re-keyed: 13927 of 14516 functions kept, 515 dropped (their code changed), 74 gone
+Total functions: 13784
+re-keyed: 13784 of 13793 functions kept, 1 dropped (their code changed), 8 gone

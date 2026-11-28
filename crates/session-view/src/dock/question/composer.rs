@@ -197,14 +197,20 @@ pub fn face<S: DockHost>(s: &S, p: &Pal) -> Option<Vec<El>> {
 
     // Bottom composer card (`question-answer-composer.css:139-171`): raised shadow, no border,
     // 12 pt radius, `bg-layer-01` in dark / `bg-base` in light, 8 pt below the preset card.
+    // Keep `TextEdit::focused` (and any active IME preedit) even while `!on`: Rune drops focus
+    // on commit whenever a text input renders with `edit.focused == false` (`focus.rs:565`).
     let on = s.dock().custom_on(&k);
-    let shown_edit = if on {
-        s.dock().typed.get(&k).cloned().unwrap_or_else(|| TextEdit::new(""))
-    } else {
-        TextEdit::new("")
+    let shown_edit = match s.dock().typed.get(&k) {
+        Some(t) if on || t.text.is_empty() => t.clone(),
+        Some(t) => {
+            let mut blank = TextEdit::new("");
+            blank.focused = t.focused;
+            blank
+        }
+        None => TextEdit::new(""),
     };
     let (form_id, field_key) = (f.id.clone(), field.key.clone());
-    let input = crate::style::field(&shown_edit, COMPOSER_INPUT)
+    let mut input = crate::style::field(&shown_edit, COMPOSER_INPUT)
         .key("q-input")
         .spellcheck(s.composer_spellcheck())
         .label(answer_label())
@@ -213,26 +219,43 @@ pub fn face<S: DockHost>(s: &S, p: &Pal) -> Option<Vec<El>> {
         .color(p.text)
         .placeholder(answer_label(), p.faint)
         .caret(p.text, p.selection)
-        .selection_style(p.field_selection)
-        .on_edit(move |s: &mut S| s.dock_mut().typed_mut(&form_id, &field_key))
-        .on_focus_change(|s: &mut S, focused: bool, _tx: &mut Tx| {
-            if focused && let Some(f) = asking(s) {
-                let d = dock(s, &f);
+        .selection_style(p.field_selection);
+    if live {
+        input = input
+            .on_edit(move |s: &mut S| {
+                let k = format!("{form_id}/{field_key}");
+                let d = s.dock_mut();
+                if !d.custom_on(&k) && d.typed.get(&k).is_some_and(|t| !t.text.is_empty()) {
+                    let focused = d.typed.get(&k).is_some_and(|t| t.focused);
+                    let e = d.typed_mut(&form_id, &field_key);
+                    *e = TextEdit::new("");
+                    e.focused = focused;
+                }
+                d.typed_mut(&form_id, &field_key)
+            })
+            .on_focus_change(|s: &mut S, focused: bool, _tx: &mut Tx| {
+                if focused {
+                    s.composer_edit_mut().focused = false;
+                    if let Some(f) = asking(s) {
+                        dock(s, &f).active_option = None;
+                    }
+                }
+            })
+            .on_input_change(|s: &mut S, _| {
+                let Some(f) = asking(s) else { return };
+                let (tab, _) = place(s, &f);
+                let k = f.key(tab);
+                let d = s.dock_mut();
+                d.custom.insert(k.clone());
                 d.active_option = None;
-            }
-        })
-        .on_input_change(|s: &mut S, _| {
-            let Some(f) = asking(s) else { return };
-            let (tab, _) = place(s, &f);
-            let k = f.key(tab);
-            let d = s.dock_mut();
-            d.custom.insert(k.clone());
-            d.active_option = None;
-            if !f.multi(tab) {
-                d.picks.remove(&k);
-            }
-        })
-        .on_input_key(|s: &mut S, ev, tx| typed_key(s, ev, tx));
+                if !f.multi(tab) {
+                    d.picks.remove(&k);
+                }
+            })
+            .on_input_key(|s: &mut S, ev, tx| typed_key(s, ev, tx));
+    } else {
+        input = input.disabled(true).focusable(false);
+    }
     let input = crate::scroller::scroller(format!("q-input-scroll-{tab}"))
         .build::<S>(p, col().grow(1.0).min_w(0.0).max_h(FIELD_MAX_H), input);
     let input_wrap = row().key("q-field").grow(1.0).shrink().min_w(0.0).min_h(28.0).pl(8.0).py(4.0).child(input);
@@ -242,7 +265,7 @@ pub fn face<S: DockHost>(s: &S, p: &Pal) -> Option<Vec<El>> {
     let advance_label = if last { opencode_i18n::t!("ui.promptInput.send") } else { opencode_i18n::t!("ui.common.next") };
     let advance_btn = composer_advance_button::<S>(p, last, advance_label, &submit, live);
 
-    let footer = row()
+    let mut footer = row()
         .key("question-footer")
         .w_full()
         .mt(8.0)
@@ -255,6 +278,31 @@ pub fn face<S: DockHost>(s: &S, p: &Pal) -> Option<Vec<El>> {
         .transition(fade())
         .child(input_wrap)
         .child(row().key("q-actions").child(advance_btn));
+    if live {
+        // Clicking empty space on the composer card (padding, gutter) focuses `q-input` at the
+        // end, matching the main session composer (`composer/mod.rs:367-379`).
+        footer = footer
+            .preserve_focus_on_press(true)
+            .press_on_down()
+            .on_press_tx(|s: &mut S, tx: &mut Tx| {
+                let Some(f) = asking(s) else { return };
+                let (tab, _) = place(s, &f);
+                let k = f.key(tab);
+                dock(s, &f).active_option = None;
+                s.composer_edit_mut().focused = false;
+                let d = s.dock_mut();
+                if !d.custom_on(&k) && d.typed.get(&k).is_some_and(|t| !t.text.is_empty()) {
+                    d.typed.remove(&k);
+                }
+                let e = d.typed_mut(&f.id, &f.fields[tab].key);
+                if !e.focused {
+                    let end = e.text.len();
+                    e.set_selection(end, end);
+                    e.focused = true;
+                }
+                tx.focus("q-input", false);
+            });
+    }
 
     Some(vec![body, footer])
 }
@@ -377,7 +425,7 @@ pub fn key<S: DockHost>(s: &mut S, ev: &KeyEvent, tx: &mut Tx) -> bool {
     if back(ev) {
         dock(s, &f).keyboard = true;
         if tab > 0 {
-            jump_composer(s, &f, tab - 1, tx);
+            jump(s, &f, tab - 1, tx);
         }
         return true;
     }
@@ -405,10 +453,11 @@ pub fn key<S: DockHost>(s: &mut S, ev: &KeyEvent, tx: &mut Tx) -> bool {
                     reveal_option(tab, 0, tx);
                 }
                 Some(i) if i + 1 >= n => {
-                    // Down from the last answer moves into the composer field (`session-question-dock-classic.tsx:361-364`).
+                    // Down from the last answer moves into the composer field (`session-question-dock-classic.tsx:422-427`).
                     let d = dock(s, &f);
                     (d.active_option, d.keyboard) = (None, true);
                     enter_field(s, &f, tab);
+                    tx.focus("q-input", false);
                 }
                 Some(i) => {
                     let d = dock(s, &f);
@@ -480,19 +529,23 @@ fn enter_answer<S: DockHost>(s: &mut S, f: &Form, tab: usize, tx: &mut Tx) {
     next(s, f, tx);
 }
 
-fn jump_composer<S: DockHost>(s: &mut S, f: &Form, tab: usize, tx: &mut Tx) {
-    jump(s, f, tab, tx);
+/// Where a question lands after switching tabs in composer mode (`land()`,
+/// `session-question-dock-classic.tsx:299-305,631`): in the composer field when there are no
+/// preset options or a typed answer is already active, else on the options listbox.
+pub(super) fn land<S: DockHost>(s: &mut S, f: &Form, tab: usize, tx: &mut Tx) {
     let n = rows(&f.fields[tab]).len();
     let k = f.key(tab);
     let has_typed = s.dock().custom_on(&k) && s.dock().typed.get(&k).is_some_and(|t| !t.text.is_empty());
     if n == 0 || has_typed {
         dock(s, f).active_option = None;
         enter_field(s, f, tab);
+        tx.focus("q-input", false);
     } else {
         let rest = resting_option(s, f, tab).min(n - 1);
         let d = dock(s, f);
         d.focus = rest;
         d.active_option = Some(rest);
+        reveal_option(tab, rest, tx);
     }
 }
 
@@ -513,7 +566,7 @@ fn typed_key<S: DockHost>(s: &mut S, ev: &KeyEvent, tx: &mut Tx) -> bool {
     if back(ev) {
         dock(s, &f).keyboard = true;
         if tab > 0 {
-            jump_composer(s, &f, tab - 1, tx);
+            jump(s, &f, tab - 1, tx);
         }
         return true;
     }

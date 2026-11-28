@@ -454,7 +454,10 @@ pub fn run_native() {
             files::trace::frame(f);
         })
         .on_frame_drawn(move |rt| {
-            if let Some(hz) = display_hz.get() { rt.state.workspace_panes.browser.host.set_display_hz(hz); }
+            if let Some(hz) = display_hz.get() {
+                rt.state.set_display_hz(hz);
+                rt.state.workspace_panes.browser.host.set_display_hz(hz);
+            }
             drawn.drawn(rt);
             if let Some(frame) = telemetry::last_frame() { telemetry::drawn(rt.state.painted_session(), frame); }
             motion_log.frame(rt);

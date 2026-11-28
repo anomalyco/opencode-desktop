@@ -283,12 +283,13 @@ impl App {
         found.unwrap_or_else(|| (here.clone(), key.to_owned()))
     }
 
-    /// An inbox row opens its session, as a tab (`inbox.open`), on its server.
+    /// An inbox row opens its session on its server; outside the Inbox layout it also adds a tab
+    /// (`packages/app/src/shell/titlebar/inbox-model.ts:407-409`, `opencode#66496`).
     pub fn open_inbox_session(&mut self, key: &str, tx: &mut Tx) {
         let (server, id) = self.inbox_target(key);
         let (title, dir) = self.sidebar_inbox.servers.iter().find(|(k, _)| *k == server).and_then(|(_, rows)| rows.iter().find(|r| r.session.id == id)).map(|r| (r.session.title.clone(), r.session.directory.clone())).unwrap_or_default();
         crate::servers::runtime::switch(self, &server);
-        if !self.tabs.iter().any(|t| t.is(&server, &id) && !t.is_draft()) {
+        if self.tab_layout() != crate::layout_state::TabLayout::Inbox && !self.tabs.iter().any(|t| t.is(&server, &id) && !t.is_draft()) {
             let (title, dir) = self.session(&id).or_else(|| self.inbox_archived().iter().find(|a| a.id == id)).map_or((title, dir), |s| (s.title.clone(), s.directory.clone()));
             self.tabs.push(crate::tabs::Tab::session(id.clone(), title, dir).on(server));
             self.save_tabs();
@@ -325,6 +326,7 @@ impl App {
         let successor = archive_current
             .then(|| self.pick_inbox_successor(&here, &[id.to_owned()]))
             .flatten();
+        let has_successor = successor.is_some();
         if let Some(next) = successor {
             // Open the successor before closing the archived tab (`opencode#66558`).
             self.open_inbox_session(&next, tx);
@@ -332,6 +334,9 @@ impl App {
         if let Some(uid) = &tab {
             self.close_tab(uid, tx);
         } else {
+            if archive_current && !has_successor {
+                self.go_home(tx);
+            }
             let routed_family = matches!(&*self.route, Route::Session { id: rid, .. }
                 if rid == id
                     || self.ancestors(rid).any(|a| a == id)

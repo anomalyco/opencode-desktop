@@ -55,6 +55,10 @@ enum SessionRead {
 enum ReadEvent {
     /// Request a session's pending permissions and forms immediately.
     ReadNow(String),
+    /// Re-fetch a session's pending permissions and forms even when already read on this
+    /// connection (e.g. after execution ends, since server interrupt drops pending permissions
+    /// without emitting `permission.replied`).
+    Reread(String),
     /// Reconcile inactive busy tabs and advance scheduled/retry timers at `now`.
     SyncTabs { tabs: Vec<(usize, String)>, now: f64 },
     /// A `Request::Pending` reply arrived for `session` at `epoch`.
@@ -129,6 +133,15 @@ impl RequestReads {
                     Some(SessionRead::Read | SessionRead::InFlight { .. }) => return Vec::new(),
                     Some(SessionRead::Retry { attempts, .. }) => *attempts,
                     Some(SessionRead::Scheduled { .. }) | None => 0,
+                };
+                let epoch = self.next_epoch();
+                self.sessions.insert(id.clone(), SessionRead::InFlight { epoch, attempts });
+                vec![ReadEffect::Fetch { session: id, epoch }]
+            }
+            ReadEvent::Reread(id) => {
+                let attempts = match self.sessions.get(&id) {
+                    Some(SessionRead::Retry { attempts, .. }) => *attempts,
+                    _ => 0,
                 };
                 let epoch = self.next_epoch();
                 self.sessions.insert(id.clone(), SessionRead::InFlight { epoch, attempts });
@@ -326,6 +339,16 @@ impl App {
             return;
         }
         let effects = self.request_reads.step(ReadEvent::ReadNow(id.to_owned()));
+        apply_effects(self, effects, None);
+    }
+
+    /// Re-reads `id`'s open permissions and forms from the server even if already read on this
+    /// connection, pruning stale requests that the server dropped without a settled SSE event.
+    pub(crate) fn reread_requests(&mut self, id: &str) {
+        if !matches!(&*self.source, Source::Live { requests: Some(_), .. }) {
+            return;
+        }
+        let effects = self.request_reads.step(ReadEvent::Reread(id.to_owned()));
         apply_effects(self, effects, None);
     }
 

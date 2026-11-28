@@ -7,7 +7,7 @@ use std::time::Duration;
 
 use opencode_kit::client::Write;
 use opencode_kit::model::Pending;
-use opencode_kit::wire_error::WireError;
+use opencode_kit::wire_error::{WireError, WireKind};
 use rune::machine::{Attempt, Effects};
 use serde_json::{Value, json};
 
@@ -189,7 +189,9 @@ pub fn reply_timed_out(host: &mut dyn PermissionHost, kind: ReplyTimeoutKind, id
 }
 
 /// The worker's answer to request `id`'s reply: taken, or refused with `error`. A
-/// permission the server no longer has counts as answered (`isPermissionNotFoundError`).
+/// permission the server no longer has counts as answered (`isPermissionNotFoundError` in
+/// `packages/app/src/session/requests/model.ts:273`, detected on the typed `WireError` in
+/// [`failed`]).
 pub fn reply_answered(host: &mut dyn PermissionHost, id: &str, result: Result<(), &str>) {
     if !host.permission_sent().contains(id) {
         return;
@@ -209,8 +211,8 @@ pub fn reply_answered(host: &mut dyn PermissionHost, id: &str, result: Result<()
     match pending_step {
         Some((ReplyTimeoutKind::Permission, attempt)) => {
             let event = match result {
-                Err(error) if !error.contains("404") => reply::Event::Failed { attempt, error },
-                _ => reply::Event::Succeeded { attempt },
+                Ok(()) => reply::Event::Succeeded { attempt },
+                Err(error) => reply::Event::Failed { attempt, error },
             };
             permission_step(host, id, event);
         }
@@ -225,9 +227,29 @@ pub fn reply_answered(host: &mut dyn PermissionHost, id: &str, result: Result<()
     }
 }
 
+/// Whether `e` means the server no longer holds this permission request
+/// (`isPermissionNotFoundError`, `packages/app/src/session/requests/model.ts:273`,
+/// `packages/client/src/solid/data.ts:569`). Checked on the typed `WireError` rather than the
+/// formatted toast text, which omits the HTTP status code when the server includes a message.
+fn is_permission_not_found(e: &WireError) -> bool {
+    e.status() == Some(404)
+        || matches!(&e.kind, WireKind::Status { tag: Some(tag), .. } if tag == "PermissionNotFoundError")
+}
+
+/// Whether `e` means the server already removed or settled this form
+/// (`isFormNotFoundError` / `isFormAlreadySettledError`, `packages/client/src/solid/data.ts:492`).
+fn is_form_already_gone(e: &WireError) -> bool {
+    e.status() == Some(404)
+        || matches!(
+            &e.kind,
+            WireKind::Status { tag: Some(tag), .. }
+                if matches!(tag.as_str(), "FormNotFoundError" | "FormAlreadySettledError")
+        )
+}
+
 /// Extracts the permission/form request id from a failed reply or cancel wire error path.
 pub fn failed_request_id(e: &WireError) -> Option<&str> {
-    let path = e.path.as_str();
+    let path = e.path.split('?').next().unwrap_or(e.path.as_str());
     match e.method {
         "POST" => path
             .strip_prefix("/api/session/")
@@ -242,9 +264,25 @@ pub fn failed_request_id(e: &WireError) -> Option<&str> {
 /// A failed write from the server's worker: a dock's reply the server refused. False when it
 /// isn't one.
 pub fn failed(host: &mut dyn PermissionHost, e: &WireError) -> bool {
-    let Some(id) = failed_request_id(e).filter(|id| host.permission_sent().contains(id)).map(str::to_owned) else {
+    let Some(id) = failed_request_id(e).map(str::to_owned) else {
         return false;
     };
+    let path = e.path.split('?').next().unwrap_or(e.path.as_str());
+    let is_permission = path.contains("/permission/");
+    if (is_permission && is_permission_not_found(e)) || (!is_permission && is_form_already_gone(e)) {
+        if host.permission_sent().contains(&id) {
+            reply_answered(host, &id, Ok(()));
+            if !is_permission {
+                host.forget_request(&id);
+            }
+        } else {
+            host.forget_request(&id);
+        }
+        return true;
+    }
+    if !host.permission_sent().contains(&id) {
+        return false;
+    }
     let why = host.format_wire_error(e);
     reply_answered(host, &id, Err(&why));
     true
