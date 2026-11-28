@@ -119,6 +119,6 @@ pages and few others. Without it the same functions lie spread over the whole of
   3. `apps/desktop/scripts/startup-order.sh <dir>/launch-*.profraw`, with the `llvm-profdata` of the
      toolchain that built the exe (`rustup component add llvm-tools`; Xcode's cannot read the file).
      Commit `startup-order.txt` from a branch of `dev` and close the draft.
-- **Make `startup-order-linux.txt` again** on Linux x86_64: build with `RUSTFLAGS="-Cprofile-generate=/tmp/pgo-linux -Cllvm-args=-pgo-temporal-instrumentation"` (`OPENCODE_RUNE_LINK_ORDER=0`), run launches across Wayland/X11 and Vulkan/CPU with `LLVM_PROFILE_FILE=<dir>/launch-%p.profraw` and `--launch-trace-quit 2000`, then run `OPENCODE_RUNE_ORDER_OUT=apps/desktop/pgo/startup-order-linux.txt apps/desktop/scripts/startup-order.sh <dir>/*.profraw`.
+- **Make `startup-order-linux.txt` again** on Linux x86_64: build with `RUSTFLAGS="-Cprofile-generate -Cllvm-args=-pgo-temporal-instrumentation"` (`OPENCODE_RUNE_LINK_ORDER=0`), run launches across Wayland/X11 and Vulkan/CPU with `LLVM_PROFILE_FILE=<dir>/launch-%p.profraw` and `--launch-trace-quit 2000`, then run `OPENCODE_RUNE_ORDER_OUT=apps/desktop/pgo/startup-order-linux.txt apps/desktop/scripts/startup-order.sh <dir>/*.profraw`.
 - `OPENCODE_RUNE_LINK_ORDER=0` links without it. A failure to make the order never fails a link.
 - The same raw profiles, merged with `--sparse`, are a fresh `aarch64-apple-darwin.profdata`.
