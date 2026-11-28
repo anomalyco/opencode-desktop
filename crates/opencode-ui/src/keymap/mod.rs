@@ -272,7 +272,9 @@ fn table() -> Vec<Binding> {
         // The terminal's own keys (`terminal-key-event.ts`, `terminal.tsx`): ⌘ chords on macOS;
         // elsewhere Ctrl belongs to the shell, so copy and paste add Shift.
         hidden(TerminalCopy, "terminal.copy", key!("ui.message.copy"), Terminal, on("super+c, ctrl+shift+c")),
-        hidden(TerminalPaste, "terminal.paste", key!("desktop.menu.paste"), Terminal, on("super+v").on(Windows, "ctrl+shift+v, super+v").on(Linux, "ctrl+shift+v, super+v")),
+        // Paste is listed in Settings › Shortcuts so it can be rebound (plain Ctrl+V on
+        // Linux, #1561); copy and select-all stay hidden — the terminal keeps them.
+        scoped(TerminalPaste, "terminal.paste", key!("desktop.menu.paste"), Terminal, on("super+v").on(Windows, "ctrl+shift+v, super+v").on(Linux, "ctrl+shift+v, super+v")),
         hidden(TerminalSelectAll, "terminal.selectAll", key!("desktop.menu.selectAll"), Terminal, on("super+a")),
         hidden(TerminalKillLine, "terminal.killLine", key!("rune.command.terminal.killLine"), Terminal, on("super+backspace")),
         hidden(Knobs, "dev.knobs", key!("rune.command.dev.knobs"), General, on("mod+shift+k")),
